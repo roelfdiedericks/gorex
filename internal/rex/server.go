@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sync"
 	"time"
@@ -74,6 +75,7 @@ func Serve() error {
 	s.exe, s.exeTime = Executable()
 	go func() {
 		s.host = hostInfo()
+		s.host.GOOS = runtime.GOOS
 		close(s.hostDone)
 	}()
 	go s.watchIdle()

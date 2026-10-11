@@ -2,9 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"os"
-	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -16,6 +16,7 @@ import (
 	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
 
+	"gorex/internal/remote"
 	"gorex/internal/rex"
 )
 
@@ -72,12 +73,54 @@ type Pane struct {
 	startDir string
 }
 
+// hostHome and hostGOOS describe the machine the window's server runs on.
+var hostHome, _ = os.UserHomeDir()
+var hostGOOS = runtime.GOOS
+
+// setHost takes the machine the window's server runs on from its hello.
+// A remote server too old to tell its OS runs on Linux.
+func setHost(h rex.Hello, remote bool) {
+	hostGOOS = h.Host.GOOS
+	if hostGOOS == "" {
+		hostGOOS = runtime.GOOS
+		if remote {
+			hostGOOS = "linux"
+		}
+	}
+	hostHome = h.Host.Home
+	if hostHome == "" && !remote {
+		hostHome, _ = os.UserHomeDir()
+	}
+}
+
 // App is the state of GoRex's window.
 type App struct {
 	win    *mygo.Window
 	client *rex.Client
 	hello  rex.Hello
 	err    string
+
+	// bind is the server the window shows the sessions of, and link the
+	// ssh that reaches it when it is remote. status tells how connecting
+	// to it goes, "" once connected; gen counts the attempts, the latest
+	// one the only one to go on.
+	bind     binding
+	link     *remote.Link
+	status   string
+	connDown bool // gave up connecting: status tells why
+	gen      atomic.Int64
+	stateKey string
+	// connLog is what connecting printed, for the Connection Log.
+	connLogMu sync.Mutex
+	connLog   []string
+	logOpen   bool
+	logAuto   bool // the log opened by itself, for connecting: it closes by itself
+	// logScroll is how far the log is scrolled, and logShown how many
+	// lines it showed last, to follow new ones while at the end.
+	logScroll ui.ScrollState
+	logShown  int
+	// remotes are the known remote servers, for the palette.
+	remotes []savedRemote
 
 	tabs   []*Tab
 	active int
@@ -92,6 +135,10 @@ type App struct {
 	paletteQuery string
 	paletteSel   int
 	hostOpen     bool
+	// hostQuery is the ssh destination typed in the host's popover, and
+	// hostErr why connecting to it failed.
+	hostQuery    string
+	hostErr      string
 	renaming     *Tab
 	renameText   string
 	renameFocus  bool
@@ -171,12 +218,25 @@ func (t *Tab) setFocus(p *Pane) {
 	t.recent = append(t.recent, p)
 }
 
-// newPane makes a pane with a new session in dir.
+// newPane makes a pane with a new session in dir; one with no session, and
+// a message, when the server can't start it.
 func (a *App) newPane(dir string, cols, rows int) *Pane {
 	if cols <= 0 {
 		cols, rows = 80, 24
 	}
-	info, err := a.client.Create(rex.CreateOptions{Dir: dir, Cols: cols, Rows: rows})
+	client := a.client
+	var info rex.SessionInfo
+	err := errors.New("not connected to the server")
+	if client != nil {
+		info, err = client.Create(rex.CreateOptions{Dir: dir, Cols: cols, Rows: rows})
+	}
+	if err != nil && dir != hostHome && client != nil && !closed(client.Closed()) {
+		// The server answered, so the directory may be gone: the home
+		// directory then.
+		log.Printf("creating a session in %s: %v", dir, err)
+		dir = hostHome
+		info, err = client.Create(rex.CreateOptions{Dir: dir, Cols: cols, Rows: rows})
+	}
 	if err != nil {
 		log.Printf("creating a session: %v", err)
 		a.err = err.Error()
@@ -190,6 +250,16 @@ func (a *App) newPane(dir string, cols, rows int) *Pane {
 	return p
 }
 
+// closed reports whether a channel is closed, without waiting.
+func closed(ch <-chan struct{}) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
+}
+
 // attach makes the pane's terminal, attached to its session.
 func (a *App) attach(p *Pane, cols, rows int) {
 	if p.SID == "" {
@@ -200,7 +270,8 @@ func (a *App) attach(p *Pane, cols, rows int) {
 		}
 		return
 	}
-	p.stream = a.client.Stream(p.SID, cols, rows)
+	client := a.client
+	p.stream = client.Stream(p.SID, cols, rows)
 	p.stream.OnData = func(int) { p.lastData.Store(time.Now().UnixNano()) }
 	// The terminal's callbacks change the state on the main thread, in
 	// the window that made the pane, as long as it is open.
@@ -231,11 +302,18 @@ func (a *App) attach(p *Pane, cols, rows int) {
 			mygo.NewNotification(mygo.NotificationOptions{Title: title, Body: body}).Show()
 		},
 		OnExit: func(int) {
-			update(func() {
-				if !p.closed && !a.quitting {
-					a.closePane(p)
+			// The stream also ends when the connection to the server
+			// is lost: then the pane stays, for when it comes back.
+			go func() {
+				if !serverAnswers(client) {
+					return
 				}
-			})
+				update(func() {
+					if !p.closed && !a.quitting {
+						a.closePane(p)
+					}
+				})
+			}()
 		},
 	})
 	if err != nil {
@@ -247,6 +325,14 @@ func (a *App) attach(p *Pane, cols, rows int) {
 	// attaching changes nothing in the session.
 	term.Resize(cols, rows)
 	p.term = term
+}
+
+// serverAnswers reports whether the server still answers: a session's
+// stream that ends while it does ended with its session, not with the
+// connection.
+func serverAnswers(client *rex.Client) bool {
+	_, err := client.Hello()
+	return err == nil
 }
 
 // nopConn is the Conn of a terminal that only shows what the app feeds it.
@@ -262,8 +348,12 @@ func (a *App) ring(p *Pane) {
 	}
 }
 
-// newTab opens a tab with a shell in dir, after the active tab.
+// newTab opens a tab with a shell in dir, after the active tab; none while
+// the window connects to its server.
 func (a *App) newTab(dir string) *Tab {
+	if a.client == nil {
+		return nil
+	}
 	t := &Tab{ID: a.id()}
 	p := a.newPane(dir, 0, 0)
 	t.Root = &Node{ID: a.id(), Pane: p}
@@ -284,14 +374,13 @@ func (a *App) currentDir() string {
 			return d
 		}
 	}
-	home, _ := os.UserHomeDir()
-	return home
+	return hostHome
 }
 
 // split splits the focused pane, the new pane right of it or below it.
 func (a *App) split(vertical bool) {
 	t := a.tab()
-	if t == nil || t.Focus == nil {
+	if t == nil || t.Focus == nil || a.client == nil {
 		return
 	}
 	old := t.Focus
@@ -581,7 +670,7 @@ func titleOfShell(title string, in rex.SessionInfo) bool {
 			return true
 		}
 	}
-	if home, _ := os.UserHomeDir(); strings.Contains(title, "~") || (home != "" && strings.Contains(title, home)) {
+	if home := hostHome; strings.Contains(title, "~") || (home != "" && strings.Contains(title, home)) {
 		return true
 	}
 	return strings.Contains(title, "@") && strings.Contains(title, ":")
@@ -607,12 +696,15 @@ func shortDir(d string) string {
 	if d == "" {
 		return ""
 	}
-	sep := string(filepath.Separator)
-	if home, _ := os.UserHomeDir(); home != "" {
+	sep := "/"
+	if hostGOOS == "windows" {
+		sep = `\`
+	}
+	if home := hostHome; home != "" {
 		if samePath(d, home) {
 			return "~"
 		}
-		if len(d) > len(home) && samePath(d[:len(home)], home) && d[len(home)] == filepath.Separator {
+		if len(d) > len(home) && samePath(d[:len(home)], home) && d[len(home)] == sep[0] {
 			d = "~" + d[len(home):]
 		}
 	}
@@ -623,10 +715,10 @@ func shortDir(d string) string {
 	return d
 }
 
-// samePath reports whether two paths are the same, without case on
-// Windows.
+// samePath reports whether two paths are the same, without case on a
+// Windows server.
 func samePath(a, b string) bool {
-	if runtime.GOOS == "windows" {
+	if hostGOOS == "windows" {
 		return strings.EqualFold(a, b)
 	}
 	return a == b
@@ -741,11 +833,7 @@ func (a *App) restore() bool {
 				p = &Pane{ID: a.id(), SID: s.SID, info: in, startDir: s.Dir}
 				a.attach(p, in.Cols, in.Rows)
 			} else {
-				dir := s.Dir
-				if st, err := os.Stat(dir); err != nil || !st.IsDir() {
-					dir, _ = os.UserHomeDir()
-				}
-				p = a.newPane(dir, s.Cols, s.Rows)
+				p = a.newPane(s.Dir, s.Cols, s.Rows)
 				p.restored = true
 			}
 			p.Tab, p.Node = t, n
@@ -811,10 +899,14 @@ func (a *App) poll(win *mygo.Window, client *rex.Client) {
 	for {
 		select {
 		case <-client.Closed():
+			// The tabs stay until the window connects again, which shows
+			// them as the server has them then.
 			win.Update(func() {
-				if !a.quitting {
-					a.err = "Lost the connection to the session server."
+				if a.quitting || a.client != client {
+					return
 				}
+				a.logConn("lost the connection to " + a.bind.label())
+				a.startConnecting(win, a.bind, "Lost the connection to "+a.bind.label()+" — reconnecting…")
 			})
 			return
 		case <-tick.C:

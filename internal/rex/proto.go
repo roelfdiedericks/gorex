@@ -19,6 +19,10 @@ import (
 // ProtocolVersion changes whenever the wire protocol does.
 const ProtocolVersion = 1
 
+// BridgeReady starts the line a bridge prints before it multiplexes its
+// standard input and output; the rest of the line is its executable.
+const BridgeReady = "GOREX-BRIDGE "
+
 // Request is a line of the control connection, from the client.
 type Request struct {
 	ID     int64           `json:"id"`
@@ -98,6 +102,8 @@ type HostInfo struct {
 	// Portable tells a machine with a battery, as a laptop, where the
 	// model does not.
 	Portable bool `json:"portable,omitempty"`
+	// GOOS is the server's runtime.GOOS.
+	GOOS string `json:"goos,omitempty"`
 }
 
 // Attach is the first line of a connection attaching to a session.

@@ -36,7 +36,7 @@ func TestServer(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	c, err = Connect()
+	c, err = Connect(LocalDialer())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -56,7 +56,7 @@ func newTestApp(t *testing.T) (*App, *ui.Tester) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	client, err := rex.Connect()
+	client, err := rex.Connect(rex.LocalDialer())
 	if err != nil {
 		t.Fatal(err)
 	}

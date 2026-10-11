@@ -30,9 +30,26 @@ terminal plugin (Ghostty's libghostty-vt). No webview, no cgo: one ~15 MB app.
   front, as Rex does. Tabs reorder by dragging, rename by double-click, and
   have a context menu.
 - **Host chip** with the machine's name and model; its popover shows the
-  chip, memory, OS and the session server.
+  chip, memory, OS and the session server, and lists the hosts: click one
+  to switch the window to it, ⧉ to open it in a new window, ↻ to reconnect,
+  ✕ (on hover) to forget it, or type `user@host` to connect to another.
 - **Command palette** (⇧⌘P, Ctrl+Shift+P, or the ⌘ button): every command, and every pane
-  to jump to, fuzzy-matched.
+  to jump to, fuzzy-matched; the servers to switch the window to (below).
+- **Remote sessions over ssh.** `GoRex ssh user@host` opens a window on
+  the sessions of a GoRex server on that host, as VS Code's Remote-SSH
+  does: GoRex copies the server for the host's system to `~/.cache/gorex/<id>/` there the
+  first time, starts it, and carries every connection over one `ssh`
+  (multiplexed with yamux, by `GoRex -bridge` on the host). The remote
+  server keeps its state, the layout too, in `~/.config/<profile>`, the
+  profile being the name of the local data directory (`GoRex`, `GoRex
+  Dev`). The host chip's popover, or the palette (type `ssh user@host`),
+  switches the window to another host or back to this machine. A lost
+  connection comes back by itself, trying five times; a bar under the
+  panes tells how it goes, with Retry once it gave up, and the Connection
+  Log (also in the palette) shows what ssh said. Remote hosts run Linux
+  (glibc 2.28 or later) or macOS, on amd64 or arm64, and ssh logs in with
+  keys or an agent, never a password. A window opened with `GoRex ssh`
+  quits when it is closed, on macOS too; the server and its sessions go on.
 - Light and dark appearances (View ▸ Appearance), text size (⌘+ ⌘− ⌘0),
   JetBrains Mono embedded.
 
@@ -69,6 +86,7 @@ go tool mygo dev     # GoRex Dev, rebuilt and restarted as the code changes
 go test ./...        # the server, and the view without a window
 go tool mygo build   # build/darwin-arm64/GoRex.app and a .dmg
 go run ./tools/mkicon  # redraw resources/icon.png
+go run ./tools/remotepayload  # the servers for ssh hosts, in resources/remote
 ```
 
 `go get -tool github.com/egoist/mygo/cmd/mygo@latest` updates MyGo and its
@@ -81,7 +99,9 @@ that developing never touches the sessions of the app you use
 (`GOREX_DIR` names another directory). The sessions outlive the app, but
 not a rebuild: a development build replaces a server that an older build
 started, ending its sessions, which then start again in the same
-directories.
+directories. That goes for the servers it reaches over ssh too: the first
+connection after a rebuild copies the new build to the host and restarts
+the `GoRex Dev` server there, ending its sessions.
 
 ### Windows
 
@@ -99,15 +119,21 @@ resizes from its sides and bottom, not its top.
 
 | | |
 |---|---|
-| `main.go` | the app, its window, and `-server` |
+| `main.go` | the app, its window, `-server` and `-bridge` |
+| `bind.go`, `remotes.go` | the server a window shows: connecting, reconnecting, switching, known remotes |
 | `state.go` | tabs, the tree of splits, panes, saving and restoring the layout |
 | `view.go`, `tabs.go`, `host.go`, `commands.go` | the interface: title bar, tabs, panes, host popover, menus and palette |
 | `programs.go` | how programs show: names, glyphs, tile colors |
 | `style.go`, `settings.go` | colors, fonts, terminal themes; appearance and text size |
-| `internal/rex` | the session server and its client: PTYs, foreground processes, headless screens, the socket protocol |
+| `internal/rex` | the session server and its client: PTYs, foreground processes, headless screens, the socket protocol, the ssh bridge |
+| `internal/remote` | reaching a server over ssh: copying the host's server there, the multiplexed link |
 
-Not replicated: Rex's connections to servers on other machines; GoRex's
-server listens on a local socket only.
+`go run ./tools/remotepayload` builds the servers GoRex copies to ssh
+hosts, one archive per platform in `resources/remote/` (Linux and macOS,
+amd64 and arm64), each with the libghostty-vt of the MyGo that `go.mod`
+pins, from MyGo's download cache. `mygo build` and `mygo dev` ship them
+next to the executable, so hosts never download anything; without them,
+ssh connections fail, telling to run the tool.
 
 Icons: [Lucide](https://lucide.dev) (ISC) and [Simple Icons](https://simpleicons.org)
 (CC0). Font: [JetBrains Mono](https://www.jetbrains.com/lp/mono/) (OFL).

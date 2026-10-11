@@ -49,6 +49,8 @@ var (
 	cmdClear       = command{Title: "Clear Screen and Scrollback", Accel: "CmdOrCtrl+K", Keys: "⌘K", Other: ctrlShift(ui.KeyK), Run: func(a *App) { a.clearFocused() }, Hidden: true}
 	cmdClearScroll = command{Title: "Clear Scrollback", Run: func(a *App) { a.clearFocused() }}
 	cmdRestart     = command{Title: "Restart Shell in Pane", Run: func(a *App) { a.restartFocused() }}
+	cmdReconnect   = command{Title: "Reconnect", Run: func(a *App) { a.switchTo(a.bind, true) }}
+	cmdConnLog     = command{Title: "Connection Log…", Run: func(a *App) { a.logOpen = true }}
 	cmdBigger      = command{Title: "Bigger Text", Accel: "CmdOrCtrl+=", Keys: "⌘+", Other: shortcut{ui.Ctrl, ui.KeyEqual}, Run: func(a *App) { a.setFontSize(termFont.Size + 1) }}
 	cmdSmaller     = command{Title: "Smaller Text", Accel: "CmdOrCtrl+-", Keys: "⌘−", Other: shortcut{ui.Ctrl, ui.KeyMinus}, Run: func(a *App) { a.setFontSize(termFont.Size - 1) }}
 	cmdActualSize  = command{Title: "Actual Size", Accel: "CmdOrCtrl+0", Keys: "⌘0", Other: shortcut{ui.Ctrl, ui.Key0}, Run: func(a *App) { a.setFontSize(defaultFontSize) }}
@@ -65,7 +67,7 @@ var paletteCommands = []*command{
 	&cmdFocusLeft, &cmdFocusRight, &cmdFocusUp, &cmdFocusDown,
 	&cmdGrowLeft, &cmdGrowRight, &cmdGrowUp, &cmdGrowDown,
 	&cmdBigger, &cmdSmaller, &cmdActualSize, &cmdLight, &cmdDark, &cmdSystem,
-	&cmdClearScroll, &cmdRestart, &cmdEndAll,
+	&cmdClearScroll, &cmdRestart, &cmdReconnect, &cmdConnLog, &cmdEndAll,
 }
 
 // commands are all of them.
@@ -274,7 +276,7 @@ func (a *App) clearFocused() {
 // its place, in the same directory.
 func (a *App) restartFocused() {
 	t := a.tab()
-	if t == nil || t.Focus == nil {
+	if t == nil || t.Focus == nil || a.client == nil {
 		return
 	}
 	old := t.Focus
@@ -300,6 +302,10 @@ func (a *App) restartFocused() {
 }
 
 func (a *App) quitAndEnd() {
+	if a.client == nil {
+		mygo.App.Quit()
+		return
+	}
 	a.quitting = true
 	for _, t := range a.tabs {
 		for _, p := range t.panes() {
@@ -316,6 +322,7 @@ func (a *App) quitAndEnd() {
 func (a *App) openPalette() {
 	a.paletteOpen, a.paletteQuery, a.paletteSel = true, "", 0
 	a.focusReq = nil // the palette takes the focus
+	a.remotes = loadRemotes()
 }
 
 // shortcuts handles the keys the menus do not: Control-Tab between tabs,
@@ -372,6 +379,31 @@ func (a *App) paletteItems() []paletteItem {
 				},
 			})
 		}
+	}
+	// The servers to switch to: one typed as "ssh <destination>", this
+	// machine's, and those connected to before.
+	if rest, ok := strings.CutPrefix(strings.TrimSpace(a.paletteQuery), "ssh "); ok {
+		if rest = strings.TrimSpace(rest); rest != "" && !strings.ContainsAny(rest, " \t") {
+			items = append(items, paletteItem{title: "Connect to " + rest, glyph: "server", run: func() { a.openHost(rest) }})
+		}
+	}
+	if a.bind.remote && match(thisMachine()+" local sessions") {
+		items = append(items, paletteItem{title: thisMachine(), detail: "local sessions", glyph: "monitor",
+			run: func() { a.switchTo(binding{}, false) }})
+	}
+	for _, r := range a.remotes {
+		if "ssh/"+r.Key == a.bind.key() || !match(r.title()+" "+r.Target) {
+			continue
+		}
+		items = append(items, paletteItem{title: r.title(), detail: r.Target, glyph: "server", keys: "Host",
+			run: func() { a.openHost(r.Target) }})
+	}
+	for _, r := range a.remotes {
+		if !match("Forget " + r.title() + " " + r.Target) {
+			continue
+		}
+		items = append(items, paletteItem{title: "Forget " + r.title(), detail: r.Target, glyph: "x",
+			run: func() { forgetRemote(r.Key); a.remotes = loadRemotes() }})
 	}
 	for _, cmd := range paletteCommands {
 		if cmd.Hidden || !match(cmd.Title) {

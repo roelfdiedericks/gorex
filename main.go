@@ -3,20 +3,25 @@
 // so that they outlive the app: quit it, open it again, and every tab and
 // pane is back as it was, its programs still running.
 //
-//	go tool mygo dev    the app, rebuilt as the code changes
-//	go run . -server    the session server alone, in the foreground
+//	go tool mygo dev                 the app, rebuilt as the code changes
+//	go run . -server                 the session server alone, in the foreground
+//	GoRex ssh user@host              a window on the sessions of a server on host
+//	go run ./tools/remotepayload     builds the Linux server ssh copies there
 package main
 
 import (
 	"encoding/json"
 	"log"
 	"os"
+	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
+	"gorex/internal/remote"
 	"gorex/internal/rex"
 )
 
@@ -30,6 +35,12 @@ func main() {
 		}
 		return
 	}
+	// -bridge, run by another GoRex over ssh, connects it to the session
+	// server of the profile named.
+	if len(os.Args) > 2 && os.Args[1] == "-bridge" {
+		runBridge(os.Args[2])
+		return
+	}
 	// The state of the sessions lives in the app's data directory, which
 	// the server it starts takes from GOREX_DIR: "GoRex", or "GoRex Dev"
 	// under mygo dev, which keeps the installed app's sessions apart.
@@ -40,7 +51,20 @@ func main() {
 	}
 	registerFonts()
 	loadSettings()
-	a := &App{}
+	a := &App{stateKey: "main"}
+	// ssh <destination> opens a window on the sessions of a server there.
+	// Its window keeps a place of its own, and the process is the window's:
+	// it quits when the window closes, on macOS too, as ssh itself ends
+	// with its session.
+	oneOff := len(os.Args) > 2 && os.Args[1] == "ssh"
+	if oneOff {
+		if t, err := remote.Resolve(os.Args[2]); err != nil {
+			a.err = "Can't connect to " + os.Args[2] + ": " + err.Error()
+		} else {
+			a.bind = binding{remote: true, target: t}
+			a.stateKey = "ssh/" + t.Key()
+		}
+	}
 	mygo.App.SetMenu(a.menu())
 	mygo.App.WhenReady(a.open)
 	mygo.App.OnActivate(func(hasVisibleWindows bool) {
@@ -49,7 +73,7 @@ func main() {
 		}
 	})
 	mygo.App.OnWindowAllClosed(func() {
-		if runtime.GOOS != "darwin" {
+		if runtime.GOOS != "darwin" || oneOff {
 			mygo.App.Quit()
 		}
 	})
@@ -61,33 +85,28 @@ func main() {
 	}
 }
 
-// open opens the window, with the tabs the server kept.
-func (a *App) open() {
-	client, err := rex.Connect()
+// runBridge carries the connections of a GoRex at the other end of ssh to
+// the server of profile, whose state lives in ~/.config/<profile>. Its
+// standard output carries nothing else.
+func runBridge(profile string) {
+	if profile == "" || profile == "." || profile == ".." || strings.ContainsAny(profile, `/\`) {
+		log.Fatalf("bad profile %q", profile)
+	}
+	home, err := os.UserHomeDir()
 	if err != nil {
-		log.Print(err)
-		mygo.Dialog.Error("GoRex could not start its session server", err.Error())
-		mygo.App.Quit()
-		return
+		log.Fatal(err)
 	}
-	a.client = client
-	a.hello, err = client.Hello()
-	if err == nil && mygo.IsDev() && staleServer(a.hello) {
-		// A server a build before this one started runs that build's
-		// code: start one of this build's, ending its sessions.
-		if client, err = client.Restart(a.hello.PID); err == nil {
-			a.client = client
-			a.hello, err = client.Hello()
-		} else {
-			log.Print(err)
-			mygo.Dialog.Error("GoRex could not restart its session server", err.Error())
-			mygo.App.Quit()
-			return
-		}
+	os.Setenv("GOREX_DIR", filepath.Join(home, ".config", profile))
+	log.SetOutput(os.Stderr)
+	log.SetPrefix("[bridge] ")
+	if err := rex.Bridge(os.Stdin, os.Stdout); err != nil {
+		log.Fatal(err)
 	}
-	if err == nil && a.hello.Version != rex.ProtocolVersion {
-		a.err = "The session server is of another version of GoRex: quit and end all sessions to restart it."
-	}
+}
+
+// open opens the window, which connects to its server and shows the tabs
+// it kept.
+func (a *App) open() {
 	a.reset()
 	opts := mygo.WindowOptions{
 		Title:                "GoRex",
@@ -95,7 +114,7 @@ func (a *App) open() {
 		Height:               620,
 		MinWidth:             560,
 		MinHeight:            340,
-		StateKey:             "main",
+		StateKey:             a.stateKey,
 		TitleBarStyle:        mygo.TitleBarHidden,
 		TrafficLightPosition: &mygo.Point{X: 16, Y: 15},
 		BackgroundColor:      "light-dark(#efe1e6, #231e27)",
@@ -107,27 +126,15 @@ func (a *App) open() {
 	}
 	win := mygo.NewWindow(opts)
 	a.win = win
-	if !a.restore() {
-		home, _ := os.UserHomeDir()
-		a.newTab(home)
-	}
-	a.changed()
-	go a.poll(win, client)
 	a.debugHook()
 	win.OnClosed(func() {
 		a.saveNow()
 		a.quitting = true
-		for _, t := range a.tabs {
-			for _, p := range t.panes() {
-				p.closed = true
-				if p.term != nil {
-					p.term.Close() // detaches: the session goes on
-				}
-			}
-		}
-		a.client.Close()
+		a.gen.Add(1) // stops connecting
+		a.detachAll()
 		a.win = nil
 	})
+	a.startConnecting(win, a.bind, "Connecting to "+a.bind.label()+"…")
 }
 
 // saveNow sends the layout to the server and waits for it to be kept.
@@ -150,8 +157,8 @@ func (a *App) saveNow() {
 	}
 }
 
-// reset forgets the state of a window that closed, keeping the server's
-// connection, for the next window.
+// reset forgets the tabs of the window, as when it closed or connects
+// to another server.
 func (a *App) reset() {
 	a.tabs, a.active, a.focusReq = nil, 0, nil
 	a.paletteOpen, a.hostOpen, a.renaming = false, false, nil

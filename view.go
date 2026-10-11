@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math"
 	"runtime"
 	"strings"
 	"time"
@@ -30,12 +31,16 @@ func (a *App) view(c *ui.Context) {
 				a.tabContent(c, k, t)
 			}
 		})
+		if a.status != "" {
+			a.connectionBar(c, k)
+		}
 	})
 	if a.err != "" {
-		a.errorBanner(c, k)
+		banner(c, k, a.err, ui.Hex("#ef4444"), func() { a.err = "" })
 	}
 	a.shortcuts(c)
 	a.palette(c, k)
+	a.connectionLog(c, k)
 	if a.saveDue && time.Since(a.lastSave) > time.Second {
 		a.save()
 	}
@@ -366,18 +371,109 @@ func activityDot(c *ui.Context, col ui.Color, size float32) ui.Element {
 	return e
 }
 
-// errorBanner shows what went wrong with the server.
-func (a *App) errorBanner(c *ui.Context, k *colors) {
+// banner shows a message at the bottom of the window, as what went wrong
+// with the server, beside a dot of its color; dismiss, when set, makes it
+// closable.
+func banner(c *ui.Context, k *colors, text string, dot ui.Color, dismiss func()) {
 	ui.Overlay(c, func() {
 		ui.Row(c).Absolute().Bottom(18).Left(0).Right(0).Justify(ui.Center).PassThrough().Children(func() {
 			ui.Row(c).Gap(10).Padding(8, 10, 8, 14).Radius(12).Background(k.panel).Border(1, k.panelBorder).
 				Shadow(0, 8, 24, 0, k.shadowFocused).AlignItems(ui.Center).Children(func() {
-				ui.Box(c).Size(8, 8).Radius(4).Background(ui.Hex("#ef4444"))
-				ui.Text(c, a.err).FontSize(12.5).TextColor(k.text).MaxWidth(520)
-				if iconButton(c, k, "x", "Dismiss", 22, 14).Clicked() {
-					a.err = ""
+				ui.Box(c).Size(8, 8).Radius(4).Background(dot)
+				ui.Text(c, text).FontSize(12.5).TextColor(k.text).MaxWidth(520)
+				if dismiss != nil && iconButton(c, k, "x", "Dismiss", 22, 14).Clicked() {
+					dismiss()
 				}
 			})
+		})
+	})
+}
+
+// connectionBar shows how connecting to the server goes, under the panes,
+// while the window is not connected: with a way to try again once it gave
+// up, and to the Connection Log.
+func (a *App) connectionBar(c *ui.Context, k *colors) {
+	dot := k.attention
+	if a.connDown {
+		dot = ui.Hex("#ef4444")
+	}
+	ui.Row(c).Height(30).Padding(0, 10, 0, 14).Gap(10).AlignItems(ui.Center).Background(k.panel).
+		BorderWidth(1, 0, 0, 0).BorderColor(k.panelBorder).Children(func() {
+		ui.Box(c).Size(8, 8).Radius(4).Background(dot).Shrink(0)
+		ui.Text(c, a.status).FontSize(12.5).TextColor(k.text).Grow(1).MinWidth(0).SingleLine().Ellipsis("…")
+		if a.connDown {
+			if textButton(c, k, "Retry").Clicked() {
+				a.later(c, func() { a.switchTo(a.bind, true) })
+			}
+		}
+		if textButton(c, k, "Log").Clicked() {
+			a.logOpen = true
+		}
+	})
+}
+
+// textButton is a small button of a word, as in the connection bar.
+func textButton(c *ui.Context, k *colors, label string) ui.Element {
+	b := ui.Box(c).Height(22).Padding(0, 9).Radius(6).Center().Cursor(ui.CursorPointer).Role(ui.RoleButton).Label(label).Shrink(0)
+	if b.Pressed() {
+		b.Background(k.pressed)
+	} else if b.Hovered() {
+		b.Background(k.hover)
+	}
+	b.Children(func() {
+		ui.Text(c, label).FontSize(12).FontWeight(600).TextColor(k.text)
+	})
+	return b
+}
+
+// connectionLog shows what connecting printed: the attempts, what ssh
+// said, and when the connection was lost. It follows the end of the log
+// unless scrolled up to read.
+func (a *App) connectionLog(c *ui.Context, k *colors) {
+	if !a.logOpen {
+		a.logShown = 0
+		return
+	}
+	lines := a.connLogText()
+	if len(lines) != a.logShown {
+		// Opening it, or new lines while at the end: show the end.
+		atEnd := a.logShown == 0 || a.logScroll.Y >= a.logScroll.MaxY-1
+		if atEnd {
+			a.logScroll.Y = math.MaxFloat32
+		}
+		a.logShown = len(lines)
+	}
+	ui.DialogBase(c, &a.logOpen, func(backdrop, panel ui.Element) {
+		backdrop.Background(k.backdrop)
+		panel.Width(720).Height(440).Radius(16).Background(k.panel).Border(1, k.panelBorder).
+			Shadow(0, 24, 60, -8, ui.RGBA(0, 0, 0, 0.28)).Clip()
+		ui.Row(c).Padding(12, 16).Gap(10).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(k.panelBorder).Shrink(0).Children(func() {
+			ui.Text(c, "Connection Log").FontSize(14).FontWeight(700).TextColor(k.text).Grow(1)
+			dot, state := k.busy, "connected"
+			switch {
+			case a.connDown:
+				dot, state = ui.Hex("#ef4444"), "not connected"
+			case a.client == nil, a.status != "":
+				dot, state = k.attention, "connecting…"
+			}
+			ui.Box(c).Size(7, 7).Radius(4).Background(dot)
+			ui.Text(c, a.bind.label()+" · "+state).FontSize(12.5).TextColor(k.textFaint)
+			if textButton(c, k, "Clear").Clicked() {
+				a.connLogMu.Lock()
+				a.connLog = nil
+				a.connLogMu.Unlock()
+			}
+			if iconButton(c, k, "x", "Close", 24, 14).Clicked() {
+				a.logOpen = false
+			}
+		})
+		ui.Scroll(c).Grow(1).MinHeight(0).Padding(10, 16).TrackScroll(&a.logScroll).Children(func() {
+			if len(lines) == 0 {
+				ui.Text(c, "Nothing yet.").FontSize(12.5).TextColor(k.textFaint)
+			}
+			for i, l := range lines {
+				ui.Text(c.Key(i), l).Font(termFont.Family).FontSize(12).TextColor(k.text).Selectable().LineHeight(1.5)
+			}
 		})
 	})
 }

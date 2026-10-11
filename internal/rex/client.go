@@ -16,6 +16,7 @@ import (
 // Client is a control connection to the server.
 type Client struct {
 	conn net.Conn
+	dial Dialer
 
 	wmu     sync.Mutex
 	mu      sync.Mutex
@@ -25,13 +26,16 @@ type Client struct {
 	closed  chan struct{}
 }
 
-// Connect connects to the server, starting one in the background when
-// none runs.
-func Connect() (*Client, error) {
+// Dialer opens a connection to the server.
+type Dialer func() (net.Conn, error)
+
+// EnsureServer makes sure the local server runs, starting one in the
+// background when none does.
+func EnsureServer() error {
 	conn, err := net.Dial("unix", SocketPath())
 	if err != nil {
 		if err := Spawn(); err != nil {
-			return nil, fmt.Errorf("rex: starting the server: %w", err)
+			return fmt.Errorf("rex: starting the server: %w", err)
 		}
 		deadline := time.Now().Add(5 * time.Second)
 		for {
@@ -41,11 +45,36 @@ func Connect() (*Client, error) {
 				break
 			}
 			if time.Now().After(deadline) {
-				return nil, fmt.Errorf("rex: connecting to the server: %w", err)
+				return fmt.Errorf("rex: connecting to the server: %w", err)
 			}
 		}
 	}
-	c := &Client{conn: conn, pending: map[int64]chan Response{}, closed: make(chan struct{})}
+	conn.Close()
+	return nil
+}
+
+// LocalDialer dials the local server, starting one when none runs.
+func LocalDialer() Dialer {
+	return func() (net.Conn, error) {
+		conn, err := net.Dial("unix", SocketPath())
+		if err == nil {
+			return conn, nil
+		}
+		if err := EnsureServer(); err != nil {
+			return nil, err
+		}
+		return net.Dial("unix", SocketPath())
+	}
+}
+
+// Connect opens a control connection through dial, which also opens the
+// connections of the client's streams.
+func Connect(dial Dialer) (*Client, error) {
+	conn, err := dial()
+	if err != nil {
+		return nil, err
+	}
+	c := &Client{conn: conn, dial: dial, pending: map[int64]chan Response{}, closed: make(chan struct{})}
 	go c.read()
 	return c, nil
 }
@@ -67,16 +96,24 @@ func Executable() (string, time.Time) {
 	return exe, st.ModTime()
 }
 
-// Restart shuts the server down, ending its sessions, waits for it to
-// exit, and connects to a new one.
+// Restart shuts the server down, ending its sessions, and connects to a
+// new one: one that answers with a process ID other than pid.
 func (c *Client) Restart(pid int) (*Client, error) {
 	c.Shutdown()
 	c.Close()
-	deadline := time.Now().Add(3 * time.Second)
-	for pid > 0 && processAlive(pid) && time.Now().Before(deadline) {
-		time.Sleep(20 * time.Millisecond)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+		nc, err := Connect(c.dial)
+		if err != nil {
+			continue
+		}
+		if h, err := nc.Hello(); err == nil && h.PID != pid {
+			return nc, nil
+		}
+		nc.Close()
 	}
-	return Connect()
+	return nil, errors.New("rex: the server did not restart")
 }
 
 // Closed is closed once the connection to the server is lost.
@@ -227,7 +264,7 @@ func (s *Stream) attach() {
 	}
 	cols, rows := s.cols, s.rows
 	s.mu.Unlock()
-	conn, err := net.Dial("unix", SocketPath())
+	conn, err := s.c.dial()
 	if err == nil {
 		b, _ := json.Marshal(Attach{Op: "attach", SID: s.sid, Cols: cols, Rows: rows})
 		if _, err = conn.Write(append(b, '\n')); err == nil {
