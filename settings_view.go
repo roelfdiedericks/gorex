@@ -67,7 +67,7 @@ func pagesOf(scope string) []string {
 // inScope reports whether a field is edited in a scope: look fields in
 // both, host fields on the host, pc fields in the Defaults.
 func (f field) inScope(scope string) bool {
-	if f.os != "" && f.os != runtime.GOOS {
+	if f.os != "" && !slices.Contains(strings.Split(f.os, ","), runtime.GOOS) {
 		return false
 	}
 	switch f.kind {
@@ -448,6 +448,15 @@ func (a *App) settingControl(c *ui.Context, k *colors, scope string, f field) {
 		choices(c, &target, effv, []string{"local", "lastHost"}, []string{thisMachine(), "The last host"}, changed)
 	case "general.windowTitle":
 		choices(c, &target, effv, []string{"host", "hostAndTab", "tab"}, []string{"Host", "Host and tab", "Tab"}, changed)
+	case "general.windowMaterial":
+		ui.Column(c).Gap(4).AlignItems(ui.End).Children(func() {
+			if runtime.GOOS == "darwin" {
+				choices(c, &target, effv, []string{"", "sidebar", "under-window", "hud"}, []string{"None", "Sidebar", "Under window", "HUD"}, changed)
+			} else {
+				choices(c, &target, effv, []string{"", "mica", "acrylic", "tabbed"}, []string{"None", "Mica", "Acrylic", "Tabbed"}, changed)
+				ui.Text(c, "Shows when GoRex opens again (Windows 11 22H2 and later)").FontSize(11).TextColor(k.textFaint)
+			}
+		})
 	case "terminal.font":
 		v := effv.String()
 		if ui.Combobox(c, &v, a.settings.fonts).Width(220).Changed() {

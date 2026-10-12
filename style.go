@@ -190,12 +190,18 @@ func validHex(s string) bool {
 	return true
 }
 
-// paintBackground paints the window's background.
-func paintBackground(p *ui.Painter, r ui.Rect, k *colors) {
+// paintBackground paints the window's background: the gradient, which
+// over a material (vibrant) is a translucent wash of itself.
+func paintBackground(p *ui.Painter, r ui.Rect, k *colors, vibrant bool) {
+	top, mid, low, bottom := k.bgTop, k.bgMid, k.bgLow, k.bgBottom
+	if vibrant {
+		const wash = 0.45
+		top, mid, low, bottom = top.Alpha(wash), mid.Alpha(wash), low.Alpha(wash), bottom.Alpha(wash)
+	}
 	h1, h2 := r.H*0.38, r.H*0.32
-	p.FillGradient(ui.Rect{X: r.X, Y: r.Y, W: r.W, H: h1 + 1}, ui.LinearGradient{From: k.bgTop, To: k.bgMid, Angle: 180}, 0)
-	p.FillGradient(ui.Rect{X: r.X, Y: r.Y + h1, W: r.W, H: h2 + 1}, ui.LinearGradient{From: k.bgMid, To: k.bgLow, Angle: 180}, 0)
-	p.FillGradient(ui.Rect{X: r.X, Y: r.Y + h1 + h2, W: r.W, H: r.H - h1 - h2}, ui.LinearGradient{From: k.bgLow, To: k.bgBottom, Angle: 180}, 0)
+	p.FillGradient(ui.Rect{X: r.X, Y: r.Y, W: r.W, H: h1 + 1}, ui.LinearGradient{From: top, To: mid, Angle: 180}, 0)
+	p.FillGradient(ui.Rect{X: r.X, Y: r.Y + h1, W: r.W, H: h2 + 1}, ui.LinearGradient{From: mid, To: low, Angle: 180}, 0)
+	p.FillGradient(ui.Rect{X: r.X, Y: r.Y + h1 + h2, W: r.W, H: r.H - h1 - h2}, ui.LinearGradient{From: low, To: bottom, Angle: 180}, 0)
 	clear := k.bgTint
 	clear.A = 0
 	p.FillGradient(r, ui.LinearGradient{From: clear, To: k.bgTint, Angle: 90, Start: 0.35, End: 1}, 0)

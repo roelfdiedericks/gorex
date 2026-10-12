@@ -101,6 +101,11 @@ type General struct {
 	// WindowTitle is "host", "hostAndTab" or "tab": what the window's
 	// title names.
 	WindowTitle string `json:"windowTitle,omitempty" kind:"pc" label:"Window title" group:"Window"`
+	// WindowMaterial is the translucent, blurred material behind the
+	// window, by MyGo's names ("mica", "acrylic", "tabbed" on Windows;
+	// "sidebar", "hud" and the like on macOS), or "" for none. On Windows
+	// a window is made with its material: a change shows at the next start.
+	WindowMaterial string `json:"windowMaterial,omitempty" kind:"pc" label:"Window material" group:"Window" os:"windows,darwin"`
 }
 
 const defaultFontSize = 11.6

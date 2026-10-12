@@ -23,8 +23,15 @@ func (a *App) view(c *ui.Context) {
 	a.runPosted()
 	k := a.colors(c)
 	a.focusedWin = a.win == nil || a.win.IsFocused()
-	c.Root().Background(k.bgBottom)
-	ui.Column(c).Fill().Draw(func(p *ui.Painter, r ui.Rect) { paintBackground(p, r, k) }).Children(func() {
+	// Over the window's material, the gradient goes translucent, so that
+	// the material shows and a tint still tells the host.
+	vibrant := c.Vibrancy()
+	if vibrant {
+		c.Root().Background(ui.Transparent)
+	} else {
+		c.Root().Background(k.bgBottom)
+	}
+	ui.Column(c).Fill().Draw(func(p *ui.Painter, r ui.Rect) { paintBackground(p, r, k, vibrant) }).Children(func() {
 		a.titleBar(c, k)
 		ui.Column(c).Grow(1).MinHeight(0).Padding(0, gap, gap, gap).Children(func() {
 			if t := a.tab(); t != nil {

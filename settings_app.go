@@ -42,6 +42,12 @@ func (a *App) applySettings() {
 		}
 	}
 	applyAppearance(&a.eff)
+	if m := a.eff.General.WindowMaterial; m != a.material && a.win != nil {
+		// Live on macOS; on Windows, between materials of a window made
+		// with one, and nothing in other windows until the next start.
+		a.material = m
+		a.win.SetVibrancy(mygo.Vibrancy(m))
+	}
 	termFont = termFontOf(&a.eff)
 	light, dark := termThemes(&a.eff)
 	opts := fmt.Sprint(a.eff.Appearance.Transparent != nil && *a.eff.Appearance.Transparent, a.eff.Terminal.Cursor,

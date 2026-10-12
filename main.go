@@ -126,7 +126,11 @@ func (a *App) open() {
 		TrafficLightPosition: &mygo.Point{X: 16, Y: 15},
 		BackgroundColor:      "light-dark(#efe1e6, #231e27)",
 		Content:              ui.View(a.view),
+		// The material behind the window, where the view draws no
+		// background; a Windows window is made with it, or never has one.
+		Vibrancy: mygo.Vibrancy(a.eff.General.WindowMaterial),
 	}
+	a.material = a.eff.General.WindowMaterial
 	if ownControls {
 		// The title bar draws the window's controls (windowControls).
 		opts.TitleBarStyle, opts.Frameless = mygo.TitleBarDefault, true

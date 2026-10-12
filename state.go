@@ -133,8 +133,10 @@ type App struct {
 	defaults, host, eff Settings
 	// defEff is what the Defaults give on their own, over the built-in
 	// values: what the Defaults pages show.
-	defEff      Settings
-	termOpts    string
+	defEff   Settings
+	termOpts string
+	// material is the window material applied last.
+	material    string
 	settingsDue bool
 	settingsErr string
 	settings    settingsUI
