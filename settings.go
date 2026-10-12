@@ -47,7 +47,9 @@ type Appearance struct {
 	// windows, among Ghostty's themes; "GoRex" is the app's own.
 	Theme      string `json:"theme,omitempty" kind:"look" label:"Colors in dark windows" group:"Terminal colors"`
 	ThemeLight string `json:"themeLight,omitempty" kind:"look" label:"Colors in light windows" group:"Terminal colors"`
-	// Tint colors the window's gradient and tab strip, as #rrggbb.
+	// Tint is the window's background: "gorex" for the app's own
+	// gradients, "none" for neutral grays, or custom colors mixed into
+	// the gradient, "#rrggbb" or "#top,#bottom".
 	Tint string `json:"tint,omitempty" kind:"look" label:"Tint" group:"Window"`
 	// Name is shown for the host instead of its own name.
 	Name        string `json:"name,omitempty" kind:"look" label:"Host name" group:"Window"`
@@ -106,7 +108,7 @@ const defaultFontSize = 11.6
 // builtin are the values of fields set in neither layer.
 var builtin = Settings{
 	V:          settingsVersion,
-	Appearance: Appearance{Theme: "GoRex", ThemeLight: "GoRex", Transparent: on},
+	Appearance: Appearance{Theme: "GoRex", ThemeLight: "GoRex", Tint: "gorex", Transparent: on},
 	Terminal: Terminal{
 		Font: "JetBrains Mono", Size: defaultFontSize, Weight: 400, LineHeight: 1, Ligatures: on, Thicken: off,
 		Cursor: "block", Blink: on, Scrollback: 10000, CopyOnSelect: off, OptionAsAlt: off, Bell: "mark",

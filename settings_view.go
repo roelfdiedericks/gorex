@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -32,6 +33,9 @@ type settingsUI struct {
 	themes            themesUI
 	// fonts are the font row's choices: this PC's monospaced families.
 	fonts []string
+	// lastTint is the custom tint seen last, which choosing Custom starts
+	// from.
+	lastTint string
 }
 
 // scope is where a page's values live.
@@ -433,7 +437,7 @@ func (a *App) settingControl(c *ui.Context, k *colors, scope string, f field) {
 			a.startThemePreview(scope, f.key == "appearance.themeLight")
 		}
 	case "appearance.tint":
-		tintControl(c, k, scope, &target, effv, changed)
+		a.tintControl(c, k, &target, effv, changed)
 	case "terminal.cursor":
 		choices(c, &target, effv, []string{"block", "bar", "underline"}, []string{"Block", "Bar", "Underline"}, changed)
 	case "terminal.bell":
@@ -577,29 +581,44 @@ func sign(v float64) float64 {
 	return 1
 }
 
-// tintControl is a color well and a way to have no tint: on a host, the
-// value "none" overrides a Defaults' tint; in the Defaults, no value.
-// Without a tint the well shows the window's own color.
-func tintControl(c *ui.Context, k *colors, scope string, target *reflect.Value, eff reflect.Value, changed func()) {
-	col := colorsOf(c).bgMid
-	hex := eff.String()
-	if validHex(hex) {
-		col = ui.Hex(hex)
+// tintControl chooses the window's background: neutral, the app's own,
+// or custom colors, a top and a bottom one, mixed into the gradient.
+func (a *App) tintControl(c *ui.Context, k *colors, target *reflect.Value, eff reflect.Value, changed func()) {
+	top, bottom, kind := parseTint(eff.String())
+	if kind == "custom" {
+		a.settings.lastTint = eff.String()
 	}
-	if ui.ColorWell(c, &col).Changed() {
-		target.SetString(hexOf(col))
-		changed()
-	}
-	if !validHex(hex) {
-		ui.Text(c, "none").FontSize(12.5).TextColor(k.textFaint)
-	} else if textButton(c, k, "None").Clicked() {
-		if scope == scopeHost {
-			target.SetString("none")
-		} else {
-			target.SetString("")
+	ui.Column(c).Gap(8).AlignItems(ui.End).Children(func() {
+		kinds := []string{"none", "gorex", "custom"}
+		sel := slices.Index(kinds, kind)
+		if ui.Segmented(c, &sel, "None", "GoRex", "Custom").Changed() {
+			v := kinds[sel]
+			if v == "custom" {
+				v = a.settings.lastTint
+				if v == "" {
+					v = "#2e6fd0"
+				}
+			}
+			target.SetString(v)
+			changed()
 		}
-		changed()
-	}
+		if kind != "custom" {
+			return
+		}
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+			edited := ui.ColorWell(c.Key("top"), &top).Changed()
+			ui.Text(c, "→").FontSize(13).TextColor(k.textFaint)
+			edited = ui.ColorWell(c.Key("bottom"), &bottom).Changed() || edited
+			if edited {
+				v := hexOf(top)
+				if b := hexOf(bottom); b != v {
+					v += "," + b
+				}
+				target.SetString(v)
+				changed()
+			}
+		})
+	})
 }
 
 // hexOf formats a color as #rrggbb.

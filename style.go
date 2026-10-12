@@ -3,6 +3,7 @@ package main
 import (
 	_ "embed"
 	"fmt"
+	"strings"
 
 	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
@@ -109,36 +110,74 @@ func colorsOf(c *ui.Context) *colors {
 	return &lightColors
 }
 
-// tinted are the colors with a host's tint mixed into the window's
-// gradient, by the tint's hex and the appearance, as made last.
+// neutral are the window's background stops without color: the grays
+// of the same lightness as the app's own, in light and dark windows.
+var neutralLight = [5]ui.Color{ui.Hex("#ebebeb"), ui.Hex("#e4e4e4"), ui.Hex("#e2e2e2"), ui.Hex("#e1e1e1"), ui.RGBA(228, 228, 228, 0.35)}
+var neutralDark = [5]ui.Color{ui.Hex("#252525"), ui.Hex("#202020"), ui.Hex("#202020"), ui.Hex("#262626"), ui.RGBA(50, 50, 50, 0.25)}
+
+// tinted are the colors of each tint and appearance, as made last.
 var tinted = map[string]*colors{}
 
-// colors returns the window's colors, with the host's tint when it has
-// one: the gradient takes on the tint, so that a host is told at a glance.
+// colors returns the window's colors by the host's tint: the app's own
+// gradient, neutral grays, or custom colors mixed into the gradient, so
+// that a host is told at a glance.
 func (a *App) colors(c *ui.Context) *colors {
 	base := colorsOf(c)
 	tint := a.eff.Appearance.Tint
-	if !validHex(tint) {
+	top, bottom, kind := parseTint(tint)
+	if kind == "gorex" {
 		return base
 	}
 	key := fmt.Sprint(c.Theme().Dark, tint)
 	if k, ok := tinted[key]; ok {
 		return k
 	}
-	t := ui.Hex(tint)
 	k := *base
-	amount := float32(0.3)
-	if c.Theme().Dark {
-		amount = 0.4
+	if kind == "none" {
+		n := neutralLight
+		if c.Theme().Dark {
+			n = neutralDark
+		}
+		k.bgTop, k.bgMid, k.bgLow, k.bgBottom, k.bgTint = n[0], n[1], n[2], n[3], n[4]
+	} else {
+		amount := float32(0.3)
+		if c.Theme().Dark {
+			amount = 0.4
+		}
+		// The stops take the custom colors by their height, top to bottom.
+		k.bgTop = k.bgTop.Mix(top, amount)
+		k.bgMid = k.bgMid.Mix(top.Mix(bottom, 0.38), amount)
+		k.bgLow = k.bgLow.Mix(top.Mix(bottom, 0.7), amount)
+		k.bgBottom = k.bgBottom.Mix(bottom, amount)
+		k.bgTint = top.Alpha(float32(k.bgTint.A) / 255)
 	}
-	k.bgTop, k.bgMid, k.bgLow, k.bgBottom = k.bgTop.Mix(t, amount), k.bgMid.Mix(t, amount), k.bgLow.Mix(t, amount), k.bgBottom.Mix(t, amount)
-	k.bgTint = t.Alpha(float32(k.bgTint.A) / 255)
 	tinted[key] = &k
 	return &k
 }
 
-// validHex reports whether s is a color as #rrggbb, which settings from a
-// host may fail to be.
+// parseTint reads a tint setting: kind is "gorex" (also for values that
+// are not tints, as a host may send), "none", or "custom" with its top and
+// bottom colors, the same for a single color.
+func parseTint(s string) (top, bottom ui.Color, kind string) {
+	switch s {
+	case "none":
+		return top, bottom, "none"
+	case "gorex", "":
+		return top, bottom, "gorex"
+	}
+	a, b, _ := strings.Cut(s, ",")
+	if !validHex(a) {
+		return top, bottom, "gorex"
+	}
+	if b == "" {
+		b = a
+	} else if !validHex(b) {
+		return top, bottom, "gorex"
+	}
+	return ui.Hex(a), ui.Hex(b), "custom"
+}
+
+// validHex reports whether s is a color as #rrggbb.
 func validHex(s string) bool {
 	if len(s) != 7 || s[0] != '#' {
 		return false
