@@ -96,6 +96,9 @@ type General struct {
 	// StartWith is "local" or "lastHost": what a window with no host named
 	// on the command line opens.
 	StartWith string `json:"startWith,omitempty" kind:"pc" label:"Open at start" group:"Hosts"`
+	// WindowTitle is "host", "hostAndTab" or "tab": what the window's
+	// title names.
+	WindowTitle string `json:"windowTitle,omitempty" kind:"pc" label:"Window title" group:"Window"`
 }
 
 const defaultFontSize = 11.6
@@ -111,7 +114,7 @@ var builtin = Settings{
 	Shell: Shell{Login: on, StartIn: "current"},
 	General: General{
 		ConfirmClose: off, Notify: on, NotifyAfter: 8, Attention: on, ReconnectAttempts: 5,
-		LogWhileConnecting: on, StartWith: "local",
+		LogWhileConnecting: on, StartWith: "local", WindowTitle: "host",
 	},
 }
 

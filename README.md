@@ -56,7 +56,8 @@ terminal plugin (Ghostty's libghostty-vt). No webview, no cgo: one ~15 MB app.
   cursor; set on a host, they apply from any PC. Hosts without a value of
   their own inherit this PC's Defaults. The shell, where new tabs start,
   the environment and the scrollback are the host's own; notifications,
-  confirm-on-close, copy on select and reconnecting are this PC's.
+  confirm-on-close, copy on select, reconnecting and what the window's
+  title names (the host, the tab, or both) are this PC's.
 
 ## Shortcuts
 

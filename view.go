@@ -46,16 +46,22 @@ func (a *App) view(c *ui.Context) {
 		a.save()
 	}
 	// The window's title, which the taskbar, the Window menu and Mission
-	// Control show, names the host first, then the active tab.
+	// Control show: the host, the active tab, or both, as this PC wants.
 	if a.win != nil {
-		title := a.hostName()
-		if t := a.tab(); t != nil {
-			name, detail := t.label()
-			title += " — " + strings.TrimSpace(name+" "+detail)
-		} else if a.status != "" {
-			title += " — Connecting…"
+		var parts []string
+		mode := a.eff.General.WindowTitle
+		if mode != "tab" {
+			parts = append(parts, a.hostName())
 		}
-		if title != a.title {
+		if t := a.tab(); t != nil {
+			if mode != "host" {
+				name, detail := t.label()
+				parts = append(parts, strings.TrimSpace(name+" "+detail))
+			}
+		} else if a.status != "" {
+			parts = append(parts, "Connecting…")
+		}
+		if title := strings.Join(parts, " — "); title != a.title {
 			a.title = title
 			a.win.SetTitle(title)
 		}

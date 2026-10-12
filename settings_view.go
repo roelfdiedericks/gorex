@@ -422,6 +422,8 @@ func (a *App) settingControl(c *ui.Context, k *colors, scope string, f field) {
 		choices(c, &target, effv, []string{"current", "home"}, []string{"The current pane's directory", "Home"}, changed)
 	case "general.startWith":
 		choices(c, &target, effv, []string{"local", "lastHost"}, []string{thisMachine(), "The last host"}, changed)
+	case "general.windowTitle":
+		choices(c, &target, effv, []string{"host", "hostAndTab", "tab"}, []string{"Host", "Host and tab", "Tab"}, changed)
 	case "terminal.font":
 		v := effv.String()
 		if ui.Combobox(c, &v, fontChoices).Width(220).Changed() {
