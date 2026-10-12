@@ -11,20 +11,27 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
+// hostName names the machine the window shows: the name its settings
+// give it, else its server's, else how it is reached.
+func (a *App) hostName() string {
+	if a.eff.Appearance.Name != "" {
+		return a.eff.Appearance.Name
+	}
+	if a.hello.Host.Name != "" {
+		return a.hello.Host.Name
+	}
+	if a.bind.remote {
+		return a.bind.target.Spec
+	}
+	name, _ := os.Hostname()
+	return strings.TrimSuffix(name, ".local")
+}
+
 // hostChip shows the machine the sessions run on; a click shows more of
 // it, and of the session server.
 func (a *App) hostChip(c *ui.Context, k *colors) {
 	h := a.hello.Host
-	name, model := h.Name, h.Model
-	if a.eff.Appearance.Name != "" {
-		name = a.eff.Appearance.Name
-	}
-	if name == "" && a.bind.remote {
-		name = a.bind.target.Spec
-	} else if name == "" {
-		name, _ = os.Hostname()
-		name = strings.TrimSuffix(name, ".local")
-	}
+	name, model := a.hostName(), h.Model
 	// The server's system, or while the window connects, the one it will
 	// likely have.
 	goos := h.GOOS

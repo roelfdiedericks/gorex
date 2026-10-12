@@ -132,10 +132,7 @@ func (a *App) settingsSidebar(c *ui.Context, k *colors) {
 		if !s.themes.open && !a.focusedOnce(c, "settings-search") {
 			sf.Focus()
 		}
-		hostLabel := a.bind.label()
-		if a.eff.Appearance.Name != "" {
-			hostLabel = a.eff.Appearance.Name
-		}
+		hostLabel := a.hostName()
 		if q := strings.TrimSpace(strings.ToLower(s.query)); q != "" {
 			a.searchResults(c, k, q, hostLabel)
 			return
@@ -246,10 +243,7 @@ func (a *App) searchResults(c *ui.Context, k *colors, q, hostLabel string) {
 func (a *App) settingsPage(c *ui.Context, k *colors) {
 	s := &a.settings
 	scope, page, _ := strings.Cut(s.page, "/")
-	hostLabel := a.bind.label()
-	if a.eff.Appearance.Name != "" {
-		hostLabel = a.eff.Appearance.Name
-	}
+	hostLabel := a.hostName()
 	ui.Column(c).Grow(1).MinWidth(0).Children(func() {
 		ui.Column(c).Padding(18, 22, 12, 22).Gap(4).Shrink(0).Children(func() {
 			ui.Row(c).AlignItems(ui.Center).Children(func() {

@@ -45,11 +45,17 @@ func (a *App) view(c *ui.Context) {
 	if a.saveDue && time.Since(a.lastSave) > time.Second {
 		a.save()
 	}
-	// The window's title, which the Window menu and Mission Control show,
-	// is the active tab's.
-	if t := a.tab(); t != nil && a.win != nil {
-		name, detail := t.label()
-		if title := strings.TrimSpace(name + " " + detail); title != a.title {
+	// The window's title, which the taskbar, the Window menu and Mission
+	// Control show, names the host first, then the active tab.
+	if a.win != nil {
+		title := a.hostName()
+		if t := a.tab(); t != nil {
+			name, detail := t.label()
+			title += " — " + strings.TrimSpace(name+" "+detail)
+		} else if a.status != "" {
+			title += " — Connecting…"
+		}
+		if title != a.title {
 			a.title = title
 			a.win.SetTitle(title)
 		}
@@ -495,10 +501,7 @@ func (a *App) connectionLog(c *ui.Context, k *colors) {
 // connectionButton shows the connection's state as a dot on a link glyph,
 // and opens the Connection Log.
 func (a *App) connectionButton(c *ui.Context, k *colors) {
-	host := a.bind.label()
-	if a.eff.Appearance.Name != "" {
-		host = a.eff.Appearance.Name
-	}
+	host := a.hostName()
 	dot, label := k.busy, "Connected to "+host
 	switch {
 	case a.connDown:
