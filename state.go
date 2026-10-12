@@ -172,6 +172,9 @@ type App struct {
 	// view without a window, as in tests.
 	postMu sync.Mutex
 	posted []func()
+	// toasts are queued from other goroutines, for the next frame to
+	// show (AddToast needs the frame's context).
+	toastQueue []ui.Toast
 	// services keeps redraw requests available to menu callbacks.
 	services ui.Services
 }
@@ -327,6 +330,9 @@ func (a *App) attach(p *Pane, cols, rows int) {
 		RightClickPastes: is(a.eff.Terminal.RightClickPastes),
 		OnZoom: func(steps int) {
 			update(func() { a.stepFontSize(steps) })
+		},
+		OnPasteStatus: func(status terminal.PasteStatus, sent, total int) {
+			update(func() { a.pasteStatus(p, status, sent, total) })
 		},
 		OnTitle: func(title string) {
 			update(func() { p.title = title })

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"math"
 	"runtime"
 	"strings"
@@ -21,6 +22,13 @@ const (
 func (a *App) view(c *ui.Context) {
 	a.services = c.Services()
 	a.runPosted()
+	a.postMu.Lock()
+	toasts := a.toastQueue
+	a.toastQueue = nil
+	a.postMu.Unlock()
+	for _, t := range toasts {
+		c.AddToast(t)
+	}
 	k := a.colors(c)
 	a.focusedWin = a.win == nil || a.win.IsFocused()
 	// Over the window's material, the gradient goes translucent, so that
@@ -49,6 +57,7 @@ func (a *App) view(c *ui.Context) {
 	a.palette(c, k)
 	a.connectionLog(c, k)
 	a.settingsDialog(c, k)
+	a.toasts(c, k)
 	if a.saveDue && time.Since(a.lastSave) > time.Second {
 		a.save()
 	}
@@ -422,6 +431,66 @@ func banner(c *ui.Context, k *colors, text string, dot ui.Color, dismiss func(),
 	})
 }
 
+// toasts draws the window's toasts, as what GoRex does with a paste, in
+// the banner's style: at the bottom, a dot of the kind's color, the title
+// and what more there is to say.
+func (a *App) toasts(c *ui.Context, k *colors) {
+	ui.ToastViewportBase(c, func(viewport ui.Element, toasts []ui.Toast) {
+		viewport.Padding(0, 0, 18, 0).AlignItems(ui.Center).Justify(ui.End).Gap(8)
+		for _, t := range toasts {
+			toast := ui.ToastBase(c, t)
+			toast.Root.Row().Gap(10).Padding(8, 14).Radius(12).Background(k.panel).Border(1, k.panelBorder).
+				Shadow(0, 8, 24, 0, k.shadowFocused).AlignItems(ui.Center).
+				Transition(ui.ElementTransition{Enter: &ui.Motion{Y: 8}, Exit: &ui.Motion{}})
+			toast.Root.Children(func() {
+				dot := k.busy
+				switch t.Type {
+				case "error":
+					dot = ui.Hex("#ef4444")
+				case "working":
+					dot = k.attention
+				}
+				ui.Box(c).Size(8, 8).Radius(4).Background(dot).Shrink(0)
+				ui.Text(c, t.Title).FontSize(12.5).TextColor(k.text).MaxWidth(420)
+				if t.Description != "" {
+					ui.Text(c, t.Description).FontSize(12.5).TextColor(k.textFaint).MaxWidth(300)
+				}
+				if t.Type == "working" {
+					ui.Spinner(c).Size(14, 14)
+				}
+			})
+		}
+	})
+}
+
+// pasteStatus tells how a paste of an image to a program goes, in one
+// toast per pane, which changes as it goes and leaves once it is sent.
+func (a *App) pasteStatus(p *Pane, status terminal.PasteStatus, sent, total int) {
+	id := fmt.Sprintf("paste/%d", p.ID)
+	host := a.hostName()
+	size := func(n int) string {
+		switch {
+		case n >= 1<<20:
+			return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+		case n >= 1<<10:
+			return fmt.Sprintf("%d KB", n>>10)
+		}
+		return fmt.Sprintf("%d bytes", n)
+	}
+	switch status {
+	case terminal.PasteOffered:
+		a.toast(ui.Toast{ID: id, Title: "Pasting image…", Description: "to " + host, Type: "working", Timeout: -1})
+	case terminal.PasteSending:
+		a.toast(ui.Toast{ID: id, Title: "Sending image", Description: size(sent) + " of " + size(total) + " to " + host, Type: "working", Timeout: -1})
+	case terminal.PasteSent:
+		a.toast(ui.Toast{ID: id, Title: "Image pasted", Description: size(total) + " to " + host, Timeout: 2 * time.Second})
+	case terminal.PasteNotTaken:
+		a.toast(ui.Toast{ID: id, Title: "The program didn't take the image", Type: "error"})
+	case terminal.PasteUnsupported:
+		a.toast(ui.Toast{ID: id, Title: "This program doesn't take images", Type: "error"})
+	}
+}
+
 // connectionBar shows how connecting to the server goes, under the panes,
 // while the window is not connected: with a way to try again once it gave
 // up, and to the Connection Log.
@@ -529,4 +598,12 @@ func (a *App) connectionButton(c *ui.Context, k *colors) {
 	if b.Clicked() {
 		a.logOpen = true
 	}
+}
+
+// toast shows a toast with the next frame, from any goroutine.
+func (a *App) toast(t ui.Toast) {
+	a.postMu.Lock()
+	a.toastQueue = append(a.toastQueue, t)
+	a.postMu.Unlock()
+	a.services.Invalidate()
 }
