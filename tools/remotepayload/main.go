@@ -74,17 +74,11 @@ func main() {
 // libraries reads the libghostty-vt files of the pinned MyGo's terminal
 // plugin, by GOOS-GOARCH.
 func libraries() (map[string]nativeFile, error) {
-	// go mod download puts the module in the cache when it is not there
-	// yet, which go list -m would not, and tells where.
-	out, err := exec.Command("go", "mod", "download", "-json", "github.com/egoist/mygo").Output()
+	dir, err := mygoDir()
 	if err != nil {
-		return nil, fmt.Errorf("finding MyGo: %w", err)
+		return nil, err
 	}
-	var mod struct{ Dir string }
-	if err := json.Unmarshal(out, &mod); err != nil || mod.Dir == "" {
-		return nil, fmt.Errorf("finding MyGo: go mod download gave %q", out)
-	}
-	b, err := os.ReadFile(filepath.Join(mod.Dir, "plugins", "terminal", "mygo-plugin.json"))
+	b, err := os.ReadFile(filepath.Join(dir, "plugins", "terminal", "mygo-plugin.json"))
 	if err != nil {
 		return nil, err
 	}
@@ -103,6 +97,39 @@ func libraries() (map[string]nativeFile, error) {
 		}
 	}
 	return nil, fmt.Errorf("MyGo's terminal plugin has no libghostty-vt")
+}
+
+// mygoDir finds the pinned MyGo's directory: a replacement's, or the
+// module cache's, downloading it there when it is not yet.
+func mygoDir() (string, error) {
+	list := func() (string, error) {
+		out, err := exec.Command("go", "list", "-m", "-json", "github.com/egoist/mygo").Output()
+		if err != nil {
+			return "", fmt.Errorf("finding MyGo: %w", err)
+		}
+		var mod struct {
+			Dir     string
+			Replace *struct{ Dir string }
+		}
+		if err := json.Unmarshal(out, &mod); err != nil {
+			return "", fmt.Errorf("finding MyGo: %w", err)
+		}
+		if mod.Replace != nil && mod.Replace.Dir != "" {
+			return mod.Replace.Dir, nil
+		}
+		return mod.Dir, nil
+	}
+	dir, err := list()
+	if err != nil || dir != "" {
+		return dir, err
+	}
+	if out, err := exec.Command("go", "mod", "download", "github.com/egoist/mygo").CombinedOutput(); err != nil {
+		return "", fmt.Errorf("downloading MyGo: %v\n%s", err, out)
+	}
+	if dir, err = list(); err == nil && dir == "" {
+		err = fmt.Errorf("finding MyGo: go list -m gives no directory")
+	}
+	return dir, err
 }
 
 // buildTarget builds the server for goos/goarch and writes its archive.

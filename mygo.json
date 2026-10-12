@@ -4,5 +4,6 @@
   "version": "0.1.0",
   "copyright": "A replica of Superlogical's Rex, built with MyGo",
   "out": "build",
+  "buildCommand": "go run ./tools/remotepayload",
   "macos": { "minimumSystemVersion": "13.0" }
 }

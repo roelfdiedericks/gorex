@@ -36,7 +36,7 @@ func (a *App) view(c *ui.Context) {
 		}
 	})
 	if a.err != "" {
-		banner(c, k, a.err, ui.Hex("#ef4444"), func() { a.err = "" })
+		banner(c, k, a.err, ui.Hex("#ef4444"), func() { a.err, a.errAction, a.errRun = "", "", nil }, a.errAction, a.errRun)
 	}
 	a.shortcuts(c)
 	a.palette(c, k)
@@ -79,6 +79,7 @@ func (a *App) titleBar(c *ui.Context, k *colors) {
 			if iconButton(c, k, "command", "Command Palette", 30, 17).Tooltip(tip("Command Palette", &cmdPalette)).Clicked() {
 				a.openPalette()
 			}
+			a.connectionButton(c, k)
 			if iconButton(c, k, "plus", "New Tab", 30, 19).Tooltip(tip("New Tab", &cmdNewTab)).Clicked() {
 				a.newTab(a.currentDir())
 			}
@@ -374,13 +375,18 @@ func activityDot(c *ui.Context, col ui.Color, size float32) ui.Element {
 // banner shows a message at the bottom of the window, as what went wrong
 // with the server, beside a dot of its color; dismiss, when set, makes it
 // closable.
-func banner(c *ui.Context, k *colors, text string, dot ui.Color, dismiss func()) {
+func banner(c *ui.Context, k *colors, text string, dot ui.Color, dismiss func(), action string, run func()) {
 	ui.Overlay(c, func() {
 		ui.Row(c).Absolute().Bottom(18).Left(0).Right(0).Justify(ui.Center).PassThrough().Children(func() {
 			ui.Row(c).Gap(10).Padding(8, 10, 8, 14).Radius(12).Background(k.panel).Border(1, k.panelBorder).
 				Shadow(0, 8, 24, 0, k.shadowFocused).AlignItems(ui.Center).Children(func() {
 				ui.Box(c).Size(8, 8).Radius(4).Background(dot)
 				ui.Text(c, text).FontSize(12.5).TextColor(k.text).MaxWidth(520)
+				if action != "" && textButton(c, k, action).Clicked() {
+					a := run
+					dismiss()
+					a()
+				}
 				if dismiss != nil && iconButton(c, k, "x", "Dismiss", 22, 14).Clicked() {
 					dismiss()
 				}
@@ -476,4 +482,24 @@ func (a *App) connectionLog(c *ui.Context, k *colors) {
 			}
 		})
 	})
+}
+
+// connectionButton shows the connection's state as a dot on a link glyph,
+// and opens the Connection Log.
+func (a *App) connectionButton(c *ui.Context, k *colors) {
+	host := a.bind.label()
+	dot, label := k.busy, "Connected to "+host
+	switch {
+	case a.connDown:
+		dot, label = ui.Hex("#ef4444"), "Can't reach "+host
+	case a.client == nil || a.status != "":
+		dot, label = k.attention, "Connecting to "+host+"…"
+	}
+	b := iconButton(c, k, "cable", "Connection Log", 30, 17).Tooltip(label + " · Connection Log")
+	b.Children(func() {
+		ui.Box(c).Absolute().Right(5).Top(5).Size(7, 7).Radius(4).Background(dot).Border(1, k.panel)
+	})
+	if b.Clicked() {
+		a.logOpen = true
+	}
 }

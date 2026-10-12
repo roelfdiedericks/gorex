@@ -86,7 +86,7 @@ go tool mygo dev     # GoRex Dev, rebuilt and restarted as the code changes
 go test ./...        # the server, and the view without a window
 go tool mygo build   # build/darwin-arm64/GoRex.app and a .dmg
 go run ./tools/mkicon  # redraw resources/icon.png
-go run ./tools/remotepayload  # the servers for ssh hosts, in resources/remote
+go run ./tools/remotepayload  # the servers for ssh hosts, in resources/remote (mygo build runs it)
 ```
 
 `go get -tool github.com/egoist/mygo/cmd/mygo@latest` updates MyGo and its
@@ -131,9 +131,14 @@ resizes from its sides and bottom, not its top.
 `go run ./tools/remotepayload` builds the servers GoRex copies to ssh
 hosts, one archive per platform in `resources/remote/` (Linux and macOS,
 amd64 and arm64), each with the libghostty-vt of the MyGo that `go.mod`
-pins, from MyGo's download cache. `mygo build` and `mygo dev` ship them
-next to the executable, so hosts never download anything; without them,
-ssh connections fail, telling to run the tool.
+pins, from MyGo's download cache or a `replace`d checkout. `mygo build`
+runs it first, as `mygo.json`'s `buildCommand`, so a build never ships
+servers older than itself (`-skip-build-command` skips it); for `mygo dev`
+run it by hand. `mygo build` and `mygo dev` ship them next to the
+executable, so hosts never download anything; without them, ssh
+connections fail, telling to run the tool.
 
 Icons: [Lucide](https://lucide.dev) (ISC) and [Simple Icons](https://simpleicons.org)
-(CC0). Font: [JetBrains Mono](https://www.jetbrains.com/lp/mono/) (OFL).
+(CC0). Font: [JetBrains Mono](https://www.jetbrains.com/lp/mono/) (OFL). The ssh
+link is multiplexed by [yamux](https://github.com/hashicorp/yamux) (MPL-2.0),
+unmodified.

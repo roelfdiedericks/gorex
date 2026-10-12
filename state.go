@@ -98,7 +98,13 @@ type App struct {
 	win    *mygo.Window
 	client *rex.Client
 	hello  rex.Hello
-	err    string
+	// err shows in a banner, with errAction a button running errRun when
+	// there is something to do about it.
+	err       string
+	errAction string
+	errRun    func()
+	// restartNext has the next connection restart the host's server.
+	restartNext bool
 
 	// bind is the server the window shows the sessions of, and link the
 	// ssh that reaches it when it is remote. status tells how connecting

@@ -55,8 +55,10 @@ func loadPayload() (remote.Payload, error) {
 }
 
 // dialBinding connects to the server of b, telling prog how it goes. The
-// link is nil for this machine's server.
-func dialBinding(b binding, prog remote.Progress) (*rex.Client, *remote.Link, rex.Hello, error) {
+// link is nil for this machine's server. restart has the server started
+// anew, ending its sessions, as a development build does by itself with
+// a server of another build.
+func dialBinding(b binding, prog remote.Progress, restart bool) (*rex.Client, *remote.Link, rex.Hello, error) {
 	var client *rex.Client
 	var link *remote.Link
 	var err error
@@ -89,11 +91,11 @@ func dialBinding(b binding, prog remote.Progress) (*rex.Client, *remote.Link, re
 	if err != nil {
 		return fail(err)
 	}
-	if mygo.IsDev() && (!b.remote && staleServer(h) || b.remote && h.Exe != link.Exe()) {
+	if restart || mygo.IsDev() && (!b.remote && staleServer(h) || b.remote && h.Exe != link.Exe()) {
 		// A server a build before this one started runs that build's
 		// code: start one of this build's, ending its sessions.
 		prog.Status("Restarting the session server of " + b.label() + "…")
-		prog.Log(fmt.Sprintf("the server runs another build (%s): restarting it", h.Exe))
+		prog.Log(fmt.Sprintf("restarting the server (%s, protocol %d, pid %d)", h.Exe, h.Version, h.PID))
 		nc, err := client.Restart(h.PID)
 		if err != nil {
 			return fail(err)
@@ -120,12 +122,23 @@ func (a *App) startConnecting(win *mygo.Window, b binding, status string) {
 	if b.remote && !a.logOpen {
 		a.logOpen, a.logAuto = true, true
 	}
-	go a.connectLoop(win, b, a.gen.Add(1))
+	restart := a.restartNext
+	a.restartNext = false
+	go a.connectLoop(win, b, a.gen.Add(1), restart)
+}
+
+// restartServer connects again, restarting the host's server with this
+// GoRex's copy of it, which ends its sessions: for a server of another
+// protocol.
+func (a *App) restartServer() {
+	a.err, a.errAction, a.errRun = "", "", nil
+	a.restartNext = true
+	a.switchTo(a.bind, true)
 }
 
 // connectLoop connects the window to the server of b, trying a few times,
 // unless the window moves on to another attempt (gen) meanwhile.
-func (a *App) connectLoop(win *mygo.Window, b binding, gen int64) {
+func (a *App) connectLoop(win *mygo.Window, b binding, gen int64, restart bool) {
 	current := func() bool { return a.gen.Load() == gen }
 	prog := remote.Progress{
 		Status: func(s string) {
@@ -143,7 +156,7 @@ func (a *App) connectLoop(win *mygo.Window, b binding, gen int64) {
 	}
 	for try := 1; ; try++ {
 		prog.Log(fmt.Sprintf("connecting to %s, attempt %d of %d", b.label(), try, connectAttempts))
-		client, link, h, err := dialBinding(b, prog)
+		client, link, h, err := dialBinding(b, prog, restart && try == 1)
 		if !current() {
 			if err == nil {
 				client.Close()
@@ -221,7 +234,9 @@ func (a *App) attachBinding(win *mygo.Window, b binding, gen int64, client *rex.
 		a.logOpen, a.logAuto = false, false
 	}
 	if h.Version != rex.ProtocolVersion {
-		a.err = "The session server is of another version of GoRex: quit and end all sessions to restart it."
+		a.err = fmt.Sprintf("The session server on %s speaks protocol %d; this GoRex speaks %d. Restarting it with this GoRex's server ends its sessions.",
+			b.label(), h.Version, rex.ProtocolVersion)
+		a.errAction, a.errRun = "Restart server", a.restartServer
 	}
 	if !a.restore() {
 		a.newTab(hostHome)

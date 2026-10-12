@@ -163,6 +163,7 @@ func (a *App) reset() {
 	a.tabs, a.active, a.focusReq = nil, 0, nil
 	a.paletteOpen, a.hostOpen, a.renaming = false, false, nil
 	a.saveDue, a.quitting, a.lastSnapshot, a.title = false, false, "", ""
+	a.err, a.errAction, a.errRun = "", "", nil
 }
 
 // staleServer reports whether the server runs another build of the app
