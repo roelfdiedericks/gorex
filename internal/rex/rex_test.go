@@ -93,4 +93,24 @@ func TestServer(t *testing.T) {
 	if list, _ := c.List(); len(list) != 0 {
 		t.Errorf("sessions left %+v", list)
 	}
+	// Documents the app keeps with the server: none at first, then what
+	// was set, which is on disk too; bad keys and bad JSON are refused.
+	if v, err := c.Get("settings"); err != nil || v != nil {
+		t.Errorf("get of nothing: %q %v", v, err)
+	}
+	if err := c.Set("settings", []byte(`{"v":1,"terminal":{"size":12}}`)); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := c.Get("settings"); err != nil || string(v) != `{"v":1,"terminal":{"size":12}}` {
+		t.Errorf("get after set: %s %v", v, err)
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, "settings.json")); err != nil || string(b) != `{"v":1,"terminal":{"size":12}}` {
+		t.Errorf("on disk: %s %v", b, err)
+	}
+	if err := c.Set("Bad Key", []byte(`{}`)); err == nil {
+		t.Error("a bad key was accepted")
+	}
+	if err := c.Set("settings", []byte(`{not json`)); err == nil {
+		t.Error("bad JSON was accepted")
+	}
 }

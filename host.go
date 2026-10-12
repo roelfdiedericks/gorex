@@ -16,6 +16,9 @@ import (
 func (a *App) hostChip(c *ui.Context, k *colors) {
 	h := a.hello.Host
 	name, model := h.Name, h.Model
+	if a.eff.Appearance.Name != "" {
+		name = a.eff.Appearance.Name
+	}
 	if name == "" && a.bind.remote {
 		name = a.bind.target.Spec
 	} else if name == "" {

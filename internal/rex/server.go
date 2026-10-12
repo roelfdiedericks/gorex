@@ -26,7 +26,9 @@ type Server struct {
 	mu       sync.Mutex
 	sessions map[string]*session
 	order    []string
-	layout   json.RawMessage
+	// docs are the documents the app keeps with the server, by key, as
+	// "layout": read from <key>.json once, kept here, written on set.
+	docs     map[string]json.RawMessage
 	started  time.Time
 	host     HostInfo
 	hostDone chan struct{}
@@ -66,11 +68,8 @@ func Serve() error {
 	}
 	os.Chmod(sock, 0o600)
 	s := &Server{
-		sessions: map[string]*session{}, started: time.Now(), ln: ln,
+		sessions: map[string]*session{}, docs: map[string]json.RawMessage{}, started: time.Now(), ln: ln,
 		hostDone: make(chan struct{}), idleFrom: time.Now(), quit: make(chan struct{}),
-	}
-	if b, err := os.ReadFile(filepath.Join(dir, "layout.json")); err == nil && json.Valid(b) {
-		s.layout = b
 	}
 	s.exe, s.exeTime = Executable()
 	go func() {
@@ -276,28 +275,10 @@ func (s *Server) do(req Request) (any, error) {
 		}
 		ss.resize(req.Cols, req.Rows)
 		return nil, nil
-	case "getLayout":
-		s.mu.Lock()
-		l := s.layout
-		s.mu.Unlock()
-		if l == nil {
-			return nil, nil
-		}
-		return l, nil
-	case "setLayout":
-		if !json.Valid(req.Layout) {
-			return nil, errors.New("layout is not JSON")
-		}
-		l := bytes.Clone(req.Layout)
-		s.mu.Lock()
-		s.layout = l
-		s.mu.Unlock()
-		path := filepath.Join(Dir(), "layout.json")
-		tmp := path + ".tmp"
-		if err := os.WriteFile(tmp, l, 0o600); err == nil {
-			os.Rename(tmp, path)
-		}
-		return nil, nil
+	case "get":
+		return s.get(req.Key)
+	case "set":
+		return nil, s.set(req.Key, req.Value)
 	case "shutdown":
 		go func() {
 			time.Sleep(50 * time.Millisecond)
@@ -306,6 +287,59 @@ func (s *Server) do(req Request) (any, error) {
 		return nil, nil
 	}
 	return nil, fmt.Errorf("unknown op %q", req.Op)
+}
+
+// docKey tells whether a key names a document the server may keep.
+func docKey(key string) bool {
+	if key == "" || len(key) > 64 {
+		return false
+	}
+	for _, r := range key {
+		if r != '-' && (r < 'a' || r > 'z') && (r < '0' || r > '9') {
+			return false
+		}
+	}
+	return true
+}
+
+// get returns the document key, nil when there is none.
+func (s *Server) get(key string) (any, error) {
+	if !docKey(key) {
+		return nil, fmt.Errorf("bad key %q", key)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d, ok := s.docs[key]
+	if !ok {
+		if b, err := os.ReadFile(filepath.Join(Dir(), key+".json")); err == nil && json.Valid(b) {
+			d = b
+		}
+		s.docs[key] = d
+	}
+	if d == nil {
+		return nil, nil
+	}
+	return d, nil
+}
+
+// set keeps the document key, on disk as <key>.json, whole or not at all.
+func (s *Server) set(key string, v json.RawMessage) error {
+	if !docKey(key) {
+		return fmt.Errorf("bad key %q", key)
+	}
+	if !json.Valid(v) {
+		return fmt.Errorf("%s is not JSON", key)
+	}
+	d := bytes.Clone(v)
+	s.mu.Lock()
+	s.docs[key] = d
+	s.mu.Unlock()
+	path := filepath.Join(Dir(), key+".json")
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, d, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 func newID() string {

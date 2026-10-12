@@ -88,10 +88,16 @@ func (a *App) switchTo(b binding, force bool) {
 		return
 	}
 	a.saveNow()
+	if a.settingsDue {
+		a.saveHostSettings()
+	}
 	a.detachAll()
 	a.reset()
 	a.hello = rex.Hello{}
 	a.bind = b
+	// Until the host's own settings are known, the Defaults.
+	a.host = Settings{}
+	a.applySettings()
 	a.startConnecting(a.win, b, "Connecting to "+b.label()+"…")
 }
 

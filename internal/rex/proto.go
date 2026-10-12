@@ -17,7 +17,7 @@ import (
 )
 
 // ProtocolVersion changes whenever the wire protocol does.
-const ProtocolVersion = 1
+const ProtocolVersion = 2
 
 // BridgeReady starts the line a bridge prints before it multiplexes its
 // standard input and output; the rest of the line is its executable.
@@ -25,13 +25,16 @@ const BridgeReady = "GOREX-BRIDGE "
 
 // Request is a line of the control connection, from the client.
 type Request struct {
-	ID     int64           `json:"id"`
-	Op     string          `json:"op"`
-	SID    string          `json:"sid,omitempty"`
-	Cols   int             `json:"cols,omitempty"`
-	Rows   int             `json:"rows,omitempty"`
-	Create *CreateOptions  `json:"create,omitempty"`
-	Layout json.RawMessage `json:"layout,omitempty"`
+	ID     int64          `json:"id"`
+	Op     string         `json:"op"`
+	SID    string         `json:"sid,omitempty"`
+	Cols   int            `json:"cols,omitempty"`
+	Rows   int            `json:"rows,omitempty"`
+	Create *CreateOptions `json:"create,omitempty"`
+	// Key names a document of the app's, for get and set, which keeps
+	// Value; the server stores it and does not read it.
+	Key   string          `json:"key,omitempty"`
+	Value json.RawMessage `json:"value,omitempty"`
 }
 
 // Response answers the Request with the same ID.
@@ -43,12 +46,18 @@ type Response struct {
 
 // CreateOptions start a session.
 type CreateOptions struct {
-	// Command runs instead of the user's login shell.
+	// Command runs instead of the user's login shell; Login starts it as a
+	// login shell too, as the user's shell is, with "-" before its name.
 	Command []string `json:"command,omitempty"`
+	Login   bool     `json:"login,omitempty"`
 	Dir     string   `json:"dir,omitempty"`
 	Env     []string `json:"env,omitempty"`
 	Cols    int      `json:"cols,omitempty"`
 	Rows    int      `json:"rows,omitempty"`
+	// Scrollback is about how many lines of output the session keeps
+	// above its screen, for the windows that attach to it: the server's
+	// default when zero.
+	Scrollback int `json:"scrollback,omitempty"`
 }
 
 // SessionInfo describes a session and what runs in it now.

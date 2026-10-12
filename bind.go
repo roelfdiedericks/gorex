@@ -108,10 +108,8 @@ func dialBinding(b binding, prog remote.Progress, restart bool) (*rex.Client, *r
 	return client, link, h, nil
 }
 
-// connectAttempts is how many times a window tries to connect before it
-// gives up, waiting retryDelays between them.
-const connectAttempts = 5
-
+// retryDelays are the waits between attempts to connect, the last one
+// repeating; the settings say how many attempts.
 var retryDelays = []time.Duration{1, 2, 4, 8}
 
 // startConnecting connects the window to the server of b, in the
@@ -119,12 +117,12 @@ var retryDelays = []time.Duration{1, 2, 4, 8}
 // connection is made, which closes it unless the user opened it.
 func (a *App) startConnecting(win *mygo.Window, b binding, status string) {
 	a.status, a.connDown = status, false
-	if b.remote && !a.logOpen {
+	if b.remote && !a.logOpen && is(a.eff.General.LogWhileConnecting) {
 		a.logOpen, a.logAuto = true, true
 	}
 	restart := a.restartNext
 	a.restartNext = false
-	go a.connectLoop(win, b, a.gen.Add(1), restart)
+	go a.connectLoop(win, b, a.gen.Add(1), max(a.eff.General.ReconnectAttempts, 1), restart)
 }
 
 // restartServer connects again, restarting the host's server with this
@@ -138,7 +136,7 @@ func (a *App) restartServer() {
 
 // connectLoop connects the window to the server of b, trying a few times,
 // unless the window moves on to another attempt (gen) meanwhile.
-func (a *App) connectLoop(win *mygo.Window, b binding, gen int64, restart bool) {
+func (a *App) connectLoop(win *mygo.Window, b binding, gen int64, attempts int, restart bool) {
 	current := func() bool { return a.gen.Load() == gen }
 	prog := remote.Progress{
 		Status: func(s string) {
@@ -155,7 +153,7 @@ func (a *App) connectLoop(win *mygo.Window, b binding, gen int64, restart bool) 
 		},
 	}
 	for try := 1; ; try++ {
-		prog.Log(fmt.Sprintf("connecting to %s, attempt %d of %d", b.label(), try, connectAttempts))
+		prog.Log(fmt.Sprintf("connecting to %s, attempt %d of %d", b.label(), try, attempts))
 		client, link, h, err := dialBinding(b, prog, restart && try == 1)
 		if !current() {
 			if err == nil {
@@ -167,12 +165,17 @@ func (a *App) connectLoop(win *mygo.Window, b binding, gen int64, restart bool) 
 			return
 		}
 		if err == nil {
+			// The host's settings, to apply before its tabs show.
+			sb, serr := client.Get("settings")
+			if serr != nil {
+				prog.Log("reading the host's settings: " + serr.Error())
+			}
 			prog.Log("connected to " + b.label())
-			win.Update(func() { a.attachBinding(win, b, gen, client, link, h) })
+			win.Update(func() { a.attachBinding(win, b, gen, client, link, h, sb) })
 			return
 		}
 		prog.Log("failed: " + err.Error())
-		if try == connectAttempts {
+		if try == attempts {
 			win.Update(func() {
 				if current() {
 					a.status = fmt.Sprintf("Can't reach %s: %v", b.label(), err)
@@ -217,7 +220,7 @@ func (a *App) connLogText() []string {
 }
 
 // attachBinding shows the sessions of the server the window connected to.
-func (a *App) attachBinding(win *mygo.Window, b binding, gen int64, client *rex.Client, link *remote.Link, h rex.Hello) {
+func (a *App) attachBinding(win *mygo.Window, b binding, gen int64, client *rex.Client, link *remote.Link, h rex.Hello, settings []byte) {
 	if a.gen.Load() != gen || a.win != win {
 		client.Close()
 		if link != nil {
@@ -229,6 +232,7 @@ func (a *App) attachBinding(win *mygo.Window, b binding, gen int64, client *rex.
 	a.reset()
 	a.client, a.link, a.hello = client, link, h
 	setHost(h, b.remote)
+	a.setHostSettings(settings)
 	a.status, a.connDown = "", false
 	if a.logAuto {
 		a.logOpen, a.logAuto = false, false

@@ -16,8 +16,13 @@ import (
 )
 
 // scrollback is about how many bytes of output a session keeps above its
-// screen, for the windows that attach to it.
-const scrollback = 8 << 20
+// screen, for the windows that attach to it, when the session asks for
+// no particular number of lines; scrollbackLine is about what a line
+// takes, to size the buffer from a number of lines.
+const (
+	scrollback     = 8 << 20
+	scrollbackLine = 256
+)
 
 // session is a pseudo-terminal of the server and its shell.
 type session struct {
@@ -75,7 +80,7 @@ func (a *attached) writer() {
 }
 
 func newSession(id string, o CreateOptions) (*session, error) {
-	path, argv, name, err := shellCommand(o.Command)
+	path, argv, name, err := shellCommand(o.Command, o.Login)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +105,11 @@ func newSession(id string, o CreateOptions) (*session, error) {
 	// The emulator's Conn reads nothing, and what it would answer programs
 	// is dropped: the windows' terminals answer them.
 	pr, pw := io.Pipe()
-	vt, err := terminal.New(terminal.Options{Conn: discard{pr}, Scrollback: scrollback, OnBell: func() { s.bells.Add(1) }})
+	keep := scrollback
+	if o.Scrollback > 0 {
+		keep = o.Scrollback * scrollbackLine
+	}
+	vt, err := terminal.New(terminal.Options{Conn: discard{pr}, Scrollback: keep, OnBell: func() { s.bells.Add(1) }})
 	if err != nil {
 		p.hangup()
 		return nil, err

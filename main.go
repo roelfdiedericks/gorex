@@ -50,8 +50,8 @@ func main() {
 		}
 	}
 	registerFonts()
-	loadSettings()
 	a := &App{stateKey: "main"}
+	a.loadSettings()
 	// ssh <destination> opens a window on the sessions of a server there.
 	// Its window keeps a place of its own, and the process is the window's:
 	// it quits when the window closes, on macOS too, as ssh itself ends
@@ -63,6 +63,13 @@ func main() {
 		} else {
 			a.bind = binding{remote: true, target: t}
 			a.stateKey = "ssh/" + t.Key()
+		}
+	} else if a.eff.General.StartWith == "lastHost" {
+		// The host used last, as the settings say, when none is named.
+		if rs := loadRemotes(); len(rs) > 0 {
+			if t, err := remote.Resolve(rs[0].Target); err == nil {
+				a.bind = binding{remote: true, target: t}
+			}
 		}
 	}
 	mygo.App.SetMenu(a.menu())
@@ -137,7 +144,8 @@ func (a *App) open() {
 	a.startConnecting(win, a.bind, "Connecting to "+a.bind.label()+"…")
 }
 
-// saveNow sends the layout to the server and waits for it to be kept.
+// saveNow sends the layout, and the host's settings when they changed,
+// to the server and waits for them to be kept.
 func (a *App) saveNow() {
 	if a.client == nil || len(a.tabs) == 0 && !a.quitting {
 		return
@@ -146,9 +154,15 @@ func (a *App) saveNow() {
 	if err != nil {
 		return
 	}
+	settings := a.settingsDue
+	a.settingsDue = false
+	host := encodeHost(a.host)
 	done := make(chan struct{})
 	go func() {
-		a.client.SetLayout(b)
+		if settings {
+			a.client.Set("settings", host)
+		}
+		a.client.Set("layout", b)
 		close(done)
 	}()
 	select {

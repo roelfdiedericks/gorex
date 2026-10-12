@@ -220,8 +220,8 @@ func environmentBlock(env []string) []uint16 {
 // shellCommand returns the program, its arguments and the shell's name
 // for a session: when cmd is empty, $SHELL when it names a program of
 // Windows (not one of MSYS's paths), else PowerShell, else the command
-// interpreter.
-func shellCommand(cmd []string) (path string, argv []string, name string, err error) {
+// interpreter. Windows has no login shells: login is ignored.
+func shellCommand(cmd []string, _ bool) (path string, argv []string, name string, err error) {
 	if len(cmd) > 0 {
 		path, err = exec.LookPath(cmd[0])
 		if err != nil {

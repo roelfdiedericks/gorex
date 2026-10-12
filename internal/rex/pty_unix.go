@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"syscall"
 
 	"golang.org/x/sys/unix"
@@ -118,8 +119,9 @@ func (p *pty) hangup() {
 }
 
 // shellCommand returns the program, its arguments and the shell's name
-// for a session: the user's login shell when cmd is empty.
-func shellCommand(cmd []string) (path string, argv []string, name string, err error) {
+// for a session: the user's login shell when cmd is empty, and cmd as a
+// login shell when login is set.
+func shellCommand(cmd []string, login bool) (path string, argv []string, name string, err error) {
 	if len(cmd) == 0 {
 		sh := os.Getenv("SHELL")
 		if sh == "" {
@@ -132,5 +134,9 @@ func shellCommand(cmd []string) (path string, argv []string, name string, err er
 	if err != nil {
 		return "", nil, "", err
 	}
-	return path, cmd, filepath.Base(cmd[0]), nil
+	argv = slices.Clone(cmd)
+	if login {
+		argv[0] = "-" + filepath.Base(cmd[0])
+	}
+	return path, argv, filepath.Base(cmd[0]), nil
 }

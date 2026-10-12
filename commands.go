@@ -147,7 +147,7 @@ func (a *App) menu() *mygo.Menu {
 		})
 	}
 	appearance := func(label, v string) *mygo.MenuItem {
-		return &mygo.MenuItem{Label: label, Type: mygo.MenuItemRadio, Checked: prefs.Appearance == v, Click: func(*mygo.MenuItem, *mygo.Window) {
+		return &mygo.MenuItem{Label: label, Type: mygo.MenuItemRadio, Checked: a.eff.Appearance.Mode == v, Click: func(*mygo.MenuItem, *mygo.Window) {
 			a.setAppearance(v)
 		}}
 	}
@@ -228,13 +228,13 @@ func (a *App) run(cmd *command) {
 }
 
 func (a *App) closeFocused() {
-	if t := a.tab(); t != nil && t.Focus != nil {
+	if t := a.tab(); t != nil && t.Focus != nil && a.confirmClose([]*Pane{t.Focus}) {
 		a.closePane(t.Focus)
 	}
 }
 
 func (a *App) closeActiveTab() {
-	if t := a.tab(); t != nil {
+	if t := a.tab(); t != nil && a.confirmClose(t.panes()) {
 		a.closeTab(t)
 	}
 }

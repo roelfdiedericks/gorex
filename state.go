@@ -127,6 +127,13 @@ type App struct {
 	logShown  int
 	// remotes are the known remote servers, for the palette.
 	remotes []savedRemote
+	// defaults are this PC's settings, host the current host's overrides,
+	// and eff what applies: see Settings. termOpts is what the panes'
+	// terminals were made with, to make them anew when it changes.
+	defaults, host, eff Settings
+	termOpts            string
+	settingsDue         bool
+	settingsErr         string
 
 	tabs   []*Tab
 	active int
@@ -233,15 +240,18 @@ func (a *App) newPane(dir string, cols, rows int) *Pane {
 	client := a.client
 	var info rex.SessionInfo
 	err := errors.New("not connected to the server")
+	o := shellOptions(&a.eff)
+	o.Dir, o.Cols, o.Rows = dir, cols, rows
 	if client != nil {
-		info, err = client.Create(rex.CreateOptions{Dir: dir, Cols: cols, Rows: rows})
+		info, err = client.Create(o)
 	}
 	if err != nil && dir != hostHome && client != nil && !closed(client.Closed()) {
 		// The server answered, so the directory may be gone: the home
 		// directory then.
 		log.Printf("creating a session in %s: %v", dir, err)
 		dir = hostHome
-		info, err = client.Create(rex.CreateOptions{Dir: dir, Cols: cols, Rows: rows})
+		o.Dir = dir
+		info, err = client.Create(o)
 	}
 	if err != nil {
 		log.Printf("creating a session: %v", err)
@@ -268,8 +278,9 @@ func closed(ch <-chan struct{}) bool {
 
 // attach makes the pane's terminal, attached to its session.
 func (a *App) attach(p *Pane, cols, rows int) {
+	light, dark := termThemes(&a.eff)
 	if p.SID == "" {
-		term, err := terminal.New(terminal.Options{Conn: nopConn{}, Transparent: true, Font: termFont, Theme: lightTerm, DarkTheme: darkTerm})
+		term, err := terminal.New(terminal.Options{Conn: nopConn{}, Transparent: true, Font: termFont, Theme: light, DarkTheme: dark})
 		if err == nil {
 			term.Feed([]byte("\x1b[31mCould not start a session: " + a.err + "\x1b[0m\r\n"))
 			p.term = term
@@ -292,9 +303,13 @@ func (a *App) attach(p *Pane, cols, rows int) {
 	term, err := terminal.New(terminal.Options{
 		Conn:        p.stream,
 		Font:        termFont,
-		Theme:       lightTerm,
-		DarkTheme:   darkTerm,
-		Transparent: true,
+		Theme:       light,
+		DarkTheme:   dark,
+		Transparent: is(a.eff.Appearance.Transparent),
+		Cursor:      cursorOf(&a.eff),
+		NoBlink:     !is(a.eff.Terminal.Blink),
+		Scrollback:  a.eff.Terminal.Scrollback * 256,
+		OptionAsAlt: is(a.eff.Terminal.OptionAsAlt),
 		OnTitle: func(title string) {
 			update(func() { p.title = title })
 		},
@@ -348,9 +363,18 @@ func (nopConn) Read([]byte) (int, error)    { select {} }
 func (nopConn) Write(p []byte) (int, error) { return len(p), nil }
 func (nopConn) Close() error                { return nil }
 
+// ring takes a session's bell: the pane asks for attention when it is
+// out of sight, and the system's sound plays, as the settings say.
 func (a *App) ring(p *Pane) {
-	if t := a.tab(); t == nil || t.Focus != p || p.Tab != t || !a.focusedWin {
+	bell := a.eff.Terminal.Bell
+	if bell == "none" {
+		return
+	}
+	if t := a.tab(); (t == nil || t.Focus != p || p.Tab != t || !a.focusedWin) && is(a.eff.General.Attention) {
 		p.attention = true
+	}
+	if bell == "sound" {
+		mygo.Shell.Beep()
 	}
 }
 
@@ -373,8 +397,12 @@ func (a *App) newTab(dir string) *Tab {
 	return t
 }
 
-// currentDir returns the directory new panes open in: the focused pane's.
+// currentDir returns the directory new panes open in: the focused pane's,
+// or the home directory, as the settings say.
 func (a *App) currentDir() string {
+	if a.eff.Shell.StartIn == "home" {
+		return hostHome
+	}
 	if t := a.tab(); t != nil && t.Focus != nil {
 		if d := t.Focus.info.Dir; d != "" {
 			return d
@@ -806,13 +834,13 @@ func (a *App) save() {
 	a.lastSnapshot = string(b)
 	a.lastSave = time.Now()
 	c := a.client
-	go c.SetLayout(b)
+	go c.Set("layout", b)
 }
 
 // restore opens the tabs of the saved layout, attaching to the sessions
 // the server still has and starting new ones in place of those it lost.
 func (a *App) restore() bool {
-	raw, err := a.client.Layout()
+	raw, err := a.client.Get("layout")
 	if err != nil || len(raw) == 0 {
 		return false
 	}
@@ -947,10 +975,11 @@ func (a *App) apply(byID map[string]rex.SessionInfo) {
 			// asks for attention.
 			if !was.Idle && was.Program != "" && in.Idle && was.Program != in.Program {
 				seen := ti == a.active && t.Focus == p && a.focusedWin
-				if !seen {
+				if !seen && is(a.eff.General.Attention) {
 					p.attention = true
 				}
-				if !a.focusedWin && time.Since(was.LastInput) > 8*time.Second {
+				ran := time.Since(was.LastInput)
+				if !a.focusedWin && is(a.eff.General.Notify) && ran > time.Duration(a.eff.General.NotifyAfter)*time.Second {
 					prog := programOf(was.Program)
 					n := mygo.NewNotification(mygo.NotificationOptions{
 						Title: prog.Name + " finished",

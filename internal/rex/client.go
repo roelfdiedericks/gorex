@@ -160,11 +160,16 @@ func (c *Client) call(req Request, out any) error {
 	req.ID = c.nextID
 	c.pending[req.ID] = ch
 	c.mu.Unlock()
-	b, _ := json.Marshal(req)
-	c.wmu.Lock()
-	_, err := c.conn.Write(append(b, '\n'))
-	c.wmu.Unlock()
+	b, err := json.Marshal(req)
+	if err == nil {
+		c.wmu.Lock()
+		_, err = c.conn.Write(append(b, '\n'))
+		c.wmu.Unlock()
+	}
 	if err != nil {
+		c.mu.Lock()
+		delete(c.pending, req.ID)
+		c.mu.Unlock()
 		return err
 	}
 	var res Response
@@ -206,14 +211,16 @@ func (c *Client) Resize(sid string, cols, rows int) error {
 	return c.call(Request{Op: "resize", SID: sid, Cols: cols, Rows: rows}, nil)
 }
 
-func (c *Client) Layout() (json.RawMessage, error) {
-	var l json.RawMessage
-	err := c.call(Request{Op: "getLayout"}, &l)
-	return l, err
+// Get returns a document the app keeps with the server, nil for none.
+func (c *Client) Get(key string) (json.RawMessage, error) {
+	var v json.RawMessage
+	err := c.call(Request{Op: "get", Key: key}, &v)
+	return v, err
 }
 
-func (c *Client) SetLayout(l json.RawMessage) error {
-	return c.call(Request{Op: "setLayout", Layout: l}, nil)
+// Set keeps a document with the server, which writes it to disk.
+func (c *Client) Set(key string, v json.RawMessage) error {
+	return c.call(Request{Op: "set", Key: key, Value: v}, nil)
 }
 
 func (c *Client) Shutdown() error { return c.call(Request{Op: "shutdown"}, nil) }

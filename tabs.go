@@ -120,7 +120,11 @@ func (a *App) tabItem(c *ui.Context, k *colors, i int, t *Tab, width float32) {
 		if hovered && len(a.tabs) > 1 {
 			x := iconButton(c, k, "x", "Close Tab", 18, 12).Tooltip("Close Tab")
 			if x.Clicked() {
-				a.later(c, func() { a.closeTab(t) })
+				a.later(c, func() {
+					if a.confirmClose(t.panes()) {
+						a.closeTab(t)
+					}
+				})
 			}
 		} else if t.attention() {
 			ui.Box(c).Size(7, 7).Radius(4).Background(k.attention).Margin(0, 5, 0, 0)
