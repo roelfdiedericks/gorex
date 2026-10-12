@@ -181,7 +181,13 @@ func (a *App) hostsSection(c *ui.Context, k *colors) {
 	}
 
 	ui.Column(c).Gap(2).Children(func() {
-		ui.Text(c, "HOSTS").FontSize(11).FontWeight(700).TextColor(k.textFaint).Padding(0, 0, 4, 0)
+		ui.Row(c).AlignItems(ui.Center).Padding(0, 0, 4, 0).Children(func() {
+			ui.Text(c, "HOSTS").FontSize(11).FontWeight(700).TextColor(k.textFaint).Grow(1)
+			if textButton(c, k, "Settings…").Clicked() {
+				a.hostOpen = false
+				a.later(c, a.openSettings)
+			}
+		})
 		for _, e := range entries {
 			row := ui.Row(c.Key("host/"+e.spec)).Height(34).Padding(0, 4, 0, 6).Gap(4).Radius(8).AlignItems(ui.Center)
 			if e.current {

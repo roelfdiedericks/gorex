@@ -35,7 +35,7 @@ func (a *App) applySettings() {
 	termFont = termFontOf(&a.eff)
 	light, dark := termThemes(&a.eff)
 	opts := fmt.Sprint(a.eff.Appearance.Transparent != nil && *a.eff.Appearance.Transparent, a.eff.Terminal.Cursor,
-		is(a.eff.Terminal.Blink), a.eff.Terminal.Scrollback, is(a.eff.Terminal.OptionAsAlt))
+		is(a.eff.Terminal.Blink), a.eff.Terminal.Scrollback, is(a.eff.Terminal.OptionAsAlt), is(a.eff.Terminal.CopyOnSelect))
 	remake := a.termOpts != "" && opts != a.termOpts
 	a.termOpts = opts
 	for _, t := range a.tabs {
@@ -166,7 +166,7 @@ func readHostSettings(spec string) (Settings, error) {
 	}
 	client, link, _, err := dialBinding(binding{remote: true, target: t}, remote.Progress{
 		Status: func(string) {}, Log: func(s string) { log.Print(s) },
-	})
+	}, false)
 	if err != nil {
 		return Settings{}, err
 	}

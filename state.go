@@ -306,15 +306,16 @@ func (a *App) attach(p *Pane, cols, rows int) {
 	// session's.
 	stream := p.stream
 	term, err := terminal.New(terminal.Options{
-		Conn:        p.stream,
-		Font:        termFont,
-		Theme:       light,
-		DarkTheme:   dark,
-		Transparent: is(a.eff.Appearance.Transparent),
-		Cursor:      cursorOf(&a.eff),
-		NoBlink:     !is(a.eff.Terminal.Blink),
-		Scrollback:  a.eff.Terminal.Scrollback * 256,
-		OptionAsAlt: is(a.eff.Terminal.OptionAsAlt),
+		Conn:         p.stream,
+		Font:         termFont,
+		Theme:        light,
+		DarkTheme:    dark,
+		Transparent:  is(a.eff.Appearance.Transparent),
+		Cursor:       cursorOf(&a.eff),
+		NoBlink:      !is(a.eff.Terminal.Blink),
+		Scrollback:   a.eff.Terminal.Scrollback * 256,
+		OptionAsAlt:  is(a.eff.Terminal.OptionAsAlt),
+		CopyOnSelect: is(a.eff.Terminal.CopyOnSelect),
 		OnTitle: func(title string) {
 			update(func() { p.title = title })
 		},

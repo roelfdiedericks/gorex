@@ -13,3 +13,5 @@ require (
 require github.com/go-text/typesetting v0.3.5 // indirect
 
 tool github.com/egoist/mygo/cmd/mygo
+
+replace github.com/egoist/mygo => ../mygo

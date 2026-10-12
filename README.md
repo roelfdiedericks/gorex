@@ -50,8 +50,13 @@ terminal plugin (Ghostty's libghostty-vt). No webview, no cgo: one ~15 MB app.
   (glibc 2.28 or later) or macOS, on amd64 or arm64, and ssh logs in with
   keys or an agent, never a password. A window opened with `GoRex ssh`
   quits when it is closed, on macOS too; the server and its sessions go on.
-- Light and dark appearances (View ▸ Appearance), text size (⌘+ ⌘− ⌘0),
-  JetBrains Mono embedded.
+- **Settings** (⌘, / Ctrl+,): a dialogue with a sidebar and a search over
+  every row. The look of a window follows the host it shows: appearance,
+  terminal colors (every Ghostty theme, with a previewer), tint, font,
+  cursor; set on a host, they apply from any PC. Hosts without a value of
+  their own inherit this PC's Defaults. The shell, where new tabs start,
+  the environment and the scrollback are the host's own; notifications,
+  confirm-on-close, copy on select and reconnecting are this PC's.
 
 ## Shortcuts
 
@@ -93,7 +98,8 @@ go run ./tools/remotepayload  # the servers for ssh hosts, in resources/remote (
 CLI together.
 
 The app keeps its state in its data directory: the server's socket and
-log, `layout.json` and `settings.json`, in `~/Library/Application
+log, `layout.json`, the host's `settings.json` and this PC's
+`defaults.json`, in `~/Library/Application
 Support/GoRex` for the built app and `GoRex Dev` for `mygo dev`'s, so
 that developing never touches the sessions of the app you use
 (`GOREX_DIR` names another directory). The sessions outlive the app, but
@@ -124,7 +130,7 @@ resizes from its sides and bottom, not its top.
 | `state.go` | tabs, the tree of splits, panes, saving and restoring the layout |
 | `view.go`, `tabs.go`, `host.go`, `commands.go` | the interface: title bar, tabs, panes, host popover, menus and palette |
 | `programs.go` | how programs show: names, glyphs, tile colors |
-| `style.go`, `settings.go` | colors, fonts, terminal themes; appearance and text size |
+| `style.go`, `settings.go`, `settings_app.go`, `settings_view.go` | colors, fonts, terminal themes; the settings' layers, their dialogue and the theme picker |
 | `internal/rex` | the session server and its client: PTYs, foreground processes, headless screens, the socket protocol, the ssh bridge |
 | `internal/remote` | reaching a server over ssh: copying the host's server there, the multiplexed link |
 
