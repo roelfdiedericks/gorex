@@ -2,6 +2,7 @@ package main
 
 import (
 	_ "embed"
+	"fmt"
 
 	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
@@ -106,6 +107,48 @@ func colorsOf(c *ui.Context) *colors {
 		return &darkColors
 	}
 	return &lightColors
+}
+
+// tinted are the colors with a host's tint mixed into the window's
+// gradient, by the tint's hex and the appearance, as made last.
+var tinted = map[string]*colors{}
+
+// colors returns the window's colors, with the host's tint when it has
+// one: the gradient takes on the tint, so that a host is told at a glance.
+func (a *App) colors(c *ui.Context) *colors {
+	base := colorsOf(c)
+	tint := a.eff.Appearance.Tint
+	if !validHex(tint) {
+		return base
+	}
+	key := fmt.Sprint(c.Theme().Dark, tint)
+	if k, ok := tinted[key]; ok {
+		return k
+	}
+	t := ui.Hex(tint)
+	k := *base
+	amount := float32(0.3)
+	if c.Theme().Dark {
+		amount = 0.4
+	}
+	k.bgTop, k.bgMid, k.bgLow, k.bgBottom = k.bgTop.Mix(t, amount), k.bgMid.Mix(t, amount), k.bgLow.Mix(t, amount), k.bgBottom.Mix(t, amount)
+	k.bgTint = t.Alpha(float32(k.bgTint.A) / 255)
+	tinted[key] = &k
+	return &k
+}
+
+// validHex reports whether s is a color as #rrggbb, which settings from a
+// host may fail to be.
+func validHex(s string) bool {
+	if len(s) != 7 || s[0] != '#' {
+		return false
+	}
+	for _, r := range s[1:] {
+		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f' || r >= 'A' && r <= 'F') {
+			return false
+		}
+	}
+	return true
 }
 
 // paintBackground paints the window's background.
