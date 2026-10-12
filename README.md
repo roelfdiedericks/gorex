@@ -50,6 +50,10 @@ terminal plugin (Ghostty's libghostty-vt). No webview, no cgo: one ~15 MB app.
   (glibc 2.28 or later) or macOS, on amd64 or arm64, and ssh logs in with
   keys or an agent, never a password. A window opened with `GoRex ssh`
   quits when it is closed, on macOS too; the server and its sessions go on.
+- **Pasting images.** A program that reads the clipboard itself (the
+  Kitty clipboard protocol, as omp does) is told what a paste holds and
+  takes the image, on any host: a screenshot pastes into its prompt over
+  ssh. Other programs get the text.
 - **Settings** (⌘, / Ctrl+,): a dialogue with a sidebar and a search over
   every row. The look of a window follows the host it shows: appearance,
   terminal colors (every Ghostty theme, with a previewer), the window's
