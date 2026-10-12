@@ -433,7 +433,7 @@ func (a *App) settingControl(c *ui.Context, k *colors, scope string, f field) {
 			a.startThemePreview(scope, f.key == "appearance.themeLight")
 		}
 	case "appearance.tint":
-		tintControl(c, k, &target, effv, changed)
+		tintControl(c, k, scope, &target, effv, changed)
 	case "terminal.cursor":
 		choices(c, &target, effv, []string{"block", "bar", "underline"}, []string{"Block", "Bar", "Underline"}, changed)
 	case "terminal.bell":
@@ -577,20 +577,26 @@ func sign(v float64) float64 {
 	return 1
 }
 
-// tintControl is a color well and a way to have no tint.
-func tintControl(c *ui.Context, k *colors, target *reflect.Value, eff reflect.Value, changed func()) {
+// tintControl is a color well and a way to have no tint: on a host, the
+// value "none" overrides a Defaults' tint; in the Defaults, no value.
+func tintControl(c *ui.Context, k *colors, scope string, target *reflect.Value, eff reflect.Value, changed func()) {
 	col := ui.Hex("#2e6fd0")
-	if hex := eff.String(); hex != "" {
+	hex := eff.String()
+	if validHex(hex) {
 		col = ui.Hex(hex)
 	}
 	if ui.ColorWell(c, &col).Changed() {
 		target.SetString(hexOf(col))
 		changed()
 	}
-	if eff.String() == "" {
+	if !validHex(hex) {
 		ui.Text(c, "none").FontSize(12.5).TextColor(k.textFaint)
 	} else if textButton(c, k, "None").Clicked() {
-		target.SetString("none")
+		if scope == scopeHost {
+			target.SetString("none")
+		} else {
+			target.SetString("")
+		}
 		changed()
 	}
 }
