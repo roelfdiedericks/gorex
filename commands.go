@@ -52,9 +52,9 @@ var (
 	cmdReconnect   = command{Title: "Reconnect", Run: func(a *App) { a.switchTo(a.bind, true) }}
 	cmdConnLog     = command{Title: "Connection Log…", Run: func(a *App) { a.logOpen = true }}
 	cmdSettings    = command{Title: "Settings…", Accel: "CmdOrCtrl+,", Keys: "⌘,", Other: shortcut{ui.Ctrl, ui.KeyComma}, Run: func(a *App) { a.openSettings() }}
-	cmdBigger      = command{Title: "Bigger Text", Accel: "CmdOrCtrl+=", Keys: "⌘+", Other: shortcut{ui.Ctrl, ui.KeyEqual}, Run: func(a *App) { a.setFontSize(termFont.Size + 1) }}
-	cmdSmaller     = command{Title: "Smaller Text", Accel: "CmdOrCtrl+-", Keys: "⌘−", Other: shortcut{ui.Ctrl, ui.KeyMinus}, Run: func(a *App) { a.setFontSize(termFont.Size - 1) }}
-	cmdActualSize  = command{Title: "Actual Size", Accel: "CmdOrCtrl+0", Keys: "⌘0", Other: shortcut{ui.Ctrl, ui.Key0}, Run: func(a *App) { a.setFontSize(defaultFontSize) }}
+	cmdBigger      = command{Title: "Bigger Text", Accel: "CmdOrCtrl+=", Keys: "⌘+", Other: shortcut{ui.Ctrl, ui.KeyEqual}, Run: func(a *App) { a.stepFontSize(1) }}
+	cmdSmaller     = command{Title: "Smaller Text", Accel: "CmdOrCtrl+-", Keys: "⌘−", Other: shortcut{ui.Ctrl, ui.KeyMinus}, Run: func(a *App) { a.stepFontSize(-1) }}
+	cmdDefaultSize = command{Title: "Default Size", Accel: "CmdOrCtrl+0", Keys: "⌘0", Other: shortcut{ui.Ctrl, ui.Key0}, Run: func(a *App) { a.defaultFontSize() }}
 	cmdLight       = command{Title: "Appearance: Light", Run: func(a *App) { a.setAppearance("light") }}
 	cmdDark        = command{Title: "Appearance: Dark", Run: func(a *App) { a.setAppearance("dark") }}
 	cmdSystem      = command{Title: "Appearance: System", Run: func(a *App) { a.setAppearance("") }}
@@ -67,7 +67,7 @@ var paletteCommands = []*command{
 	&cmdNextTab, &cmdPrevTab, &cmdRenameTab,
 	&cmdFocusLeft, &cmdFocusRight, &cmdFocusUp, &cmdFocusDown,
 	&cmdGrowLeft, &cmdGrowRight, &cmdGrowUp, &cmdGrowDown,
-	&cmdBigger, &cmdSmaller, &cmdActualSize, &cmdLight, &cmdDark, &cmdSystem,
+	&cmdBigger, &cmdSmaller, &cmdDefaultSize, &cmdLight, &cmdDark, &cmdSystem,
 	&cmdClearScroll, &cmdRestart, &cmdReconnect, &cmdConnLog, &cmdSettings, &cmdEndAll,
 }
 
@@ -189,7 +189,7 @@ func (a *App) menu() *mygo.Menu {
 			mygo.Separator(),
 			item(&cmdBigger),
 			item(&cmdSmaller),
-			item(&cmdActualSize),
+			item(&cmdDefaultSize),
 			{Label: "Appearance", Submenu: []*mygo.MenuItem{
 				appearance("System", ""),
 				appearance("Light", "light"),

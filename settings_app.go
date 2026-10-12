@@ -153,6 +153,19 @@ func (a *App) setFontSize(size float32) {
 	a.settingsChanged(true)
 }
 
+// stepFontSize makes the terminals' text bigger or smaller by steps
+// points, for this host.
+func (a *App) stepFontSize(steps int) {
+	a.setFontSize(a.eff.Terminal.Size + float32(steps))
+}
+
+// defaultFontSize lets go of this host's own text size, so that the
+// Defaults' shows.
+func (a *App) defaultFontSize() {
+	a.host.Terminal.Size = 0
+	a.settingsChanged(true)
+}
+
 // copyLook copies the look of one host's settings into another's.
 func copyLook(from Settings, to *Settings) {
 	src := lookOnly(from)

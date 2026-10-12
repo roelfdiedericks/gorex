@@ -321,6 +321,9 @@ func (a *App) attach(p *Pane, cols, rows int) {
 		Scrollback:   a.eff.Terminal.Scrollback * 256,
 		OptionAsAlt:  is(a.eff.Terminal.OptionAsAlt),
 		CopyOnSelect: is(a.eff.Terminal.CopyOnSelect),
+		OnZoom: func(steps int) {
+			update(func() { a.stepFontSize(steps) })
+		},
 		OnTitle: func(title string) {
 			update(func() { p.title = title })
 		},

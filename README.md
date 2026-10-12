@@ -80,7 +80,7 @@ terminal plugin (Ghostty's libghostty-vt). No webview, no cgo: one ~15 MB app.
 | ⇧⌘R | Ctrl+Shift+R | Rename tab |
 | ⇧⌘P, ⌘P | Ctrl+Shift+P | Command palette |
 | ⌘K | Ctrl+Shift+K | Clear |
-| ⌘+ ⌘− ⌘0 | Ctrl+= Ctrl+- Ctrl+0 | Text size |
+| ⌘+ ⌘− ⌘0 | Ctrl+= Ctrl+- Ctrl+0 | Text size for this host; ⌘0 back to the Defaults. ⌘ or Ctrl with the wheel too |
 | ⌥⌘Q | | Quit and end all sessions |
 
 Elsewhere than on macOS, Control and a letter are the terminal's (Ctrl+C,
