@@ -41,6 +41,7 @@ func (a *App) view(c *ui.Context) {
 	a.shortcuts(c)
 	a.palette(c, k)
 	a.connectionLog(c, k)
+	a.settingsDialog(c, k)
 	if a.saveDue && time.Since(a.lastSave) > time.Second {
 		a.save()
 	}

@@ -42,60 +42,60 @@ const settingsVersion = 1
 
 type Appearance struct {
 	// Mode is "light", "dark", or "" to follow the system.
-	Mode string `json:"mode,omitempty" kind:"look" label:"Appearance"`
+	Mode string `json:"mode,omitempty" kind:"look" label:"Appearance" group:"Window"`
 	// Theme and ThemeLight name the terminal's colors, in dark and light
 	// windows, among Ghostty's themes; "GoRex" is the app's own.
-	Theme      string `json:"theme,omitempty" kind:"look" label:"Colors in dark windows"`
-	ThemeLight string `json:"themeLight,omitempty" kind:"look" label:"Colors in light windows"`
+	Theme      string `json:"theme,omitempty" kind:"look" label:"Colors in dark windows" group:"Terminal colors"`
+	ThemeLight string `json:"themeLight,omitempty" kind:"look" label:"Colors in light windows" group:"Terminal colors"`
 	// Tint colors the window's gradient and tab strip, as #rrggbb.
-	Tint string `json:"tint,omitempty" kind:"look" label:"Tint"`
+	Tint string `json:"tint,omitempty" kind:"look" label:"Tint" group:"Window"`
 	// Name is shown for the host instead of its own name.
-	Name        string `json:"name,omitempty" kind:"look" label:"Host name"`
-	Transparent *bool  `json:"transparent,omitempty" kind:"look" label:"Transparent terminal background"`
+	Name        string `json:"name,omitempty" kind:"look" label:"Host name" group:"Window"`
+	Transparent *bool  `json:"transparent,omitempty" kind:"look" label:"Transparent terminal background" group:"Window"`
 }
 
 type Terminal struct {
-	Font       string  `json:"font,omitempty" kind:"look" label:"Font"`
-	Size       float32 `json:"size,omitempty" kind:"look" label:"Size"`
-	Weight     int     `json:"weight,omitempty" kind:"look" label:"Weight"`
-	LineHeight float32 `json:"lineHeight,omitempty" kind:"look" label:"Line height"`
-	Ligatures  *bool   `json:"ligatures,omitempty" kind:"look" label:"Ligatures"`
-	Thicken    *bool   `json:"thicken,omitempty" kind:"look" label:"Thicker text" os:"darwin"`
+	Font       string  `json:"font,omitempty" kind:"look" label:"Font" group:"Text"`
+	Size       float32 `json:"size,omitempty" kind:"look" label:"Size" group:"Text"`
+	Weight     int     `json:"weight,omitempty" kind:"look" label:"Weight" group:"Text"`
+	LineHeight float32 `json:"lineHeight,omitempty" kind:"look" label:"Line height" group:"Text"`
+	Ligatures  *bool   `json:"ligatures,omitempty" kind:"look" label:"Ligatures" group:"Text"`
+	Thicken    *bool   `json:"thicken,omitempty" kind:"look" label:"Thicker text" os:"darwin" group:"Text"`
 	// Cursor is "block", "bar" or "underline".
-	Cursor string `json:"cursor,omitempty" kind:"look" label:"Cursor"`
-	Blink  *bool  `json:"blink,omitempty" kind:"look" label:"Cursor blinks"`
+	Cursor string `json:"cursor,omitempty" kind:"look" label:"Cursor" group:"Cursor"`
+	Blink  *bool  `json:"blink,omitempty" kind:"look" label:"Cursor blinks" group:"Cursor"`
 	// Scrollback is in lines, for the session's buffer on the server and
 	// the window's.
-	Scrollback   int   `json:"scrollback,omitempty" kind:"host" label:"Scrollback"`
-	CopyOnSelect *bool `json:"copyOnSelect,omitempty" kind:"pc" label:"Copy on select"`
-	OptionAsAlt  *bool `json:"optionAsAlt,omitempty" kind:"pc" label:"Option as Alt" os:"darwin"`
+	Scrollback   int   `json:"scrollback,omitempty" kind:"host" label:"Scrollback" group:"Buffer"`
+	CopyOnSelect *bool `json:"copyOnSelect,omitempty" kind:"pc" label:"Copy on select" group:"Input and bell"`
+	OptionAsAlt  *bool `json:"optionAsAlt,omitempty" kind:"pc" label:"Option as Alt" os:"darwin" group:"Input and bell"`
 	// Bell is "none", "mark" (the pane asks for attention) or "sound".
-	Bell string `json:"bell,omitempty" kind:"pc" label:"Bell"`
+	Bell string `json:"bell,omitempty" kind:"pc" label:"Bell" group:"Input and bell"`
 }
 
 type Shell struct {
 	// Command is the program of new sessions, "" for the user's shell, and
 	// Args its arguments, as on a command line.
-	Command string `json:"command,omitempty" kind:"host" label:"Command"`
-	Args    string `json:"args,omitempty" kind:"host" label:"Arguments"`
-	Login   *bool  `json:"login,omitempty" kind:"host" label:"Login shell"`
+	Command string `json:"command,omitempty" kind:"host" label:"Command" group:"Shell"`
+	Args    string `json:"args,omitempty" kind:"host" label:"Arguments" group:"Shell"`
+	Login   *bool  `json:"login,omitempty" kind:"host" label:"Login shell" group:"Shell"`
 	// StartIn is "current" (the focused pane's directory) or "home".
-	StartIn string `json:"startIn,omitempty" kind:"host" label:"New tabs start in"`
+	StartIn string `json:"startIn,omitempty" kind:"host" label:"New tabs start in" group:"Shell"`
 	// Env adds to the environment of new sessions, one KEY=value per line.
-	Env string `json:"env,omitempty" kind:"host" label:"Environment"`
+	Env string `json:"env,omitempty" kind:"host" label:"Environment" group:"Shell"`
 }
 
 type General struct {
-	ConfirmClose *bool `json:"confirmClose,omitempty" kind:"pc" label:"Confirm closing a pane running a program"`
-	Notify       *bool `json:"notify,omitempty" kind:"pc" label:"Notify when a long command finishes"`
+	ConfirmClose *bool `json:"confirmClose,omitempty" kind:"pc" label:"Confirm closing a pane running a program" group:"Panes"`
+	Notify       *bool `json:"notify,omitempty" kind:"pc" label:"Notify when a long command finishes" group:"Notifications"`
 	// NotifyAfter is how many seconds a command must have run for.
-	NotifyAfter        int    `json:"notifyAfter,omitempty" kind:"pc" label:"After"`
-	Attention          *bool  `json:"attention,omitempty" kind:"pc" label:"Mark panes that need attention"`
-	ReconnectAttempts  int    `json:"reconnectAttempts,omitempty" kind:"pc" label:"Reconnect attempts"`
-	LogWhileConnecting *bool  `json:"logWhileConnecting,omitempty" kind:"pc" label:"Show the Connection Log while connecting"`
+	NotifyAfter        int   `json:"notifyAfter,omitempty" kind:"pc" label:"After" group:"Notifications"`
+	Attention          *bool `json:"attention,omitempty" kind:"pc" label:"Mark panes that need attention" group:"Panes"`
+	ReconnectAttempts  int   `json:"reconnectAttempts,omitempty" kind:"pc" label:"Reconnect attempts" group:"Hosts"`
+	LogWhileConnecting *bool `json:"logWhileConnecting,omitempty" kind:"pc" label:"Show the Connection Log while connecting" group:"Hosts"`
 	// StartWith is "local" or "lastHost": what a window with no host named
 	// on the command line opens.
-	StartWith string `json:"startWith,omitempty" kind:"pc" label:"Open at start"`
+	StartWith string `json:"startWith,omitempty" kind:"pc" label:"Open at start" group:"Hosts"`
 }
 
 const defaultFontSize = 11.6
@@ -122,7 +122,7 @@ type field struct {
 	section, name string // Go names, as Settings.Appearance.Mode
 	key           string // the JSON path, as appearance.mode
 	kind          string // look, host or pc
-	label         string
+	label, group  string // the row's label, and the card it is in
 	os            string // "" or the GOOS the field is for
 	index         []int  // into Settings, for reflect
 }
@@ -143,7 +143,7 @@ var fields = func() []field {
 			key, _, _ := strings.Cut(f.Tag.Get("json"), ",")
 			fs = append(fs, field{
 				section: sec.Name, name: f.Name, key: secKey + "." + key,
-				kind: f.Tag.Get("kind"), label: f.Tag.Get("label"), os: f.Tag.Get("os"),
+				kind: f.Tag.Get("kind"), label: f.Tag.Get("label"), group: f.Tag.Get("group"), os: f.Tag.Get("os"),
 				index: []int{i, j},
 			})
 		}

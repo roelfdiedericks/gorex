@@ -7,6 +7,7 @@ import (
 
 	"github.com/egoist/mygo"
 
+	"gorex/internal/remote"
 	"gorex/internal/rex"
 )
 
@@ -146,14 +147,34 @@ func copyLook(from Settings, to *Settings) {
 	}
 }
 
-// fetchSettings reads a host's overrides from its server, for copying a
-// look from a host the window is not on.
+// fetchSettings reads a host's overrides from its server.
 func fetchSettings(client *rex.Client) (Settings, error) {
 	b, err := client.Get("settings")
 	if err != nil {
 		return Settings{}, err
 	}
 	return decodeSettings(b), nil
+}
+
+// readHostSettings connects to a host, as the window would, reads its
+// settings and disconnects: for copying a look from a host the window is
+// not on. It logs what connecting prints, and shows no status.
+func readHostSettings(spec string) (Settings, error) {
+	t, err := remote.Resolve(spec)
+	if err != nil {
+		return Settings{}, err
+	}
+	client, link, _, err := dialBinding(binding{remote: true, target: t}, remote.Progress{
+		Status: func(string) {}, Log: func(s string) { log.Print(s) },
+	})
+	if err != nil {
+		return Settings{}, err
+	}
+	defer client.Close()
+	if link != nil {
+		defer link.Close()
+	}
+	return fetchSettings(client)
 }
 
 // confirmClose asks before closing panes running a program, when the

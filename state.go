@@ -134,6 +134,7 @@ type App struct {
 	termOpts            string
 	settingsDue         bool
 	settingsErr         string
+	settings            settingsUI
 
 	tabs   []*Tab
 	active int
@@ -300,6 +301,10 @@ func (a *App) attach(p *Pane, cols, rows int) {
 			a.post(fn)
 		}
 	}
+	// stream tells the terminal made here apart from one made later for
+	// the same pane, as when the settings remake it: its exit is not the
+	// session's.
+	stream := p.stream
 	term, err := terminal.New(terminal.Options{
 		Conn:        p.stream,
 		Font:        termFont,
@@ -330,7 +335,7 @@ func (a *App) attach(p *Pane, cols, rows int) {
 					return
 				}
 				update(func() {
-					if !p.closed && !a.quitting {
+					if !p.closed && !a.quitting && p.stream == stream {
 						a.closePane(p)
 					}
 				})

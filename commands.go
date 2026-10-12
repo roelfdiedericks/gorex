@@ -51,6 +51,7 @@ var (
 	cmdRestart     = command{Title: "Restart Shell in Pane", Run: func(a *App) { a.restartFocused() }}
 	cmdReconnect   = command{Title: "Reconnect", Run: func(a *App) { a.switchTo(a.bind, true) }}
 	cmdConnLog     = command{Title: "Connection Log…", Run: func(a *App) { a.logOpen = true }}
+	cmdSettings    = command{Title: "Settings…", Accel: "CmdOrCtrl+,", Keys: "⌘,", Other: shortcut{ui.Ctrl, ui.KeyComma}, Run: func(a *App) { a.openSettings() }}
 	cmdBigger      = command{Title: "Bigger Text", Accel: "CmdOrCtrl+=", Keys: "⌘+", Other: shortcut{ui.Ctrl, ui.KeyEqual}, Run: func(a *App) { a.setFontSize(termFont.Size + 1) }}
 	cmdSmaller     = command{Title: "Smaller Text", Accel: "CmdOrCtrl+-", Keys: "⌘−", Other: shortcut{ui.Ctrl, ui.KeyMinus}, Run: func(a *App) { a.setFontSize(termFont.Size - 1) }}
 	cmdActualSize  = command{Title: "Actual Size", Accel: "CmdOrCtrl+0", Keys: "⌘0", Other: shortcut{ui.Ctrl, ui.Key0}, Run: func(a *App) { a.setFontSize(defaultFontSize) }}
@@ -67,7 +68,7 @@ var paletteCommands = []*command{
 	&cmdFocusLeft, &cmdFocusRight, &cmdFocusUp, &cmdFocusDown,
 	&cmdGrowLeft, &cmdGrowRight, &cmdGrowUp, &cmdGrowDown,
 	&cmdBigger, &cmdSmaller, &cmdActualSize, &cmdLight, &cmdDark, &cmdSystem,
-	&cmdClearScroll, &cmdRestart, &cmdReconnect, &cmdConnLog, &cmdEndAll,
+	&cmdClearScroll, &cmdRestart, &cmdReconnect, &cmdConnLog, &cmdSettings, &cmdEndAll,
 }
 
 // commands are all of them.
@@ -194,6 +195,8 @@ func (a *App) menu() *mygo.Menu {
 				appearance("Light", "light"),
 				appearance("Dark", "dark"),
 			}},
+			mygo.Separator(),
+			item(&cmdSettings),
 			mygo.Separator(),
 			{Role: mygo.RoleToggleFullScreen},
 			{Role: mygo.RoleToggleDevTools, Label: "Inspector", Hidden: !mygo.IsDev()},
