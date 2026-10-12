@@ -174,13 +174,28 @@ var fontItalic []byte
 //go:embed assets/fonts/JetBrainsMono-BoldItalic.ttf
 var fontBoldItalic []byte
 
+// The Nerd Fonts' icons alone (file types, git, powerline), which prompts
+// and tools like eza show: the terminal falls back to them under any font.
+//
+//go:embed assets/fonts/SymbolsNerdFontMono-Regular.ttf
+var fontSymbols []byte
+
+const symbolsFont = "Symbols Nerd Font Mono"
+
 func registerFonts() {
 	for _, f := range [][]byte{fontRegular, fontBold, fontItalic, fontBoldItalic} {
 		ui.RegisterFont(f, "JetBrains Mono")
 	}
+	ui.RegisterFont(fontSymbols, symbolsFont)
 }
 
-var termFont = terminal.Font{Family: "JetBrains Mono, SF Mono, Menlo, monospace", Size: 11.6, LineHeight: 1.0}
+// termFamily is the terminal's family list under a chosen font: the
+// system's monospaced fonts after it, the icons, and the generic name.
+func termFamily(font string) string {
+	return font + ", " + symbolsFont + ", SF Mono, Menlo, monospace"
+}
+
+var termFont = terminal.Font{Family: termFamily("JetBrains Mono"), Size: 11.6, LineHeight: 1.0}
 
 // The terminals' colors: soft ink on the panes' paper, and the dark kind.
 var lightTerm = &terminal.Theme{

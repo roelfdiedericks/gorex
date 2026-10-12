@@ -30,6 +30,8 @@ type settingsUI struct {
 	// the last copy went.
 	copyFrom, copyMsg string
 	themes            themesUI
+	// fonts are the font row's choices: this PC's monospaced families.
+	fonts []string
 }
 
 // scope is where a page's values live.
@@ -82,6 +84,15 @@ func (a *App) openSettings() {
 	s.copyMsg = ""
 	a.remotes = loadRemotes()
 	a.focusReq = nil
+	// The monospaced families this PC has, but the icons, and the generic
+	// name, which always resolves.
+	s.fonts = s.fonts[:0]
+	for _, f := range ui.FontFamilies(true) {
+		if f != symbolsFont {
+			s.fonts = append(s.fonts, f)
+		}
+	}
+	s.fonts = append(s.fonts, "monospace")
 }
 
 // showSetting opens the settings at a row, revealed and flashed.
@@ -426,7 +437,7 @@ func (a *App) settingControl(c *ui.Context, k *colors, scope string, f field) {
 		choices(c, &target, effv, []string{"host", "hostAndTab", "tab"}, []string{"Host", "Host and tab", "Tab"}, changed)
 	case "terminal.font":
 		v := effv.String()
-		if ui.Combobox(c, &v, fontChoices).Width(220).Changed() {
+		if ui.Combobox(c, &v, a.settings.fonts).Width(220).Changed() {
 			target.SetString(v)
 			changed()
 		}
@@ -492,8 +503,6 @@ func (a *App) placeholder(f field) string {
 	}
 	return ""
 }
-
-var fontChoices = []string{"JetBrains Mono", "Cascadia Code", "Cascadia Mono", "Consolas", "Fira Code", "Hack", "Menlo", "SF Mono", "Source Code Pro", "monospace"}
 
 // choices is a segmented control over values, showing labels; the
 // effective value shows until a choice sets the layer's.

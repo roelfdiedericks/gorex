@@ -52,8 +52,10 @@ terminal plugin (Ghostty's libghostty-vt). No webview, no cgo: one ~15 MB app.
   quits when it is closed, on macOS too; the server and its sessions go on.
 - **Settings** (⌘, / Ctrl+,): a dialogue with a sidebar and a search over
   every row. The look of a window follows the host it shows: appearance,
-  terminal colors (every Ghostty theme, with a previewer), tint, font,
-  cursor; set on a host, they apply from any PC. Hosts without a value of
+  terminal colors (every Ghostty theme, with a previewer), tint, font
+  (any monospaced one this PC has; Nerd Font icons show under every font,
+  from the embedded Symbols Nerd Font), cursor; set on a host, they apply
+  from any PC. Hosts without a value of
   their own inherit this PC's Defaults. The shell, where new tabs start,
   the environment and the scrollback are the host's own; notifications,
   confirm-on-close, copy on select, reconnecting and what the window's

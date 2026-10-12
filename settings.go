@@ -259,7 +259,7 @@ func termThemes(s *Settings) (light, dark *terminal.Theme) {
 // termFontOf returns the terminal's font by s.
 func termFontOf(s *Settings) terminal.Font {
 	f := terminal.Font{
-		Family: s.Terminal.Font + ", SF Mono, Menlo, monospace", Size: s.Terminal.Size,
+		Family: termFamily(s.Terminal.Font), Size: s.Terminal.Size,
 		Weight: s.Terminal.Weight, LineHeight: s.Terminal.LineHeight, Thicken: is(s.Terminal.Thicken),
 	}
 	if !is(s.Terminal.Ligatures) {
