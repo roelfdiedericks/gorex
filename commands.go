@@ -120,7 +120,7 @@ func (s shortcut) String() string {
 		key = map[ui.Key]string{
 			ui.KeyEnter: "Enter", ui.KeyPageUp: "PageUp", ui.KeyPageDown: "PageDown",
 			ui.KeyLeft: "Left", ui.KeyRight: "Right", ui.KeyUp: "Up", ui.KeyDown: "Down",
-			ui.KeyEqual: "=", ui.KeyMinus: "-",
+			ui.KeyEqual: "=", ui.KeyMinus: "-", ui.KeyComma: ",",
 		}[k]
 	}
 	return strings.Join(append(parts, key), "+")

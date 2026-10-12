@@ -81,6 +81,9 @@ func (a *App) titleBar(c *ui.Context, k *colors) {
 				a.openPalette()
 			}
 			a.connectionButton(c, k)
+			if iconButton(c, k, "settings-2", "Settings", 30, 17).Tooltip(tip("Settings", &cmdSettings)).Clicked() {
+				a.openSettings()
+			}
 			if iconButton(c, k, "plus", "New Tab", 30, 19).Tooltip(tip("New Tab", &cmdNewTab)).Clicked() {
 				a.newTab(a.currentDir())
 			}
