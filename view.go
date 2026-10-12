@@ -496,6 +496,9 @@ func (a *App) connectionLog(c *ui.Context, k *colors) {
 // and opens the Connection Log.
 func (a *App) connectionButton(c *ui.Context, k *colors) {
 	host := a.bind.label()
+	if a.eff.Appearance.Name != "" {
+		host = a.eff.Appearance.Name
+	}
 	dot, label := k.busy, "Connected to "+host
 	switch {
 	case a.connDown:
