@@ -579,8 +579,9 @@ func sign(v float64) float64 {
 
 // tintControl is a color well and a way to have no tint: on a host, the
 // value "none" overrides a Defaults' tint; in the Defaults, no value.
+// Without a tint the well shows the window's own color.
 func tintControl(c *ui.Context, k *colors, scope string, target *reflect.Value, eff reflect.Value, changed func()) {
-	col := ui.Hex("#2e6fd0")
+	col := colorsOf(c).bgMid
 	hex := eff.String()
 	if validHex(hex) {
 		col = ui.Hex(hex)
