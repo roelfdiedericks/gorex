@@ -31,6 +31,16 @@ func (a *App) setHostSettings(b []byte) {
 // panes' terminals anew, which replays their screens.
 func (a *App) applySettings() {
 	a.eff = effective(&a.defaults, &a.host)
+	a.defEff = effective(&a.defaults, &Settings{})
+	if t := &a.settings.themes; t.open && t.scope == scopeDefaults {
+		// Previewing the Defaults' colors: the window shows them over the
+		// host's own meanwhile.
+		if t.light {
+			a.eff.Appearance.ThemeLight = a.defEff.Appearance.ThemeLight
+		} else {
+			a.eff.Appearance.Theme = a.defEff.Appearance.Theme
+		}
+	}
 	applyAppearance(&a.eff)
 	termFont = termFontOf(&a.eff)
 	light, dark := termThemes(&a.eff)

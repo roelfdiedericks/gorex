@@ -131,10 +131,13 @@ type App struct {
 	// and eff what applies: see Settings. termOpts is what the panes'
 	// terminals were made with, to make them anew when it changes.
 	defaults, host, eff Settings
-	termOpts            string
-	settingsDue         bool
-	settingsErr         string
-	settings            settingsUI
+	// defEff is what the Defaults give on their own, over the built-in
+	// values: what the Defaults pages show.
+	defEff      Settings
+	termOpts    string
+	settingsDue bool
+	settingsErr string
+	settings    settingsUI
 
 	tabs   []*Tab
 	active int

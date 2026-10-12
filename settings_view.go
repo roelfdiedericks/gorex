@@ -390,7 +390,7 @@ func (a *App) settingRow(c *ui.Context, k *colors, scope string, f field) {
 // rowValue shows a field's effective value as text, for a page that can't
 // be edited.
 func (a *App) rowValue(scope string, f field) string {
-	v := f.value(&a.eff)
+	v := f.value(a.shown(scope))
 	if v.Kind() == reflect.Pointer {
 		if v.IsNil() {
 			return "off"
@@ -403,6 +403,15 @@ func (a *App) rowValue(scope string, f field) string {
 	return fmt.Sprint(v.Interface())
 }
 
+// shown returns the values a scope's pages show: on the host's, what the
+// window has; on the Defaults', what the Defaults give on their own.
+func (a *App) shown(scope string) *Settings {
+	if scope == scopeDefaults {
+		return &a.defEff
+	}
+	return &a.eff
+}
+
 // settingControl draws the control editing f in the scope's layer; a
 // change applies and saves. Look rows on a host page show the effective
 // value until edited, which makes the value the host's.
@@ -412,7 +421,7 @@ func (a *App) settingControl(c *ui.Context, k *colors, scope string, f field) {
 		layer = &a.host
 	}
 	changed := func() { a.settingsChanged(scope == scopeHost) }
-	effv := f.value(&a.eff)
+	effv := f.value(a.shown(scope))
 	target := f.value(layer)
 	switch f.key {
 	case "appearance.mode":
@@ -718,9 +727,10 @@ func (a *App) startThemePreview(scope string, light bool) {
 		layer = &a.defaults
 	}
 	t.open, t.scope, t.light, t.query = true, scope, light, ""
-	t.orig, t.picked = layer.Appearance.Theme, a.eff.Appearance.Theme
+	shown := a.shown(scope)
+	t.orig, t.picked = layer.Appearance.Theme, shown.Appearance.Theme
 	if light {
-		t.orig, t.picked = layer.Appearance.ThemeLight, a.eff.Appearance.ThemeLight
+		t.orig, t.picked = layer.Appearance.ThemeLight, shown.Appearance.ThemeLight
 	}
 	t.origSet = t.orig != ""
 	t.names = append([]string{"GoRex"}, terminal.GhosttyThemes()...)
@@ -734,6 +744,7 @@ func (a *App) startThemePreview(scope string, light bool) {
 		}
 	}
 	t.grid.Selected = &t.sel
+	a.applySettings()
 }
 
 // previewTheme shows a theme in the window without saving it.
@@ -823,7 +834,16 @@ func (a *App) themePicker(c *ui.Context, k *colors) {
 		}
 		ui.Divider(c)
 		ui.Row(c).Padding(10, 22).Gap(10).AlignItems(ui.Center).Shrink(0).Children(func() {
-			ui.Text(c, fmt.Sprintf("%d of %d · previewing in this window · ↑↓ or click, Enter keeps, Esc goes back", len(names), len(t.names))).
+			note := "previewing in this window"
+			if own := a.host.Appearance.Theme; t.scope == scopeDefaults {
+				if t.light {
+					own = a.host.Appearance.ThemeLight
+				}
+				if own != "" {
+					note = "previewing the Defaults' colors; this host keeps its own, " + own
+				}
+			}
+			ui.Text(c, fmt.Sprintf("%d of %d · %s · ↑↓ or click, Enter keeps, Esc goes back", len(names), len(t.names), note)).
 				FontSize(11.5).TextColor(k.textFaint).Grow(1).SingleLine().Ellipsis("…")
 			if textButton(c, k, "Back").Clicked() {
 				a.endThemePreview(false)
