@@ -86,7 +86,11 @@ terminal plugin (Ghostty's libghostty-vt). No webview, no cgo: one ~15 MB app.
 Elsewhere than on macOS, Control and a letter are the terminal's (Ctrl+C,
 Ctrl+D, Ctrl+W…), so GoRex's shortcuts take Shift too, as copying and
 pasting do (Ctrl+Shift+C, Ctrl+Shift+V), and none take Control and Alt,
-which type characters (AltGr) on many keyboards.
+which type characters (AltGr) on many keyboards. Windows' habits are
+settings of this PC, on by default on Windows: Ctrl+C copies the
+selection when there is one (and interrupts when there is none), Ctrl+V
+pastes, Ctrl+Insert and Shift+Insert copy and paste, and a right click
+pastes, or copies the selection.
 
 ## Develop and build
 

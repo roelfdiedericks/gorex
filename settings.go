@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 
 	"github.com/egoist/mygo"
@@ -78,7 +79,13 @@ type Terminal struct {
 	// the window's.
 	Scrollback   int   `json:"scrollback,omitempty" kind:"host" label:"Scrollback" group:"Buffer"`
 	CopyOnSelect *bool `json:"copyOnSelect,omitempty" kind:"pc" label:"Copy on select" group:"Input and bell"`
-	OptionAsAlt  *bool `json:"optionAsAlt,omitempty" kind:"pc" label:"Option as Alt" os:"darwin" group:"Input and bell"`
+	// The copy and paste keys beside Ctrl+Shift+C and +V (⌘C and ⌘V on
+	// macOS): Windows' habits, on by default there.
+	CtrlCCopies      *bool `json:"ctrlCCopies,omitempty" kind:"pc" label:"Ctrl+C copies the selection (interrupts when none)" os:"windows,linux" group:"Copy and paste"`
+	CtrlVPastes      *bool `json:"ctrlVPastes,omitempty" kind:"pc" label:"Ctrl+V pastes" os:"windows,linux" group:"Copy and paste"`
+	InsertKeys       *bool `json:"insertKeys,omitempty" kind:"pc" label:"Ctrl+Insert copies, Shift+Insert pastes" os:"windows,linux" group:"Copy and paste"`
+	RightClickPastes *bool `json:"rightClickPastes,omitempty" kind:"pc" label:"Right click pastes (copies the selection when there is one)" group:"Copy and paste"`
+	OptionAsAlt      *bool `json:"optionAsAlt,omitempty" kind:"pc" label:"Option as Alt" os:"darwin" group:"Input and bell"`
 	// Bell is "none", "mark" (the pane asks for attention) or "sound".
 	Bell string `json:"bell,omitempty" kind:"pc" label:"Bell" group:"Input and bell"`
 }
@@ -117,6 +124,7 @@ var builtin = Settings{
 	Terminal: Terminal{
 		Font: "JetBrains Mono", Size: defaultFontSize, Weight: 400, LineHeight: 1, Ligatures: on, Thicken: off,
 		Cursor: "block", Blink: on, Scrollback: 10000, CopyOnSelect: off, OptionAsAlt: off, Bell: "mark",
+		CtrlCCopies: onWindows, CtrlVPastes: onWindows, InsertKeys: on, RightClickPastes: onWindows,
 	},
 	Shell: Shell{Login: on, StartIn: "current"},
 	General: General{
@@ -126,6 +134,10 @@ var builtin = Settings{
 }
 
 var on, off = new(true), new(false)
+
+// onWindows is on for this PC when it runs Windows: the defaults of its
+// copy and paste habits.
+var onWindows = new(runtime.GOOS == "windows")
 
 // field is one setting: where it is in Settings, and what its tag says.
 type field struct {

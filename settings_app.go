@@ -50,8 +50,9 @@ func (a *App) applySettings() {
 	}
 	termFont = termFontOf(&a.eff)
 	light, dark := termThemes(&a.eff)
-	opts := fmt.Sprint(a.eff.Appearance.Transparent != nil && *a.eff.Appearance.Transparent, a.eff.Terminal.Cursor,
-		is(a.eff.Terminal.Blink), a.eff.Terminal.Scrollback, is(a.eff.Terminal.OptionAsAlt), is(a.eff.Terminal.CopyOnSelect))
+	t := &a.eff.Terminal
+	opts := fmt.Sprint(is(a.eff.Appearance.Transparent), t.Cursor, is(t.Blink), t.Scrollback, is(t.OptionAsAlt),
+		is(t.CopyOnSelect), is(t.CtrlCCopies), is(t.CtrlVPastes), is(t.InsertKeys), is(t.RightClickPastes))
 	remake := a.termOpts != "" && opts != a.termOpts
 	a.termOpts = opts
 	for _, t := range a.tabs {
