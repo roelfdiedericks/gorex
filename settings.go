@@ -51,6 +51,14 @@ type Appearance struct {
 	// gradients, "none" for neutral grays, or custom colors mixed into
 	// the gradient, "#rrggbb" or "#top,#bottom".
 	Tint string `json:"tint,omitempty" kind:"look" label:"Tint" group:"Window"`
+	// WindowTitle is "host", "hostAndTab" or "tab": what the window's
+	// title names.
+	WindowTitle string `json:"windowTitle,omitempty" kind:"pc" label:"Window title" group:"Window"`
+	// WindowMaterial is the translucent, blurred material behind the
+	// window, by MyGo's names ("mica", "acrylic", "tabbed" on Windows;
+	// "sidebar", "hud" and the like on macOS), or "" for none. On Windows
+	// a window is made with its material: a change shows at the next start.
+	WindowMaterial string `json:"windowMaterial,omitempty" kind:"pc" label:"Window material" group:"Window" os:"windows,darwin"`
 	// Name is shown for the host instead of its own name.
 	Name        string `json:"name,omitempty" kind:"look" label:"Host name" group:"Window"`
 	Transparent *bool  `json:"transparent,omitempty" kind:"look" label:"Transparent terminal background" group:"Window"`
@@ -98,14 +106,6 @@ type General struct {
 	// StartWith is "local" or "lastHost": what a window with no host named
 	// on the command line opens.
 	StartWith string `json:"startWith,omitempty" kind:"pc" label:"Open at start" group:"Hosts"`
-	// WindowTitle is "host", "hostAndTab" or "tab": what the window's
-	// title names.
-	WindowTitle string `json:"windowTitle,omitempty" kind:"pc" label:"Window title" group:"Window"`
-	// WindowMaterial is the translucent, blurred material behind the
-	// window, by MyGo's names ("mica", "acrylic", "tabbed" on Windows;
-	// "sidebar", "hud" and the like on macOS), or "" for none. On Windows
-	// a window is made with its material: a change shows at the next start.
-	WindowMaterial string `json:"windowMaterial,omitempty" kind:"pc" label:"Window material" group:"Window" os:"windows,darwin"`
 }
 
 const defaultFontSize = 11.6
@@ -113,7 +113,7 @@ const defaultFontSize = 11.6
 // builtin are the values of fields set in neither layer.
 var builtin = Settings{
 	V:          settingsVersion,
-	Appearance: Appearance{Theme: "GoRex", ThemeLight: "GoRex", Tint: "gorex", Transparent: on},
+	Appearance: Appearance{Theme: "GoRex", ThemeLight: "GoRex", Tint: "gorex", Transparent: on, WindowTitle: "host"},
 	Terminal: Terminal{
 		Font: "JetBrains Mono", Size: defaultFontSize, Weight: 400, LineHeight: 1, Ligatures: on, Thicken: off,
 		Cursor: "block", Blink: on, Scrollback: 10000, CopyOnSelect: off, OptionAsAlt: off, Bell: "mark",
@@ -121,7 +121,7 @@ var builtin = Settings{
 	Shell: Shell{Login: on, StartIn: "current"},
 	General: General{
 		ConfirmClose: off, Notify: on, NotifyAfter: 8, Attention: on, ReconnectAttempts: 5,
-		LogWhileConnecting: on, StartWith: "local", WindowTitle: "host",
+		LogWhileConnecting: on, StartWith: "local",
 	},
 }
 

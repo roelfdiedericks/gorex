@@ -446,9 +446,9 @@ func (a *App) settingControl(c *ui.Context, k *colors, scope string, f field) {
 		choices(c, &target, effv, []string{"current", "home"}, []string{"The current pane's directory", "Home"}, changed)
 	case "general.startWith":
 		choices(c, &target, effv, []string{"local", "lastHost"}, []string{thisMachine(), "The last host"}, changed)
-	case "general.windowTitle":
+	case "appearance.windowTitle":
 		choices(c, &target, effv, []string{"host", "hostAndTab", "tab"}, []string{"Host", "Host and tab", "Tab"}, changed)
-	case "general.windowMaterial":
+	case "appearance.windowMaterial":
 		ui.Column(c).Gap(4).AlignItems(ui.End).Children(func() {
 			if runtime.GOOS == "darwin" {
 				choices(c, &target, effv, []string{"", "sidebar", "under-window", "hud"}, []string{"None", "Sidebar", "Under window", "HUD"}, changed)

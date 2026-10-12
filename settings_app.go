@@ -42,7 +42,7 @@ func (a *App) applySettings() {
 		}
 	}
 	applyAppearance(&a.eff)
-	if m := a.eff.General.WindowMaterial; m != a.material && a.win != nil {
+	if m := a.eff.Appearance.WindowMaterial; m != a.material && a.win != nil {
 		// Live on macOS; on Windows, between materials of a window made
 		// with one, and nothing in other windows until the next start.
 		a.material = m

@@ -56,7 +56,7 @@ func (a *App) view(c *ui.Context) {
 	// Control show: the host, the active tab, or both, as this PC wants.
 	if a.win != nil {
 		var parts []string
-		mode := a.eff.General.WindowTitle
+		mode := a.eff.Appearance.WindowTitle
 		if mode != "tab" {
 			parts = append(parts, a.hostName())
 		}
