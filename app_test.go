@@ -94,6 +94,8 @@ func waitFor(t *testing.T, tt *ui.Tester, what string, cond func() bool) {
 		time.Sleep(20 * time.Millisecond)
 		tt.Frame()
 	}
+	// A frame of what it waited for, which may have arrived between two.
+	tt.Frame()
 }
 
 func TestPanesAndTabs(t *testing.T) {
