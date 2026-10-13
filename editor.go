@@ -310,7 +310,7 @@ func (a *App) setFileText(p *Pane, text string, mod time.Time) {
 			a.previewScrollTo(p, e.previewFragment)
 			e.previewFragment = ""
 		}
-	} else if e.preview != nil {
+	} else if e.preview != nil && !isMarkdown(e.path) {
 		a.dropPreview(p)
 	}
 }
@@ -333,13 +333,23 @@ func (a *App) openFile(t *Tab, path string, split bool) {
 	if split || target.edit.modified() || target.edit.path != "" && target.edit.loading {
 		target = a.splitPane(target, false)
 	}
+	// The pane's page stays for the next Markdown file, with no reload.
+	var pv *previewState
+	if isMarkdown(path) {
+		pv = target.edit.preview
+		target.edit.preview = nil
+	}
+	a.dropPreview(target)
 	if kept, ok := a.keptEdits[path]; ok {
 		delete(a.keptEdits, path)
 		target.edit = kept
 	} else {
-		a.dropPreview(target)
 		target.edit = &editorState{path: path, mode: modeEditor, previewOnLoad: isMarkdown(path) && is(a.eff.Editor.PreviewOnOpen)}
 		a.loadFile(target, 0)
+	}
+	if pv != nil {
+		a.dropPreview(target)
+		target.edit.preview = pv
 	}
 	t.setFocus(target)
 	a.focusReq = target

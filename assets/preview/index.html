@@ -2,6 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<!-- The file's directory, which the app sets as the pane shows a file:
+     relative links and images resolve against it. -->
+<base id="gorex-base">
 <meta name="color-scheme" content="light dark">
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="gorex-asset://localhost/github-markdown.css">
@@ -67,11 +70,20 @@
     }
   }
 
-  // setContent replaces the article, keeping the scroll position.
-  window.gorexSetContent = async function (html) {
+  // setBase names the directory relative URLs resolve against, as a path
+  // of the page's origin ("/C:/docs/" or "/home/me/docs/").
+  window.gorexSetBase = function (path) {
+    document.getElementById("gorex-base").href = new URL(path, location.href).href;
+    return true;
+  };
+
+  // setContent replaces the article, keeping the scroll position when
+  // asked (the same file edited), else from the top (another file).
+  window.gorexSetContent = async function (html, keep) {
     const y = window.scrollY;
     content.innerHTML = html;
-    window.scrollTo(0, y);
+    for (const pre of content.querySelectorAll("pre.mermaid")) pre.dataset.src = pre.textContent;
+    window.scrollTo(0, keep ? y : 0);
     await drawDiagrams();
     return true;
   };
@@ -95,11 +107,6 @@
     if (el) el.scrollIntoView({ block: "start" }); else if (!id) window.scrollTo(0, 0);
     return !!el;
   };
-
-  // Keep each diagram's source for re-drawing on a theme change.
-  const keepSources = () => { for (const pre of content.querySelectorAll("pre.mermaid")) if (pre.dataset.src === undefined) pre.dataset.src = pre.textContent; };
-  const origSet = window.gorexSetContent;
-  window.gorexSetContent = async function (html) { content.innerHTML = html; keepSources(); return origSet.call(null, content.innerHTML); };
 
   // Links: anchors scroll here; everything else the app decides.
   document.addEventListener("click", (e) => {

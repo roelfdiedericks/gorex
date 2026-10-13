@@ -41,18 +41,27 @@ const (
 	previewFileCap = 32 << 20
 )
 
-// previewState is an editor pane's preview: its web view, made when the
-// pane enters Preview and destroyed when it leaves, and the render in
-// flight.
+// previewState is an editor pane's preview: its web view and page, made
+// as the pane first enters Preview and kept, hidden while the pane shows
+// the editor and across the Markdown files it shows, until the pane
+// closes or moves on to another kind of file; and the render in flight.
 type previewState struct {
 	web     *mygo.WebView
 	loaded  bool   // the page is loaded
 	version uint64 // the buffer version rendered last
+	path    string // the file rendered last
+	base    string // the directory the page resolves relative URLs in
 	due     bool   // a render is scheduled
 	busy    bool   // a render is in flight
 	again   bool   // the buffer changed during it
 	dark    bool
 	navOff  func()
+	// showing is a file the page shows instead of the document, as an
+	// image a link opened; the document loads again on the way back.
+	showing string
+	// section is the heading the caret was under as the pane last left
+	// Preview: coming back scrolls only when the caret moved elsewhere.
+	section string
 	// phase says what the preview waits on until the page shows the
 	// text, or what went wrong, in the pane's status line.
 	phase string
@@ -88,6 +97,10 @@ func (a *App) registerProtocols() {
 	})
 	mygo.Protocol.HandleFunc("gorex-file", func(w http.ResponseWriter, r *http.Request) {
 		p := hostPathOf(r.URL)
+		if r.URL.Path == "/favicon.ico" { // the engine's, on a file shown by itself
+			http.NotFound(w, r)
+			return
+		}
 		client := a.client
 		if client == nil || p == "" {
 			log.Printf("preview: file %s: not connected", r.URL)
@@ -117,6 +130,12 @@ func fileURL(p string) string {
 	return "gorex-file://localhost" + (&url.URL{Path: p}).EscapedPath()
 }
 
+// previewBase is a directory of the host's as a path of the page's
+// origin: "/C:/docs/" or "/home/me/docs/".
+func previewBase(dir string) string {
+	return strings.TrimPrefix(fileURL(dir), "gorex-file://localhost") + "/"
+}
+
 // hostPathOf is the host's path a gorex-file URL names, in the host's
 // separators.
 func hostPathOf(u *url.URL) string {
@@ -139,26 +158,36 @@ func (a *App) showPreview(p *Pane, on bool) {
 	}
 	if on {
 		e.mode = modePreview
+		kept := e.preview != nil && e.preview.loaded && e.preview.showing == "" && e.preview.path == e.path
 		a.ensurePreview(p)
-		// Where the caret is: the heading above it.
-		if e.state != nil {
-			line := e.state.CursorPos().Line
-			id := ""
-			for _, h := range markdown.Headings(e.buf.String()) {
-				if h.Line <= line {
-					id = h.ID
-				}
-			}
-			if id != "" {
-				a.previewScrollTo(p, id)
-			}
+		// Where the caret is: the heading above it, unless the page is
+		// as it was left and the caret is still in that section.
+		if section := a.caretSection(e); section != "" && !(kept && section == e.preview.section) {
+			a.previewScrollTo(p, section)
 		}
 	} else {
 		e.mode = modeEditor
-		a.dropPreview(p)
+		if pv := e.preview; pv != nil {
+			pv.section = a.caretSection(e)
+		}
 	}
 	a.focusReq = p
 	a.changed()
+}
+
+// caretSection is the id of the heading above the editor's caret, or "".
+func (a *App) caretSection(e *editorState) string {
+	if e.state == nil || e.buf == nil {
+		return ""
+	}
+	line := e.state.CursorPos().Line
+	id := ""
+	for _, h := range markdown.Headings(e.buf.String()) {
+		if h.Line <= line {
+			id = h.ID
+		}
+	}
+	return id
 }
 
 // togglePreview switches the focused editor pane's preview.
@@ -168,10 +197,16 @@ func (a *App) togglePreview(p *Pane) {
 	}
 }
 
-// ensurePreview makes the pane's web view and loads the page, once.
+// ensurePreview makes the pane's web view and loads the page, once; a
+// page showing something else loads the document again.
 func (a *App) ensurePreview(p *Pane) {
 	e := p.edit
-	if e.preview != nil && e.preview.web != nil && !e.preview.web.IsDestroyed() {
+	if pv := e.preview; pv != nil && pv.web != nil && !pv.web.IsDestroyed() {
+		if pv.showing != "" {
+			pv.showing = ""
+			a.loadPreviewPage(pv)
+			return
+		}
 		a.renderPreview(p)
 		return
 	}
@@ -186,8 +221,10 @@ func (a *App) ensurePreview(p *Pane) {
 		e.mode = modeEditor
 		return
 	}
-	pv := &previewState{web: web, phase: "loading the page…"}
+	pv := &previewState{web: web}
 	e.preview = pv
+	// The pane's current preview: the state moves to the next file's.
+	current := func() bool { return p.edit != nil && p.edit.preview == pv }
 	page := web.Page()
 	pv.navOff = page.OnWillNavigate(func(ev *mygo.NavigateEvent) {
 		log.Printf("preview: navigating to %s (user %v)", ev.URL, ev.UserInitiated)
@@ -196,35 +233,47 @@ func (a *App) ensurePreview(p *Pane) {
 		}
 		ev.PreventDefault()
 		target := ev.URL
-		a.update(func() { a.followLink(p, target) })
+		a.update(func() {
+			if current() {
+				a.followLink(p, target)
+			}
+		})
 	})
 	page.OnDidFinishLoad(func() {
-		log.Printf("preview: page loaded")
 		a.update(func() {
-			if e.preview != pv {
+			if !current() || pv.showing != "" {
 				return
 			}
+			log.Printf("preview: page loaded")
 			pv.loaded = true
 			pv.phase = "rendering…"
 			a.applyPreviewTheme(p)
-			pv.version = 0
+			pv.version, pv.path, pv.base = 0, "", ""
 			a.renderPreview(p)
 			a.changed()
 		})
 	})
 	page.OnDidFailLoad(func(err *mygo.LoadError) {
-		log.Printf("preview: page failed: %v", err)
 		a.update(func() {
-			if e.preview == pv {
-				pv.phase = "the page failed to load: " + err.Error()
-				a.changed()
+			// A link's navigation, prevented, reports as one too.
+			if !current() || pv.loaded {
+				return
 			}
+			log.Printf("preview: page failed: %v", err)
+			pv.phase = "the page failed to load: " + err.Error()
+			a.changed()
 		})
 	})
+	a.loadPreviewPage(pv)
+}
+
+// loadPreviewPage loads the preview's page, at the origin of the host's
+// files: the file's directory is set as its base per render.
+func (a *App) loadPreviewPage(pv *previewState) {
+	pv.loaded, pv.phase = false, "loading the page…"
 	html, _ := previewAssets.ReadFile("assets/preview/index.html")
-	base := fileURL(dirName(e.path)) + "/"
-	log.Printf("preview: loading the page, base %s", base)
-	page.LoadHTML(strings.ReplaceAll(string(html), "gorex-asset://localhost", assetOrigin), base)
+	log.Printf("preview: loading the page")
+	pv.web.Page().LoadHTML(strings.ReplaceAll(string(html), "gorex-asset://localhost", assetOrigin), "gorex-file://localhost/")
 }
 
 // dropPreview destroys the pane's web view.
@@ -248,7 +297,7 @@ func (a *App) dropPreview(p *Pane) {
 func (a *App) renderPreview(p *Pane) {
 	e := p.edit
 	pv := e.preview
-	if pv == nil || !pv.loaded || e.buf == nil {
+	if pv == nil || !pv.loaded || pv.showing != "" || e.buf == nil {
 		return
 	}
 	if pv.busy {
@@ -275,10 +324,18 @@ func (a *App) renderPreview(p *Pane) {
 			text := e.buf.String()
 			pv.busy = true
 			web := pv.web
+			// Another file: its directory as the base, from the top.
+			path, base := e.path, previewBase(dirName(e.path))
+			code := ""
+			if base != pv.base {
+				bjs, _ := json.Marshal(base)
+				code = "gorexSetBase(" + string(bjs) + "); "
+			}
+			keep := path == pv.path
 			go func() {
 				html := markdown.Render(text)
 				js, _ := json.Marshal(html)
-				_, err := web.Page().Eval("return gorexSetContent(" + string(js) + ")")
+				_, err := web.Page().Eval(code + fmt.Sprintf("return gorexSetContent(%s, %v)", js, keep))
 				a.update(func() {
 					if e.preview != pv {
 						return
@@ -288,7 +345,7 @@ func (a *App) renderPreview(p *Pane) {
 						log.Printf("preview: %v", err)
 						pv.phase = "the page failed: " + err.Error()
 					} else {
-						pv.version = v
+						pv.version, pv.path, pv.base = v, path, base
 						pv.phase = ""
 					}
 					if pv.again {
@@ -409,7 +466,7 @@ func (a *App) openHostPath(p *Pane, target, fragment string) {
 			default:
 				// An image or a document: the page shows it where it can.
 				if pv := p.edit.preview; pv != nil && pv.web != nil {
-					pv.loaded = false
+					pv.showing = target
 					pv.web.Page().LoadURL(fileURL(target))
 					a.toast(ui.Toast{Title: "Showing " + baseName(target), Description: "Toggle Preview twice to come back to the document", Timeout: 4 * time.Second})
 				}
@@ -445,16 +502,21 @@ func (a *App) previewWhenLoaded(p *Pane, fragment string) {
 	e.previewOnLoad, e.previewFragment = true, fragment
 }
 
-// previewScrollTo scrolls a preview to a heading's id, once rendered.
+// previewScrollTo scrolls a preview to a heading's id: at once when the
+// page shows the buffer as it is, else once the render due has run.
 func (a *App) previewScrollTo(p *Pane, id string) {
-	pv := p.edit.preview
+	e := p.edit
+	pv := e.preview
 	if pv == nil || pv.web == nil {
 		return
 	}
 	js, _ := json.Marshal(id)
 	web := pv.web
+	settled := pv.loaded && !pv.due && !pv.busy && e.buf != nil && pv.version == e.buf.Version() && pv.path == e.path
 	go func() {
-		time.Sleep(previewDebounce + 250*time.Millisecond)
+		if !settled {
+			time.Sleep(previewDebounce + 250*time.Millisecond)
+		}
 		web.Page().Eval("return gorexScrollTo(" + string(js) + ")")
 	}()
 }
