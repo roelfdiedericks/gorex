@@ -17,7 +17,7 @@ import (
 )
 
 // ProtocolVersion changes whenever the wire protocol does.
-const ProtocolVersion = 2
+const ProtocolVersion = 3
 
 // BridgeReady starts the line a bridge prints before it multiplexes its
 // standard input and output; the rest of the line is its executable.
@@ -35,7 +35,37 @@ type Request struct {
 	// Value; the server stores it and does not read it.
 	Key   string          `json:"key,omitempty"`
 	Value json.RawMessage `json:"value,omitempty"`
+	// Path is a file of the host's for stat, readDir, readFile and
+	// writeFile; Data what writeFile writes. Max caps what readFile
+	// reads, 0 for no cap; IfModTime, when set, has writeFile refuse a
+	// file modified since then.
+	Path      string    `json:"path,omitempty"`
+	Data      []byte    `json:"data,omitempty"`
+	Max       int64     `json:"max,omitempty"`
+	IfModTime time.Time `json:"ifModTime,omitzero"`
 }
+
+// FileInfo describes a file of the host's, as stat and readDir report.
+type FileInfo struct {
+	Name    string    `json:"name"`
+	Size    int64     `json:"size"`
+	Mode    uint32    `json:"mode"`
+	ModTime time.Time `json:"modTime"`
+	Dir     bool      `json:"dir,omitempty"`
+}
+
+// FileData is a file's bytes as readFile answers, with the modification
+// time they were read at; writeFile answers the time it wrote.
+type FileData struct {
+	Data    []byte    `json:"data,omitempty"`
+	ModTime time.Time `json:"modTime"`
+}
+
+// ErrTooLarge is readFile's error for a file over the cap asked.
+const ErrTooLarge = "too large"
+
+// ErrChanged is writeFile's error for a file modified since IfModTime.
+const ErrChanged = "changed on disk"
 
 // Response answers the Request with the same ID.
 type Response struct {

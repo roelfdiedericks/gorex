@@ -23,6 +23,9 @@ type command struct {
 	Run   func(a *App)
 	// Hidden keeps it out of the palette.
 	Hidden bool
+	// Editor marks a command of editor tabs: its shortcut applies only
+	// while one is active, and the palette lists it only then.
+	Editor bool
 }
 
 var (
@@ -59,12 +62,20 @@ var (
 	cmdDark        = command{Title: "Appearance: Dark", Run: func(a *App) { a.setAppearance("dark") }}
 	cmdSystem      = command{Title: "Appearance: System", Run: func(a *App) { a.setAppearance("") }}
 	cmdEndAll      = command{Title: "Quit and End All Sessions", Accel: "CmdOrCtrl+Alt+Q", Keys: "⌥⌘Q", Run: func(a *App) { a.quitAndEnd() }}
+	cmdNewEditorTab  = command{Title: "New Editor Tab", Accel: "CmdOrCtrl+Shift+O", Keys: "⇧⌘O", Other: ctrlShift(ui.KeyO), Run: func(a *App) { a.newEditorTab("") }}
+	cmdSave          = command{Title: "Save", Accel: "CmdOrCtrl+S", Keys: "⌘S", Other: shortcut{ui.Ctrl, ui.KeyS}, Run: func(a *App) { a.saveFocused() }, Editor: true}
+	cmdToggleChanges = command{Title: "Show Changes", Accel: "CmdOrCtrl+Shift+M", Keys: "⇧⌘M", Other: ctrlShift(ui.KeyM), Run: func(a *App) { a.toggleChanges(a.focusedEditor()) }, Editor: true}
+	cmdSoftWrap      = command{Title: "Soft Wrap", Run: func(a *App) { a.toggleWrap(a.focusedEditor()) }, Editor: true}
+	cmdReloadFile    = command{Title: "Reload File", Run: func(a *App) { a.reloadFocused() }, Editor: true}
+	cmdRefreshFiles  = command{Title: "Refresh Files", Run: func(a *App) { a.refreshFocusedBrowser() }, Editor: true}
+	cmdChangeRoot    = command{Title: "Change Root…", Run: func(a *App) { a.changeRootFocused() }, Editor: true}
 )
 
 // paletteCommands are those the command palette lists, before the tabs.
 var paletteCommands = []*command{
-	&cmdNewTab, &cmdSplitRight, &cmdSplitDown, &cmdZoom, &cmdEqualize, &cmdClosePane, &cmdCloseTab,
+	&cmdNewTab, &cmdNewEditorTab, &cmdSplitRight, &cmdSplitDown, &cmdZoom, &cmdEqualize, &cmdClosePane, &cmdCloseTab,
 	&cmdNextTab, &cmdPrevTab, &cmdRenameTab,
+	&cmdSave, &cmdToggleChanges, &cmdSoftWrap, &cmdReloadFile, &cmdRefreshFiles, &cmdChangeRoot,
 	&cmdFocusLeft, &cmdFocusRight, &cmdFocusUp, &cmdFocusDown,
 	&cmdGrowLeft, &cmdGrowRight, &cmdGrowUp, &cmdGrowDown,
 	&cmdBigger, &cmdSmaller, &cmdDefaultSize, &cmdLight, &cmdDark, &cmdSystem,
@@ -156,6 +167,7 @@ func (a *App) menu() *mygo.Menu {
 		{Role: mygo.RoleAppMenu},
 		{Label: "Shell", Submenu: []*mygo.MenuItem{
 			item(&cmdNewTab),
+			item(&cmdNewEditorTab),
 			mygo.Separator(),
 			item(&cmdSplitRight),
 			item(&cmdSplitDown),
@@ -176,6 +188,16 @@ func (a *App) menu() *mygo.Menu {
 			{Role: mygo.RoleSelectAll},
 			mygo.Separator(),
 			item(&cmdClear),
+		}},
+		{Label: "Editor", Submenu: []*mygo.MenuItem{
+			item(&cmdSave),
+			item(&cmdReloadFile),
+			mygo.Separator(),
+			item(&cmdToggleChanges),
+			item(&cmdSoftWrap),
+			mygo.Separator(),
+			item(&cmdRefreshFiles),
+			item(&cmdChangeRoot),
 		}},
 		{Label: "View", Submenu: []*mygo.MenuItem{
 			item(&cmdPalette),
@@ -305,6 +327,9 @@ func (a *App) restartFocused() {
 }
 
 func (a *App) quitAndEnd() {
+	if !a.confirmUnsaved(a.modifiedPanes()) {
+		return
+	}
 	if a.client == nil {
 		mygo.App.Quit()
 		return
@@ -341,7 +366,11 @@ func (a *App) shortcuts(c *ui.Context) {
 	if runtime.GOOS != "windows" {
 		return
 	}
+	editorTab := a.tab() != nil && a.tab().Kind == paneEditor
 	for _, cmd := range commands {
+		if cmd.Editor && !editorTab {
+			continue
+		}
 		if cmd.Other != (shortcut{}) && c.Shortcut(cmd.Other.Mods, cmd.Other.Key) {
 			a.later(c, func() { cmd.Run(a) })
 		}
@@ -408,8 +437,9 @@ func (a *App) paletteItems() []paletteItem {
 		items = append(items, paletteItem{title: "Forget " + r.title(), detail: r.Target, glyph: "x",
 			run: func() { forgetRemote(r.Key); a.remotes = loadRemotes() }})
 	}
+	editorTab := a.tab() != nil && a.tab().Kind == paneEditor
 	for _, cmd := range paletteCommands {
-		if cmd.Hidden || !match(cmd.Title) {
+		if cmd.Hidden || !match(cmd.Title) || cmd.Editor && !editorTab {
 			continue
 		}
 		cmd := cmd

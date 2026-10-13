@@ -210,6 +210,9 @@ func readHostSettings(spec string) (Settings, error) {
 // confirmClose asks before closing panes running a program, when the
 // settings say so; it reports whether to go on.
 func (a *App) confirmClose(panes []*Pane) bool {
+	if !a.confirmUnsaved(panes) {
+		return false
+	}
 	if !is(a.eff.General.ConfirmClose) {
 		return true
 	}

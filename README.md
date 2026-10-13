@@ -54,6 +54,18 @@ terminal plugin (Ghostty's libghostty-vt). No webview, no cgo: one ~15 MB app.
   Kitty clipboard protocol, as omp does) is told what a paste holds and
   takes the image, on any host: a screenshot pastes into its prompt over
   ssh. Other programs get the text.
+- **Editor tabs** (the ▤ button, ⇧⌘O / Ctrl+Shift+O): a file browser of the
+  host's files on the left, editors on the right that split, zoom, close
+  and take the focus as terminal panes do. A click on a file opens it in
+  the focused editor; with unsaved changes there, or with Enter or
+  Shift+click, in a new split beside it. The editor is MyGo's: syntax
+  highlighting, several carets, folding, find and replace; ⌘S / Ctrl+S
+  saves through the host's server, which refuses a file something else
+  changed meanwhile and asks what to do. A Changes mode shows the diff
+  against the file as it was. Files are read and written on the host,
+  over ssh too, through the session server; buffers live in the window,
+  and unsaved changes survive a reconnect. The tab, its browser's root
+  and open folders, and its panes and modes come back with the layout.
 - **Settings** (⌘, / Ctrl+,): a dialogue with a sidebar and a search over
   every row. The look of a window follows the host it shows: appearance,
   terminal colors (every Ghostty theme, with a previewer), the window's
@@ -85,6 +97,8 @@ terminal plugin (Ghostty's libghostty-vt). No webview, no cgo: one ~15 MB app.
 | ⇧⌘P, ⌘P | Ctrl+Shift+P | Command palette |
 | ⌘K | Ctrl+Shift+K | Clear |
 | ⌘+ ⌘− ⌘0 | Ctrl+= Ctrl+- Ctrl+0 | Text size for this host; ⌘0 back to the Defaults. ⌘ or Ctrl with the wheel too |
+| ⇧⌘O | Ctrl+Shift+O | New editor tab |
+| ⌘S, ⇧⌘M | Ctrl+S, Ctrl+Shift+M | Save; show the file's changes (in editor tabs) |
 | ⌥⌘Q | | Quit and end all sessions |
 
 Elsewhere than on macOS, Control and a letter are the terminal's (Ctrl+C,
@@ -143,6 +157,7 @@ resizes from its sides and bottom, not its top.
 | `main.go` | the app, its window, `-server` and `-bridge` |
 | `bind.go`, `remotes.go` | the server a window shows: connecting, reconnecting, switching, known remotes |
 | `state.go` | tabs, the tree of splits, panes, saving and restoring the layout |
+| `editor.go`, `browser_view.go`, `editor_view.go` | editor tabs: the file browser, editor panes, opening, saving, what survives a reconnect |
 | `view.go`, `tabs.go`, `host.go`, `commands.go` | the interface: title bar, tabs, panes, host popover, menus and palette |
 | `programs.go` | how programs show: names, glyphs, tile colors |
 | `style.go`, `settings.go`, `settings_app.go`, `settings_view.go` | colors, fonts, terminal themes; the settings' layers, their dialogue and the theme picker |

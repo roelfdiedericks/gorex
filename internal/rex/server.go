@@ -279,6 +279,14 @@ func (s *Server) do(req Request) (any, error) {
 		return s.get(req.Key)
 	case "set":
 		return nil, s.set(req.Key, req.Value)
+	case "stat":
+		return statFile(req.Path)
+	case "readDir":
+		return readDir(req.Path)
+	case "readFile":
+		return readFile(req.Path, req.Max)
+	case "writeFile":
+		return writeFile(req.Path, req.Data, req.IfModTime)
 	case "shutdown":
 		go func() {
 			time.Sleep(50 * time.Millisecond)

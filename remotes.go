@@ -87,6 +87,9 @@ func (a *App) switchTo(b binding, force bool) {
 	if !force && b.key() == a.bind.key() {
 		return
 	}
+	if !force && !a.confirmUnsaved(a.modifiedPanes()) {
+		return
+	}
 	a.saveNow()
 	if a.settingsDue {
 		a.saveHostSettings()

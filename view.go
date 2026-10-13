@@ -72,6 +72,9 @@ func (a *App) view(c *ui.Context) {
 		if t := a.tab(); t != nil {
 			if mode != "host" {
 				name, detail := t.label()
+				if f := t.treeFocus(); t.Kind == paneEditor && f != nil && f.edit.path != "" {
+					name, detail = f.edit.label()
+				}
 				parts = append(parts, strings.TrimSpace(name+" "+detail))
 			}
 		} else if a.status != "" {
@@ -111,6 +114,9 @@ func (a *App) titleBar(c *ui.Context, k *colors) {
 			a.connectionButton(c, k)
 			if iconButton(c, k, "settings-2", "Settings", 30, 17).Tooltip(tip("Settings", &cmdSettings)).Clicked() {
 				a.openSettings()
+			}
+			if iconButton(c, k, "folder-tree", "New Editor Tab", 30, 17).Tooltip(tip("New Editor Tab", &cmdNewEditorTab)).Clicked() {
+				a.newEditorTab("")
 			}
 			if iconButton(c, k, "plus", "New Tab", 30, 19).Tooltip(tip("New Tab", &cmdNewTab)).Clicked() {
 				a.newTab(a.currentDir())
@@ -196,13 +202,38 @@ func iconButton(c *ui.Context, k *colors, name, label string, size, iconSize flo
 	return b
 }
 
-// tabContent lays out the panes of a tab, or the one zoomed.
+// tabContent lays out the panes of a tab, or the one zoomed; an editor
+// tab's file browser on the left, with a divider, and its tree.
 func (a *App) tabContent(c *ui.Context, k *colors, t *Tab) {
 	if t.Zoom != nil {
 		a.paneCard(c, k, t, t.Zoom).Grow(1)
 		return
 	}
-	a.node(c, k, t, t.Root).Grow(1)
+	if t.Kind != paneEditor || t.Browser == nil {
+		a.node(c, k, t, t.Root).Grow(1)
+		return
+	}
+	box := ui.Row(c.Key("editor-tab")).Grow(1).MinWidth(0).MinHeight(0).AlignItems(ui.Stretch)
+	bounds := box.Bounds()
+	ratio := t.BrowserRatio
+	box.Children(func() {
+		a.paneCard(c, k, t, t.Browser).Grow(ratio).Basis(0).MinWidth(browserMin).MinHeight(0)
+		div := ui.Box(c.Key("divider")).Role(ui.RoleSplitter).Label("Divider").Width(gap).Cursor(ui.CursorResizeColumn)
+		if dx, _, ok := div.Dragged(); ok && bounds.W > gap {
+			t.BrowserRatio = min(max(t.BrowserRatio+dx/(bounds.W-gap), 0.1), 0.6)
+			a.changed()
+		}
+		if div.DoubleClicked() {
+			t.BrowserRatio = browserWidth
+			a.changed()
+		}
+		if div.Hovered() || div.Dragging() || div.Pressed() {
+			div.Draw(func(p *ui.Painter, r ui.Rect) {
+				p.Fill(ui.Rect{X: r.X + r.W/2 - 1.5, Y: r.Y + r.H/2 - 18, W: 3, H: 36}, k.iconMuted.Alpha(0.6), 1.5)
+			})
+		}
+		a.node(c, k, t, t.Root).Grow(1 - ratio).Basis(0).MinWidth(0).MinHeight(0)
+	})
 }
 
 // node lays out a node of the tree of splits.
@@ -272,9 +303,24 @@ func (a *App) paneCard(c *ui.Context, k *colors, t *Tab, p *Pane) ui.Element {
 	card.Transition(ui.ElementTransition{Colors: true, Duration: 160 * time.Millisecond})
 	hovered := card.Hovered()
 	card.Children(func() {
-		a.paneHeader(c, k, t, p, focused, hovered)
+		switch p.Kind {
+		case paneBrowser:
+			a.browserHeader(c, k, t, p, focused, hovered)
+		case paneEditor:
+			a.editorHeader(c, k, t, p, focused, hovered)
+		default:
+			a.paneHeader(c, k, t, p, focused, hovered)
+		}
 		body := ui.Box(c).Grow(1).MinHeight(0).Padding(0, 5, 6, 5)
 		body.Children(func() {
+			switch p.Kind {
+			case paneBrowser:
+				a.browserBody(c, k, t, p)
+				return
+			case paneEditor:
+				a.editorBody(c, k, t, p)
+				return
+			}
 			if p.term == nil {
 				return
 			}

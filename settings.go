@@ -33,6 +33,7 @@ type Settings struct {
 	V          int        `json:"v,omitempty"`
 	Appearance Appearance `json:"appearance,omitzero"`
 	Terminal   Terminal   `json:"terminal,omitzero"`
+	Editor     Editor     `json:"editor,omitzero"`
 	Shell      Shell      `json:"shell,omitzero"`
 	General    General    `json:"general,omitzero"`
 }
@@ -115,6 +116,25 @@ type General struct {
 	StartWith string `json:"startWith,omitempty" kind:"pc" label:"Open at start" group:"Hosts"`
 }
 
+// Editor is the code editor of editor tabs and their file browser.
+type Editor struct {
+	// Font and Size are the editor's, the terminal's when unset.
+	Font       string  `json:"font,omitempty" kind:"look" label:"Font" group:"Text"`
+	Size       float32 `json:"size,omitempty" kind:"look" label:"Size" group:"Text"`
+	LineHeight float32 `json:"lineHeight,omitempty" kind:"look" label:"Line height" group:"Text"`
+	// WrapGuides lists the columns to draw guides at, "" for none.
+	WrapGuides string `json:"wrapGuides,omitempty" kind:"look" label:"Wrap guides at columns" group:"Text"`
+	SoftWrap   *bool  `json:"softWrap,omitempty" kind:"pc" label:"Soft wrap" group:"Text"`
+	// DiffLayout is "split" or "unified", and DiffInline "words",
+	// "characters" or "off": how the Changes mode shows a diff.
+	DiffLayout  string `json:"diffLayout,omitempty" kind:"pc" label:"Changes shown" group:"Changes"`
+	DiffInline  string `json:"diffInline,omitempty" kind:"pc" label:"Highlight changes within lines by" group:"Changes"`
+	HiddenFiles *bool  `json:"hiddenFiles,omitempty" kind:"pc" label:"Show hidden files" group:"Files"`
+	// MaxFile is the most bytes a file is opened with by itself; 0 for no
+	// cap. Larger files offer Open anyway.
+	MaxFile int64 `json:"maxFile,omitempty" kind:"pc" label:"Open files up to" group:"Files"`
+}
+
 const defaultFontSize = 11.6
 
 // builtin are the values of fields set in neither layer.
@@ -125,6 +145,10 @@ var builtin = Settings{
 		Font: "JetBrains Mono", Size: defaultFontSize, Weight: 400, LineHeight: 1, Ligatures: on, Thicken: off,
 		Cursor: "block", Blink: on, Scrollback: 10000, CopyOnSelect: off, OptionAsAlt: off, Bell: "mark",
 		CtrlCCopies: onWindows, CtrlVPastes: onWindows, InsertKeys: on, RightClickPastes: onWindows,
+	},
+	Editor: Editor{
+		LineHeight: 1.5, WrapGuides: "100", SoftWrap: off, DiffLayout: "split", DiffInline: "words",
+		HiddenFiles: on, MaxFile: 8 << 20,
 	},
 	Shell: Shell{Login: on, StartIn: "current"},
 	General: General{

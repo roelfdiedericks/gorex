@@ -64,6 +64,21 @@ func (a *App) debug(dir, line string) {
 		if _, err := fmtSscan(arg, &w, &h); err == nil {
 			win.SetSize(w, h)
 		}
+	case "root":
+		// root <path>: the active editor tab's browser moves there.
+		win.Update(func() {
+			if p := a.focusedBrowser(); p != nil {
+				a.setRoot(p, arg)
+			}
+		})
+	case "open":
+		// open <path>: opens a file in the active editor tab, as a click
+		// in its browser does.
+		win.Update(func() {
+			if t := a.tab(); t != nil && t.Kind == paneEditor {
+				a.openFile(t, arg, false)
+			}
+		})
 	default:
 		for _, cmd := range commands {
 			if strings.EqualFold(strings.ReplaceAll(cmd.Title, " ", "-"), verb) {

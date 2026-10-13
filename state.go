@@ -20,11 +20,17 @@ import (
 	"gorex/internal/rex"
 )
 
-// Tab is a tab of the window: panes in a tree of splits.
+// Tab is a tab of the window: panes in a tree of splits. An editor tab
+// has a file browser beside the tree, whose panes are editors.
 type Tab struct {
 	ID   int
-	Name string // the name the user gave it, "" to follow its panes
+	Kind paneKind // paneTerminal, or paneEditor for a tab of editors
+	Name string   // the name the user gave it, "" to follow its panes
 	Root *Node
+	// Browser is the file browser of an editor tab, left of the tree, and
+	// BrowserRatio its share of the tab's width.
+	Browser      *Pane
+	BrowserRatio float32
 	// Focus is the pane with the focus, and Zoom the pane that fills the
 	// tab, when one does.
 	Focus *Pane
@@ -46,14 +52,29 @@ type Node struct {
 	A, B     *Node
 }
 
-// Pane is a terminal attached to a session of the server.
+// paneKind is what a pane holds.
+type paneKind int
+
+const (
+	paneTerminal paneKind = iota // a terminal on a session of the server
+	paneBrowser                  // the file browser of an editor tab
+	paneEditor                   // a file in the code editor
+)
+
+// Pane is a terminal attached to a session of the server, or a file
+// browser or an editor of an editor tab: Kind says which, and only that
+// kind's fields are set.
 type Pane struct {
 	ID     int
+	Kind   paneKind
 	SID    string
 	Tab    *Tab
 	Node   *Node
 	term   *terminal.Terminal
 	stream *rex.Stream
+	// files is a browser pane's tree, and edit an editor pane's file.
+	files *browserState
+	edit  *editorState
 
 	// info is what the server last said of the session.
 	info rex.SessionInfo
@@ -144,6 +165,9 @@ type App struct {
 	tabs   []*Tab
 	active int
 	nextID int
+	// keptEdits are editor buffers with unsaved changes kept across a
+	// reconnect, by path, until a pane takes them over.
+	keptEdits map[string]*editorState
 
 	// focusReq asks the view to give the keyboard focus to a pane's
 	// terminal.
@@ -435,25 +459,41 @@ func (a *App) currentDir() string {
 	return hostHome
 }
 
-// split splits the focused pane, the new pane right of it or below it.
-func (a *App) split(vertical bool) {
+// split splits the focused pane, the new pane right of it or below it: a
+// shell in a terminal tab, an empty editor in an editor tab. From the
+// file browser, the editor pane focused last splits.
+func (a *App) split(vertical bool) *Pane {
 	t := a.tab()
 	if t == nil || t.Focus == nil || a.client == nil {
-		return
+		return nil
 	}
-	old := t.Focus
+	old := t.treeFocus()
+	if old == nil {
+		return nil
+	}
+	return a.splitPane(old, vertical)
+}
+
+// splitPane splits a pane of the tree.
+func (a *App) splitPane(old *Pane, vertical bool) *Pane {
+	t := old.Tab
 	t.Zoom = nil
 	n := old.Node
-	cols, rows := 80, 24
-	if old.term != nil {
-		cols, rows = old.term.Size()
-		if vertical {
-			rows = max(rows/2, 2)
-		} else {
-			cols = max(cols/2, 10)
+	var p *Pane
+	if t.Kind == paneEditor {
+		p = a.newEditorPane("")
+	} else {
+		cols, rows := 80, 24
+		if old.term != nil {
+			cols, rows = old.term.Size()
+			if vertical {
+				rows = max(rows/2, 2)
+			} else {
+				cols = max(cols/2, 10)
+			}
 		}
+		p = a.newPane(a.currentDir(), cols, rows)
 	}
-	p := a.newPane(a.currentDir(), cols, rows)
 	p.Tab = t
 	left := &Node{ID: a.id(), Pane: old, Parent: n}
 	right := &Node{ID: a.id(), Pane: p, Parent: n}
@@ -462,11 +502,30 @@ func (a *App) split(vertical bool) {
 	t.setFocus(p)
 	a.focusReq = p
 	a.changed()
+	return p
 }
 
-// closePane closes a pane and ends its session.
+// treeFocus is the focused pane of the tree: the focused pane, or, when
+// the file browser has the focus, the pane of the tree focused last.
+func (t *Tab) treeFocus() *Pane {
+	if t.Focus != nil && t.Focus.Kind != paneBrowser {
+		return t.Focus
+	}
+	for i := len(t.recent) - 1; i >= 0; i-- {
+		if p := t.recent[i]; p.Kind != paneBrowser && !p.closed {
+			return p
+		}
+	}
+	if ps := t.panes(); len(ps) > 0 {
+		return ps[0]
+	}
+	return nil
+}
+
+// closePane closes a pane and ends its session; a file browser is its
+// tab's and does not close.
 func (a *App) closePane(p *Pane) {
-	if p.closed {
+	if p.closed || p.Kind == paneBrowser {
 		return
 	}
 	p.closed = true
@@ -543,7 +602,7 @@ func (a *App) removeTab(t *Tab) {
 
 // closeTab closes a tab and ends the sessions of its panes.
 func (a *App) closeTab(t *Tab) {
-	for _, p := range t.panes() {
+	for _, p := range t.allPanes() {
 		p.closed = true
 		if p.term != nil {
 			p.term.Close()
@@ -553,6 +612,16 @@ func (a *App) closeTab(t *Tab) {
 		}
 	}
 	a.removeTab(t)
+}
+
+// allPanes is the panes of the tree and the file browser, when there is
+// one.
+func (t *Tab) allPanes() []*Pane {
+	ps := t.panes()
+	if t.Browser != nil {
+		ps = append([]*Pane{t.Browser}, ps...)
+	}
+	return ps
 }
 
 func (a *App) selectTab(i int) {
@@ -579,7 +648,7 @@ func (a *App) moveFocus(dx, dy int) {
 	cx, cy := from.X+from.W/2, from.Y+from.H/2
 	var best *Pane
 	bestScore := float32(1e9)
-	for _, p := range t.panes() {
+	for _, p := range t.allPanes() {
 		if p == t.Focus {
 			continue
 		}
@@ -635,6 +704,13 @@ func (a *App) resizeFocused(dx, dy int) {
 		return
 	}
 	vertical := dy != 0
+	if t.Focus.Kind == paneBrowser || t.Focus.Node == nil {
+		if !vertical {
+			t.BrowserRatio = min(max(t.BrowserRatio+0.05*float32(dx), 0.1), 0.6)
+			a.changed()
+		}
+		return
+	}
 	for n := t.Focus.Node; n.Parent != nil; n = n.Parent {
 		p := n.Parent
 		if p.Vertical != vertical {
@@ -692,6 +768,12 @@ func (a *App) toggleZoom() {
 // label returns how a pane names itself: its program, or the title the
 // program set, and the directory it works in.
 func (p *Pane) label() (name, detail string) {
+	switch p.Kind {
+	case paneBrowser:
+		return "files", shortDir(p.files.root)
+	case paneEditor:
+		return p.edit.label()
+	}
 	in := p.info
 	prog := programOf(in.Program)
 	dir := shortDir(in.Dir)
@@ -787,6 +869,9 @@ func (t *Tab) label() (name, detail string) {
 	if t.Name != "" {
 		return t.Name, ""
 	}
+	if t.Kind == paneEditor && t.Browser != nil {
+		return baseName(t.Browser.files.root), ""
+	}
 	if t.Focus == nil {
 		return "Shell", ""
 	}
@@ -801,10 +886,23 @@ type savedLayout struct {
 }
 
 type savedTab struct {
-	Name  string     `json:"name,omitempty"`
-	Root  *savedNode `json:"root"`
-	Focus int        `json:"focus"`
-	Zoom  bool       `json:"zoom,omitempty"`
+	// Kind is "" for a terminal tab, "editor" for a tab of editors with
+	// Browser, its file browser.
+	Kind    string        `json:"kind,omitempty"`
+	Name    string        `json:"name,omitempty"`
+	Browser *savedBrowser `json:"browser,omitempty"`
+	Root    *savedNode    `json:"root"`
+	// Focus is the focused pane's place among the tree's panes, -1 for
+	// the file browser.
+	Focus int  `json:"focus"`
+	Zoom  bool `json:"zoom,omitempty"`
+}
+
+type savedBrowser struct {
+	Root   string   `json:"root"`
+	Ratio  float32  `json:"ratio,omitempty"`
+	Open   []string `json:"open,omitempty"`
+	Hidden bool     `json:"hidden,omitempty"`
 }
 
 type savedNode struct {
@@ -812,6 +910,9 @@ type savedNode struct {
 	Dir      string     `json:"dir,omitempty"`
 	Cols     int        `json:"cols,omitempty"`
 	Rows     int        `json:"rows,omitempty"`
+	// Path and Mode are an editor pane's file and "editor" or "changes".
+	Path     string     `json:"path,omitempty"`
+	Mode     string     `json:"mode,omitempty"`
 	Vertical bool       `json:"vertical,omitempty"`
 	Ratio    float32    `json:"ratio,omitempty"`
 	A        *savedNode `json:"a,omitempty"`
@@ -823,6 +924,9 @@ func (a *App) snapshot() savedLayout {
 	var save func(n *Node) *savedNode
 	save = func(n *Node) *savedNode {
 		if p := n.Pane; p != nil {
+			if p.Kind == paneEditor {
+				return &savedNode{Path: p.edit.path, Mode: p.edit.mode}
+			}
 			s := &savedNode{SID: p.SID, Dir: p.info.Dir}
 			if s.Dir == "" {
 				s.Dir = p.startDir
@@ -837,6 +941,13 @@ func (a *App) snapshot() savedLayout {
 	for _, t := range a.tabs {
 		st := savedTab{Name: t.Name, Root: save(t.Root), Zoom: t.Zoom != nil}
 		st.Focus = max(slices.Index(t.panes(), t.Focus), 0)
+		if t.Kind == paneEditor && t.Browser != nil {
+			st.Kind = "editor"
+			st.Browser = t.Browser.files.saved(t.BrowserRatio)
+			if t.Focus == t.Browser {
+				st.Focus = -1
+			}
+		}
 		l.Tabs = append(l.Tabs, st)
 	}
 	return l
@@ -886,13 +997,21 @@ func (a *App) restore() bool {
 		n := &Node{ID: a.id(), Parent: parent}
 		if s.A == nil || s.B == nil {
 			var p *Pane
-			if in, ok := live[s.SID]; ok && !used[s.SID] {
-				used[s.SID] = true
-				p = &Pane{ID: a.id(), SID: s.SID, info: in, startDir: s.Dir}
-				a.attach(p, in.Cols, in.Rows)
-			} else {
-				p = a.newPane(s.Dir, s.Cols, s.Rows)
-				p.restored = true
+			switch {
+			case t.Kind == paneEditor:
+				p = a.newEditorPane(s.Path)
+				if s.Mode == modeChanges {
+					p.edit.mode = s.Mode
+				}
+			default:
+				if in, ok := live[s.SID]; ok && !used[s.SID] {
+					used[s.SID] = true
+					p = &Pane{ID: a.id(), SID: s.SID, info: in, startDir: s.Dir}
+					a.attach(p, in.Cols, in.Rows)
+				} else {
+					p = a.newPane(s.Dir, s.Cols, s.Rows)
+					p.restored = true
+				}
 			}
 			p.Tab, p.Node = t, n
 			n.Pane = p
@@ -907,12 +1026,25 @@ func (a *App) restore() bool {
 			continue
 		}
 		t := &Tab{ID: a.id(), Name: st.Name}
+		if st.Kind == "editor" {
+			t.Kind = paneEditor
+			b := st.Browser
+			if b == nil {
+				b = &savedBrowser{Root: hostHome}
+			}
+			t.Browser = a.newBrowserPane(t, b)
+			t.BrowserRatio = b.Ratio
+		}
 		t.Root = load(st.Root, t, nil)
 		ps := t.panes()
 		for _, p := range ps {
 			t.setFocus(p)
 		}
-		t.setFocus(ps[min(max(st.Focus, 0), len(ps)-1)])
+		if st.Focus < 0 && t.Browser != nil {
+			t.setFocus(t.Browser)
+		} else {
+			t.setFocus(ps[min(max(st.Focus, 0), len(ps)-1)])
+		}
 		if st.Zoom && len(ps) > 1 {
 			t.Zoom = t.Focus
 		}
@@ -936,6 +1068,7 @@ func (a *App) restore() bool {
 		return false
 	}
 	a.active = min(max(l.Active, 0), len(a.tabs)-1)
+	a.adoptKeptEdits()
 	a.focusReq = a.tab().Focus
 	return true
 }

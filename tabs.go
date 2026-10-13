@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/editor"
 )
 
 const (
@@ -161,7 +162,7 @@ func (a *App) renameField(c *ui.Context, t *Tab, name string) {
 
 func (t *Tab) attention() bool {
 	for _, p := range t.panes() {
-		if p.attention {
+		if p.attention || p.Kind == paneEditor && p.edit.modified() {
 			return true
 		}
 	}
@@ -214,13 +215,20 @@ func (a *App) tabMenu(m *ui.Menu, t *Tab) {
 	if m.Item("New Tab").Shortcut(mods, key).Chosen() {
 		a.newTab(a.currentDir())
 	}
+	if m.Item("New Editor Tab").Chosen() {
+		a.newEditorTab("")
+	}
 	if m.Item("Close Tab").Chosen() {
-		a.laterService(func() { a.closeTab(t) })
+		a.laterService(func() {
+			if a.confirmClose(t.panes()) {
+				a.closeTab(t)
+			}
+		})
 	}
 	if m.Item("Close Other Tabs").Disabled(len(a.tabs) < 2).Chosen() {
 		a.laterService(func() {
 			for _, o := range slices.Clone(a.tabs) {
-				if o != t {
+				if o != t && a.confirmClose(o.panes()) {
 					a.closeTab(o)
 				}
 			}
@@ -257,11 +265,27 @@ func (a *App) tiles(c *ui.Context, k *colors, t *Tab) {
 }
 
 func paneProgram(p *Pane) program {
+	switch p.Kind {
+	case paneBrowser:
+		return browserTile
+	case paneEditor:
+		if p.edit.path != "" && editor.LanguageFor(p.edit.path) != nil {
+			return editorTile
+		}
+		return fileTile
+	}
 	if p.info.Idle || p.info.Program == "" {
 		return programOf(p.info.Shell)
 	}
 	return programOf(p.info.Program)
 }
+
+// The tiles of an editor tab's panes.
+var (
+	browserTile = program{Name: "Files", Glyph: "folder-tree", TileBg: ui.Hex("#2b3a4a"), TileFg: ui.Hex("#9ecbff")}
+	editorTile  = program{Name: "Editor", Glyph: "file-code", TileBg: ui.Hex("#2a2f3a"), TileFg: ui.Hex("#c8d3f5")}
+	fileTile    = program{Name: "File", Glyph: "file", TileBg: ui.Hex("#2a2f3a"), TileFg: ui.Hex("#c8d3f5")}
+)
 
 // drawTile draws a program's tile: a rounded card of its color with a
 // light rim, and its glyph when it is in front.

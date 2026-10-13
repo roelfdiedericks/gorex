@@ -223,6 +223,33 @@ func (c *Client) Set(key string, v json.RawMessage) error {
 	return c.call(Request{Op: "set", Key: key, Value: v}, nil)
 }
 
+// Stat describes a file of the host's.
+func (c *Client) Stat(path string) (fi FileInfo, err error) {
+	err = c.call(Request{Op: "stat", Path: path}, &fi)
+	return
+}
+
+// ReadDir lists a directory of the host's, by name.
+func (c *Client) ReadDir(path string) (fis []FileInfo, err error) {
+	err = c.call(Request{Op: "readDir", Path: path}, &fis)
+	return
+}
+
+// ReadFile reads a file of the host's, of at most max bytes (0 for no
+// cap): its bytes and the time they were modified.
+func (c *Client) ReadFile(path string, max int64) (fd FileData, err error) {
+	err = c.call(Request{Op: "readFile", Path: path, Max: max}, &fd)
+	return
+}
+
+// WriteFile writes a file of the host's, refusing one modified since
+// ifModTime when that is set, and tells the time written.
+func (c *Client) WriteFile(path string, data []byte, ifModTime time.Time) (time.Time, error) {
+	var fd FileData
+	err := c.call(Request{Op: "writeFile", Path: path, Data: data, IfModTime: ifModTime}, &fd)
+	return fd.ModTime, err
+}
+
 func (c *Client) Shutdown() error { return c.call(Request{Op: "shutdown"}, nil) }
 
 func (c *Client) Close() error { return c.conn.Close() }

@@ -138,6 +138,11 @@ func (a *App) open() {
 	win := mygo.NewWindow(opts)
 	a.win = win
 	a.debugHook()
+	win.OnClose(func(e *mygo.CloseEvent) {
+		if !a.quitting && !a.confirmUnsaved(a.modifiedPanes()) {
+			e.PreventDefault()
+		}
+	})
 	win.OnClosed(func() {
 		a.saveNow()
 		a.quitting = true

@@ -244,6 +244,7 @@ func (a *App) attachBinding(win *mygo.Window, b binding, gen int64, client *rex.
 	}
 	if !a.restore() {
 		a.newTab(hostHome)
+		a.adoptKeptEdits()
 	}
 	a.changed()
 	go a.poll(win, client)
@@ -255,6 +256,7 @@ func (a *App) attachBinding(win *mygo.Window, b binding, gen int64, client *rex.
 // detachAll detaches the window from its sessions, which go on, and from
 // the server.
 func (a *App) detachAll() {
+	a.keepEdits()
 	for _, t := range a.tabs {
 		for _, p := range t.panes() {
 			p.closed = true

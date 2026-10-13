@@ -44,7 +44,7 @@ const (
 	scopeDefaults = "defaults"
 )
 
-var sections = []string{"Appearance", "Terminal", "Shell", "General"}
+var sections = []string{"Appearance", "Terminal", "Editor", "Shell", "General"}
 
 // pages lists the sidebar's pages of a scope: the sections with rows in
 // that scope, and Hosts under the Defaults.
@@ -176,6 +176,8 @@ func pageGlyph(page string) string {
 		return "sparkles"
 	case "Terminal":
 		return "square-terminal"
+	case "Editor":
+		return "file-pen"
 	case "Shell":
 		return "terminal"
 	case "General":
@@ -480,6 +482,36 @@ func (a *App) settingControl(c *ui.Context, k *colors, scope string, f field) {
 		stepper(c, k, &target, effv, 1, 600, 1, changed)
 	case "general.reconnectAttempts":
 		stepper(c, k, &target, effv, 1, 10, 1, changed)
+	case "editor.font":
+		v := effv.String()
+		if ui.Combobox(c, &v, a.settings.fonts).Width(220).Placeholder(a.placeholder(f)).Changed() {
+			target.SetString(v)
+			changed()
+		}
+	case "editor.size":
+		v := target
+		if effv.Float() == 0 {
+			effv = reflect.ValueOf(a.shown(scope).Terminal.Size)
+		}
+		stepper(c, k, &v, effv, 8, 32, 0.5, changed)
+	case "editor.lineHeight":
+		stepper(c, k, &target, effv, 1, 2, 0.05, changed)
+	case "editor.diffLayout":
+		choices(c, &target, effv, []string{"split", "unified"}, []string{"Side by side", "Unified"}, changed)
+	case "editor.diffInline":
+		choices(c, &target, effv, []string{"words", "characters", "off"}, []string{"Words", "Characters", "Off"}, changed)
+	case "editor.maxFile":
+		v := sizeText(effv.Int())
+		sizes := []string{"1 MB", "2 MB", "4 MB", "8 MB", "16 MB", "32 MB", "No limit"}
+		if effv.Int() == 0 {
+			v = "No limit"
+		}
+		if ui.Select(c, &v, sizes).Width(110).Changed() {
+			var mb int64
+			fmt.Sscanf(v, "%d MB", &mb)
+			target.SetInt(mb << 20)
+			changed()
+		}
 	case "shell.env":
 		v := target.String()
 		if ui.TextArea(c, &v).Width(300).Height(64).Placeholder("KEY=value, one per line").Changed() {
@@ -522,6 +554,10 @@ func (a *App) placeholder(f field) string {
 		return a.hello.Host.Name
 	case "terminal.font":
 		return "JetBrains Mono"
+	case "editor.font":
+		return "same as the terminal"
+	case "editor.wrapGuides":
+		return "100"
 	}
 	return ""
 }
