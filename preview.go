@@ -34,15 +34,46 @@ var assetOrigin = "gorex-asset://localhost"
 
 const (
 	modePreview = "preview"
+	modeView    = "view"
 	// previewDebounce is how long after an edit the preview renders.
 	previewDebounce = 150 * time.Millisecond
 	// previewFileCap is the most bytes the file protocol serves of one
-	// file, as an image in a README.
-	previewFileCap = 32 << 20
+	// file, as an image in a README, or a document shown by itself.
+	previewFileCap = 128 << 20
 	// previewCaretReach is how far below the editor's top line the caret
 	// may stay as the editor follows the page; further, it comes along.
 	previewCaretReach = 40
 )
+
+// hostFileCSP makes every document of the host's the engine shows
+// script-free: its styles, images and fonts load, from the web too, but
+// nothing in it runs, fetches or submits, and it gets a throwaway
+// origin. Subresources of the Markdown page are unaffected.
+const hostFileCSP = "sandbox; default-src * data: blob: 'unsafe-inline'; script-src 'none'; connect-src 'none'; form-action 'none'"
+
+// backMarker is the URL a document shown by itself goes to on Escape,
+// by the preload script: the pane takes it as Back.
+const backMarker = "/?gorex-back"
+
+// preloadScript runs in every document the pane's web view loads: Escape
+// in one shown by itself asks for the document back, unless the page
+// took the key (the lightbox closing).
+const preloadScript = `document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !e.defaultPrevented) location.href = new URL("` + backMarker + `", location.href).href;
+});`
+
+// viewable is how the engine shows a file by its name: "image" in
+// GoRex's viewer page, "document" by the engine itself (PDF, HTML,
+// video, audio), or "" for the editor's text check.
+func viewable(name string) string {
+	switch strings.ToLower(path.Ext(strings.ReplaceAll(name, `\`, "/"))) {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".avif", ".ico", ".svg":
+		return "image"
+	case ".pdf", ".html", ".htm", ".xhtml", ".mp4", ".webm", ".mov", ".mp3", ".wav", ".ogg", ".oga", ".m4a", ".flac":
+		return "document"
+	}
+	return ""
+}
 
 // previewState is an editor pane's preview: its web view and page, made
 // as the pane first enters Preview and kept, hidden while the pane shows
@@ -59,9 +90,12 @@ type previewState struct {
 	again   bool   // the buffer changed during it
 	dark    bool
 	navOff  func()
-	// showing is a file the page shows instead of the document, as an
-	// image a link opened; the document loads again on the way back.
+	// showing is a file the page shows instead of the document: the
+	// pane's own in View, or one a link opened, which Back leaves.
 	showing string
+	// title is what the page shown says of itself, for the status line:
+	// the viewer page reports the image's kind and size.
+	title string
 	// caretLine is where the caret was as the pane last left Preview, or
 	// -1: coming back scrolls the page only when the caret moved.
 	caretLine int
@@ -98,30 +132,35 @@ func (a *App) registerProtocols() {
 		}
 		http.ServeFileFS(w, r, assets, name)
 	})
-	mygo.Protocol.HandleFunc("gorex-file", func(w http.ResponseWriter, r *http.Request) {
-		p := hostPathOf(r.URL)
-		if r.URL.Path == "/favicon.ico" { // the engine's, on a file shown by itself
-			http.NotFound(w, r)
-			return
-		}
-		client := a.client
-		if client == nil || p == "" {
-			log.Printf("preview: file %s: not connected", r.URL)
-			http.Error(w, "not connected", http.StatusServiceUnavailable)
-			return
-		}
-		fd, err := client.ReadFile(p, previewFileCap)
-		if err != nil {
-			log.Printf("preview: file %s: %v", p, err)
-			http.Error(w, err.Error(), http.StatusNotFound)
-			return
-		}
-		if ct := mime.TypeByExtension(strings.ToLower(path.Ext(p))); ct != "" {
-			w.Header().Set("Content-Type", ct)
-		}
-		w.Header().Set("Cache-Control", "no-store")
-		w.Write(fd.Data)
-	})
+	mygo.Protocol.HandleFunc("gorex-file", a.serveHostFile)
+}
+
+// serveHostFile answers a gorex-file request with the host's file, read
+// through the window's server, script-free for the engine.
+func (a *App) serveHostFile(w http.ResponseWriter, r *http.Request) {
+	p := hostPathOf(r.URL)
+	if r.URL.Path == "/favicon.ico" { // the engine's, on a file shown by itself
+		http.NotFound(w, r)
+		return
+	}
+	client := a.client
+	if client == nil || p == "" {
+		log.Printf("preview: file %s: not connected", r.URL)
+		http.Error(w, "not connected", http.StatusServiceUnavailable)
+		return
+	}
+	fd, err := client.ReadFile(p, previewFileCap)
+	if err != nil {
+		log.Printf("preview: file %s: %v", p, err)
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if ct := mime.TypeByExtension(strings.ToLower(path.Ext(p))); ct != "" {
+		w.Header().Set("Content-Type", ct)
+	}
+	w.Header().Set("Content-Security-Policy", hostFileCSP)
+	w.Header().Set("Cache-Control", "no-store")
+	w.Write(fd.Data)
 }
 
 // fileURL is the preview's URL of a path of the host's.
@@ -235,16 +274,27 @@ func (a *App) ensurePreview(p *Pane) {
 		a.renderPreview(p)
 		return
 	}
-	if a.win == nil {
+	pv := a.makeWebView(p)
+	if pv == nil {
 		return
 	}
+	a.loadPreviewPage(pv)
+}
+
+// makeWebView makes the pane's web view and page, with the pane's
+// handlers; nil when it can't, with the pane back in the editor.
+func (a *App) makeWebView(p *Pane) *previewState {
+	e := p.edit
+	if a.win == nil {
+		return nil
+	}
 	log.Printf("preview: making the web view of %s", e.path)
-	web, err := a.win.NewWebView(mygo.WebViewOptions{BackgroundColor: hexOf(a.k.bgBottom)})
+	web, err := a.win.NewWebView(mygo.WebViewOptions{BackgroundColor: hexOf(a.k.bgBottom), Page: mygo.PageOptions{PreloadScript: preloadScript}})
 	if err != nil {
 		log.Printf("preview: %v", err)
-		a.toast(ui.Toast{Title: "Can't show the preview", Description: err.Error(), Type: "error"})
+		a.toast(ui.Toast{Title: "Can't show the file", Description: err.Error(), Type: "error"})
 		e.mode = modeEditor
-		return
+		return nil
 	}
 	pv := &previewState{web: web, caretLine: -1}
 	e.preview = pv
@@ -253,6 +303,15 @@ func (a *App) ensurePreview(p *Pane) {
 	page := web.Page()
 	pv.navOff = page.OnWillNavigate(func(ev *mygo.NavigateEvent) {
 		log.Printf("preview: navigating to %s (user %v)", ev.URL, ev.UserInitiated)
+		if strings.HasSuffix(ev.URL, backMarker) {
+			ev.PreventDefault()
+			a.update(func() {
+				if current() {
+					a.previewBack(p)
+				}
+			})
+			return
+		}
 		if !ev.UserInitiated {
 			return
 		}
@@ -289,7 +348,16 @@ func (a *App) ensurePreview(p *Pane) {
 			a.changed()
 		})
 	})
-	a.loadPreviewPage(pv)
+	page.OnPageTitleUpdated(func(ev *mygo.TitleEvent) {
+		title := ev.Title
+		a.update(func() {
+			if current() && pv.showing != "" {
+				pv.title = title
+				a.changed()
+			}
+		})
+	})
+	return pv
 }
 
 // loadPreviewPage loads the preview's page, at the origin of the host's
@@ -299,6 +367,54 @@ func (a *App) loadPreviewPage(pv *previewState) {
 	html, _ := previewAssets.ReadFile("assets/preview/index.html")
 	log.Printf("preview: loading the page")
 	pv.web.Page().LoadHTML(strings.ReplaceAll(string(html), "gorex-asset://localhost", assetOrigin), "gorex-file://localhost/")
+}
+
+// showFile puts a pane in View on a file the engine shows: an image in
+// GoRex's viewer page, a document by the engine itself.
+func (a *App) showFile(p *Pane, path string) {
+	e := p.edit
+	pv := e.preview
+	if pv == nil || pv.web == nil || pv.web.IsDestroyed() {
+		pv = a.makeWebView(p)
+		if pv == nil {
+			return
+		}
+	}
+	a.showInPage(pv, path)
+}
+
+// showInPage makes the pane's page show a file instead of its document.
+func (a *App) showInPage(pv *previewState, path string) {
+	pv.showing, pv.title, pv.phase = path, "", ""
+	page := pv.web.Page()
+	if viewable(path) == "image" {
+		html, _ := previewAssets.ReadFile("assets/preview/view.html")
+		src, _ := json.Marshal(strings.TrimPrefix(fileURL(path), "gorex-file://localhost"))
+		name, _ := json.Marshal(baseName(path))
+		doc := strings.ReplaceAll(string(html), "gorex-asset://localhost", assetOrigin)
+		doc = strings.Replace(doc, "/*gorex-file*/", "gorexShow("+string(src)+", "+string(name)+", "+hexOfJSON(a.k.bgBottom)+", "+hexOfJSON(a.k.text)+");", 1)
+		page.LoadHTML(doc, "gorex-file://localhost/")
+		return
+	}
+	page.LoadURL(fileURL(path))
+}
+
+func hexOfJSON(c ui.Color) string {
+	js, _ := json.Marshal(hexOf(c))
+	return string(js)
+}
+
+// previewBack takes a pane's page from a file a link opened back to its
+// document; a pane in View has nothing to go back to.
+func (a *App) previewBack(p *Pane) {
+	e := p.edit
+	pv := e.preview
+	if pv == nil || pv.showing == "" || e.mode == modeView {
+		return
+	}
+	pv.showing = ""
+	a.loadPreviewPage(pv)
+	a.changed()
 }
 
 // dropPreview destroys the pane's web view.
@@ -483,18 +599,19 @@ func (a *App) openHostPath(p *Pane, target, fragment string) {
 					b.files.isDir[target] = true
 					a.changed()
 				}
+			case viewable(target) != "":
+				// The engine shows it in the pane; Back or Escape returns.
+				if pv := p.edit.preview; pv != nil && pv.web != nil {
+					a.showInPage(pv, target)
+					a.changed()
+				}
 			case isMarkdown(target) || textLike(target):
 				a.openFile(t, target, false)
 				if np := t.treeFocus(); np != nil && np.edit.path == target && isMarkdown(target) {
 					a.previewWhenLoaded(np, fragment)
 				}
 			default:
-				// An image or a document: the page shows it where it can.
-				if pv := p.edit.preview; pv != nil && pv.web != nil {
-					pv.showing = target
-					pv.web.Page().LoadURL(fileURL(target))
-					a.toast(ui.Toast{Title: "Showing " + baseName(target), Description: "Toggle Preview twice to come back to the document", Timeout: 4 * time.Second})
-				}
+				a.toast(ui.Toast{Title: "Can't show " + baseName(target), Description: "Not a file the preview shows.", Timeout: 4 * time.Second})
 			}
 		})
 	}()

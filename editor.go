@@ -222,7 +222,9 @@ func (a *App) newEditorPane(path string) *Pane {
 		p.edit.elsewhere = false
 		return p
 	}
-	if path != "" {
+	if viewable(path) != "" {
+		p.edit.mode = modeView
+	} else if path != "" {
 		a.loadFile(p, 0)
 	}
 	return p
@@ -337,9 +339,10 @@ func (a *App) openFile(t *Tab, path string, split bool) {
 	if split || target.edit.modified() || target.edit.path != "" && target.edit.loading {
 		target = a.splitPane(target, false)
 	}
-	// The pane's page stays for the next Markdown file, with no reload.
+	// The pane's page stays for the next Markdown file, or one the
+	// engine shows, with no reload.
 	var pv *previewState
-	if isMarkdown(path) {
+	if isMarkdown(path) || viewable(path) != "" {
 		pv = target.edit.preview
 		target.edit.preview = nil
 	}
@@ -347,6 +350,9 @@ func (a *App) openFile(t *Tab, path string, split bool) {
 	if kept, ok := a.keptEdits[path]; ok {
 		delete(a.keptEdits, path)
 		target.edit = kept
+	} else if viewable(path) != "" {
+		// Shown by the engine, in View: the frame asks the page.
+		target.edit = &editorState{path: path, mode: modeView}
 	} else {
 		target.edit = &editorState{path: path, mode: modeEditor, previewOnLoad: isMarkdown(path) && is(a.eff.Editor.PreviewOnOpen)}
 		a.loadFile(target, 0)
@@ -421,6 +427,12 @@ func (a *App) askChanged(p *Pane) {
 
 // reloadFile reads a pane's file again, keeping nothing of its edits.
 func (a *App) reloadFile(p *Pane) {
+	if p.edit.mode == modeView {
+		if pv := p.edit.preview; pv != nil && pv.web != nil {
+			a.showInPage(pv, p.edit.path)
+		}
+		return
+	}
 	if p.edit.path != "" {
 		a.loadFile(p, 0)
 	}

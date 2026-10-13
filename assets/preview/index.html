@@ -34,11 +34,23 @@
   }
   .markdown-body img { max-width: 100%; }
   #empty { color: var(--gorex-muted, #888); font-family: var(--gorex-body-font); padding: 24px; }
+  #lightbox { position: fixed; inset: 0; display: none; background: rgba(0, 0, 0, 0.82); z-index: 10; overflow: auto; cursor: zoom-in; }
+  #lightbox.open { display: block; }
+  #lightbox.actual { cursor: zoom-out; }
+  #lightbox .fit { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+  #lightbox.actual .fit { position: static; display: block; padding: 24px; min-width: max-content; }
+  #lightbox img { max-width: calc(100vw - 48px); max-height: calc(100vh - 48px); box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6); background: #fff; }
+  #lightbox.actual img { max-width: none; max-height: none; }
+  #lightbox .caption { position: fixed; left: 0; right: 0; bottom: 0; padding: 8px 14px; color: #ddd; font: 12px var(--gorex-body-font); background: linear-gradient(transparent, rgba(0, 0, 0, 0.6)); pointer-events: none; }
+  #lightbox .close { position: fixed; top: 10px; right: 14px; width: 32px; height: 32px; border-radius: 16px; border: 0; background: rgba(255, 255, 255, 0.15); color: #fff; font-size: 18px; cursor: pointer; }
+  #lightbox .close:hover { background: rgba(255, 255, 255, 0.3); }
 </style>
 </head>
 <body>
 <article id="content" class="markdown-body"></article>
+<div id="lightbox"><div class="fit"><img alt=""></div><div class="caption"></div><button class="close" title="Close (Esc)">×</button></div>
 <script src="gorex-asset://localhost/mermaid.min.js"></script>
+<script src="gorex-asset://localhost/lightbox.js"></script>
 <script>
 (() => {
   const content = document.getElementById("content");
@@ -154,14 +166,26 @@
     return true;
   };
 
-  // Links: anchors scroll here; everything else the app decides.
+  // Links: anchors scroll here, images and links to images open the
+  // lightbox; everything else the app decides.
   document.addEventListener("click", (e) => {
+    const img = e.target.closest && e.target.closest("#content img");
+    if (img && !e.target.closest("a[href]")) {
+      e.preventDefault();
+      gorexLightbox(img.currentSrc || img.src, img.getAttribute("alt") || img.src.split("/").pop());
+      return;
+    }
     const a = e.target.closest && e.target.closest("a[href]");
     if (!a) return;
     const href = a.getAttribute("href");
     if (href.startsWith("#")) {
       e.preventDefault();
       window.gorexScrollTo(decodeURIComponent(href.slice(1)));
+      return;
+    }
+    if (isImageName(href)) {
+      e.preventDefault();
+      gorexLightbox(new URL(href, document.baseURI).href, decodeURIComponent(href.split("/").pop()));
       return;
     }
     // Let the navigation happen: the app's OnWillNavigate takes it.

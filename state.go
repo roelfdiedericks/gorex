@@ -1016,6 +1016,9 @@ func (a *App) restore() bool {
 				if s.Mode == modeChanges || s.Mode == modePreview {
 					p.edit.mode = s.Mode
 				}
+				if viewable(s.Path) != "" {
+					p.edit.mode = modeView
+				}
 			default:
 				if in, ok := live[s.SID]; ok && !used[s.SID] {
 					used[s.SID] = true

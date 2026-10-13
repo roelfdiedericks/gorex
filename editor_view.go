@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"path"
 	"strconv"
 	"strings"
 
@@ -52,6 +53,13 @@ func (a *App) editorHeader(c *ui.Context, k *colors, t *Tab, p *Pane, focused, h
 			}
 			if lang := langName(e); lang != "" {
 				ui.Text(c, lang).FontSize(11.5).TextColor(k.textFaint).SingleLine().Margin(0, 6, 0, 0)
+			}
+			if pv := e.preview; pv != nil && pv.showing != "" && e.mode == modePreview {
+				// A file a link opened in the page: back to the document.
+				if iconButton(c, k, "arrow-left", "Back to "+baseName(e.path), 26, 15).Tooltip("Back to the document (Esc)").Clicked() {
+					t.setFocus(p)
+					a.previewBack(p)
+				}
 			}
 			if e.buf != nil {
 				label := "Show Changes"
@@ -124,6 +132,10 @@ func (a *App) editorBody(c *ui.Context, k *colors, t *Tab, p *Pane) {
 	e := p.edit
 	col := ui.Column(c).Fill().MinHeight(0)
 	col.Children(func() {
+		if e.mode == modeView {
+			a.viewBody(c, k, t, p)
+			return
+		}
 		switch {
 		case e.path == "":
 			a.editorNote(c, k, "No file open", "Choose a file in the browser, or press Enter on one to open it here.")
@@ -232,6 +244,42 @@ func (a *App) editorNote(c *ui.Context, k *colors, title, text string) {
 	ui.Column(c).Grow(1).Center().Gap(6).Padding(16).Children(func() {
 		ui.Text(c, title).FontSize(15).FontWeight(600).TextColor(k.text)
 		ui.Text(c, text).FontSize(12.5).TextColor(k.textMuted).MaxWidth(520)
+	})
+}
+
+// viewBody shows a file the engine shows, in the pane's web view, with
+// what the page says of it in the status line.
+func (a *App) viewBody(c *ui.Context, k *colors, t *Tab, p *Pane) {
+	e := p.edit
+	pv := e.preview
+	if pv == nil || pv.web == nil || pv.web.IsDestroyed() || pv.showing != e.path {
+		a.showFile(p, e.path)
+		pv = e.preview
+	}
+	if pv == nil || pv.web == nil {
+		a.editorNote(c, k, "Can't show "+baseName(e.path), "The web view could not be made.")
+		return
+	}
+	v := ui.WebView(c.Key("view"), pv.web).Grow(1).FillWidth().MinHeight(0)
+	if a.focusReq == p && a.tab() == t {
+		pv.web.Focus()
+		a.focusReq = nil
+	}
+	if v.Pressed() && t.Focus != p {
+		t.setFocus(p)
+		a.changed()
+	}
+	status := pv.title
+	if status == "" {
+		status = strings.ToUpper(strings.TrimPrefix(path.Ext(e.path), "."))
+		if pv.phase != "" {
+			status += " · " + pv.phase
+		}
+	}
+	ui.Row(c).Gap(16).Padding(3, 10, 2, 10).Shrink(0).Children(func() {
+		ui.Text(c, status).FontSize(11.5).TextColor(k.textFaint).SingleLine()
+		ui.Box(c).Grow(1)
+		ui.Text(c, "View").FontSize(11.5).TextColor(k.textFaint).SingleLine()
 	})
 }
 

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="icon" href="data:,">
+<style>
+  :root { --gorex-body-font: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  html, body { margin: 0; padding: 0; height: 100%; background: var(--gorex-bg, #222); color: var(--gorex-text, #ddd); }
+  #lightbox { position: fixed; inset: 0; display: none; z-index: 10; overflow: auto; cursor: zoom-in; }
+  #lightbox.open { display: block; }
+  #lightbox.actual { cursor: zoom-out; }
+  #lightbox .fit { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+  #lightbox.actual .fit { position: static; display: block; padding: 24px; min-width: max-content; }
+  #lightbox img { max-width: calc(100vw - 48px); max-height: calc(100vh - 48px); box-shadow: 0 8px 40px rgba(0, 0, 0, 0.35); background: #fff; }
+  #lightbox.actual img { max-width: none; max-height: none; }
+  #lightbox .caption { position: fixed; left: 0; right: 0; bottom: 0; padding: 8px 14px; color: var(--gorex-text, #ddd); opacity: 0.8; font: 12px var(--gorex-body-font); pointer-events: none; }
+  #lightbox .close { display: none; }
+</style>
+</head>
+<body>
+<div id="lightbox"><div class="fit"><img alt=""></div><div class="caption"></div><button class="close">×</button></div>
+<script src="gorex-asset://localhost/lightbox.js"></script>
+<script>
+  window.gorexShow = function (src, name, bg, text) {
+    document.documentElement.style.setProperty("--gorex-bg", bg);
+    document.documentElement.style.setProperty("--gorex-text", text);
+    gorexLightbox(src, name, true);
+  };
+  /*gorex-file*/
+</script>
+</body>
+</html>
