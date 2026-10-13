@@ -136,6 +136,10 @@ type Editor struct {
 	// MaxFile is the most bytes a file is opened with by itself; 0 for no
 	// cap. Larger files offer Open anyway.
 	MaxFile int64 `json:"maxFile,omitempty" kind:"pc" label:"Open files up to" group:"Files"`
+	// PreviewOnOpen opens Markdown files in Preview; Mermaid draws the
+	// diagrams in them.
+	PreviewOnOpen *bool `json:"previewOnOpen,omitempty" kind:"pc" label:"Open Markdown files in Preview" group:"Preview"`
+	Mermaid       *bool `json:"mermaid,omitempty" kind:"pc" label:"Draw Mermaid diagrams" group:"Preview"`
 }
 
 const defaultFontSize = 11.6
@@ -151,7 +155,7 @@ var builtin = Settings{
 	},
 	Editor: Editor{
 		LineHeight: 1.5, WrapGuides: "100", SoftWrap: off, DiffLayout: "split", DiffInline: "words",
-		HiddenFiles: on, MaxFile: 8 << 20, OpenOn: "click",
+		HiddenFiles: on, MaxFile: 8 << 20, OpenOn: "click", PreviewOnOpen: on, Mermaid: on,
 	},
 	Shell: Shell{Login: on, StartIn: "current"},
 	General: General{

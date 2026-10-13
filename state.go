@@ -168,6 +168,8 @@ type App struct {
 	// keptEdits are editor buffers with unsaved changes kept across a
 	// reconnect, by path, until a pane takes them over.
 	keptEdits map[string]*editorState
+	// dark is whether the window's theme was dark in the last frame.
+	dark bool
 
 	// focusReq asks the view to give the keyboard focus to a pane's
 	// terminal.
@@ -532,6 +534,9 @@ func (a *App) closePane(p *Pane) {
 	if p.term != nil {
 		p.term.Close()
 	}
+	if p.Kind == paneEditor {
+		a.dropPreview(p)
+	}
 	if sid := p.SID; sid != "" {
 		c := a.client
 		go c.Kill(sid)
@@ -609,6 +614,9 @@ func (a *App) closeTab(t *Tab) {
 		p.closed = true
 		if p.term != nil {
 			p.term.Close()
+		}
+		if p.Kind == paneEditor {
+			a.dropPreview(p)
 		}
 		if p.SID != "" {
 			go a.client.Kill(p.SID)
@@ -1003,7 +1011,7 @@ func (a *App) restore() bool {
 			switch {
 			case t.Kind == paneEditor:
 				p = a.newEditorPane(s.Path)
-				if s.Mode == modeChanges {
+				if s.Mode == modeChanges || s.Mode == modePreview {
 					p.edit.mode = s.Mode
 				}
 			default:

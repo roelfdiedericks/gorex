@@ -66,6 +66,20 @@ func (a *App) editorHeader(c *ui.Context, k *colors, t *Tab, p *Pane, focused, h
 					t.setFocus(p)
 					a.toggleChanges(p)
 				}
+				if isMarkdown(e.path) {
+					label := "Show Preview"
+					if e.mode == modePreview {
+						label = "Show Editor"
+					}
+					eye := iconButton(c, k, "eye", label, 26, 15).Tooltip(tip(label, &cmdTogglePreview))
+					if e.mode == modePreview {
+						eye.Background(k.pressed)
+					}
+					if eye.Clicked() {
+						t.setFocus(p)
+						a.togglePreview(p)
+					}
+				}
 			}
 			if iconButton(c, k, "columns-2", "Split Right", 26, 16).Tooltip(tip("Split Right", &cmdSplitRight)).Clicked() {
 				t.setFocus(p)
@@ -140,7 +154,29 @@ func (a *App) editorBody(c *ui.Context, k *colors, t *Tab, p *Pane) {
 		if e.wrap != nil {
 			wrap = *e.wrap
 		}
-		if e.mode == modeChanges {
+		if e.mode == modePreview {
+			pv := e.preview
+			if pv == nil || pv.web == nil || pv.web.IsDestroyed() {
+				a.ensurePreview(p)
+				pv = e.preview
+			}
+			if pv != nil && pv.web != nil {
+				if pv.loaded && pv.version != e.buf.Version() {
+					a.renderPreview(p)
+				}
+				v := ui.WebView(c.Key("preview"), pv.web).Grow(1).FillWidth().MinHeight(0)
+				if a.focusReq == p && a.tab() == t {
+					pv.web.Focus()
+					a.focusReq = nil
+				}
+				if v.Pressed() && t.Focus != p {
+					t.setFocus(p)
+					a.changed()
+				}
+			} else {
+				a.editorNote(c, k, "No preview", "The web view could not be made.")
+			}
+		} else if e.mode == modeChanges {
 			d := e.diff
 			d.Font, d.Wrap = font, wrap
 			d.Layout = editor.DiffSplit
@@ -204,6 +240,9 @@ func (a *App) editorStatus(c *ui.Context, k *colors, e *editorState) {
 	}
 	if added, deleted := e.diff.Stats(); added > 0 || deleted > 0 {
 		status += fmt.Sprintf(" · +%d −%d", added, deleted)
+	}
+	if e.mode == modePreview {
+		status = "Preview"
 	}
 	ui.Row(c).Gap(16).Padding(3, 10, 2, 10).Shrink(0).Children(func() {
 		ui.Text(c, status).FontSize(11.5).TextColor(k.textFaint).SingleLine()

@@ -31,6 +31,10 @@ func (a *App) view(c *ui.Context) {
 	}
 	k := a.colors(c)
 	a.focusedWin = a.win == nil || a.win.IsFocused()
+	if dark := c.Theme().Dark; dark != a.dark {
+		a.dark = dark
+		a.previewThemeChanged()
+	}
 	// Over the window's material, the gradient goes translucent, so that
 	// the material shows and a tint still tells the host.
 	vibrant := c.Vibrancy()

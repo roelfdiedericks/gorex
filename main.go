@@ -52,6 +52,7 @@ func main() {
 	registerFonts()
 	a := &App{stateKey: "main"}
 	a.loadSettings()
+	a.registerProtocols()
 	// ssh <destination> opens a window on the sessions of a server there.
 	// Its window keeps a place of its own, and the process is the window's:
 	// it quits when the window closes, on macOS too, as ssh itself ends

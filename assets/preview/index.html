@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="gorex-asset://localhost/github-markdown.css">
+<link rel="stylesheet" href="gorex-asset://localhost/chroma.css">
+<style>
+  :root {
+    --gorex-body-font: system-ui, -apple-system, "Segoe UI", sans-serif;
+    --gorex-code-font: ui-monospace, Consolas, Menlo, monospace;
+  }
+  html, body { margin: 0; padding: 0; background: transparent; }
+  body { overflow-y: auto; }
+  .markdown-body {
+    background: transparent;
+    color: var(--gorex-text, inherit);
+    font-family: var(--gorex-body-font);
+    padding: 12px 22px 32px 22px;
+    max-width: 980px;
+  }
+  .markdown-body a { color: var(--gorex-accent, var(--fgColor-accent)); }
+  .markdown-body pre, .markdown-body code, .markdown-body kbd, .markdown-body tt {
+    font-family: var(--gorex-code-font);
+  }
+  .markdown-body pre.mermaid { background: transparent; text-align: center; }
+  .markdown-body pre.mermaid svg { max-width: 100%; height: auto; }
+  .markdown-body pre.mermaid[data-error] {
+    color: var(--gorex-danger, #f85149); white-space: pre-wrap; text-align: left; font-size: 85%;
+  }
+  .markdown-body img { max-width: 100%; }
+  #empty { color: var(--gorex-muted, #888); font-family: var(--gorex-body-font); padding: 24px; }
+</style>
+</head>
+<body>
+<article id="content" class="markdown-body"></article>
+<script src="gorex-asset://localhost/mermaid.min.js"></script>
+<script>
+(() => {
+  const content = document.getElementById("content");
+  let dark = false, mermaidOn = true, seq = 0;
+
+  function initMermaid() {
+    if (!window.mermaid) return;
+    mermaid.initialize({ startOnLoad: false, theme: dark ? "dark" : "default", securityLevel: "strict" });
+  }
+
+  async function drawDiagrams() {
+    if (!window.mermaid || !mermaidOn) return;
+    const blocks = content.querySelectorAll("pre.mermaid:not([data-done])");
+    let i = 0;
+    for (const pre of blocks) {
+      const src = pre.textContent;
+      const id = "m" + (++seq) + "-" + (i++);
+      try {
+        const { svg } = await mermaid.render(id, src);
+        pre.innerHTML = svg;
+        pre.dataset.done = "1";
+      } catch (e) {
+        pre.textContent = src + "\n\n" + (e && e.message ? e.message : String(e));
+        pre.dataset.error = "1";
+        pre.dataset.done = "1";
+        const stray = document.getElementById("d" + id);
+        if (stray) stray.remove();
+      }
+    }
+  }
+
+  // setContent replaces the article, keeping the scroll position.
+  window.gorexSetContent = async function (html) {
+    const y = window.scrollY;
+    content.innerHTML = html;
+    window.scrollTo(0, y);
+    await drawDiagrams();
+    return true;
+  };
+
+  // setTheme sets the colors the app gives: dark, and CSS variables.
+  window.gorexSetTheme = function (isDark, vars) {
+    dark = !!isDark;
+    document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+    for (const k in vars) document.documentElement.style.setProperty("--gorex-" + k, vars[k]);
+    initMermaid();
+    for (const pre of content.querySelectorAll("pre.mermaid[data-done]")) {
+      delete pre.dataset.done; delete pre.dataset.error;
+      if (pre.dataset.src !== undefined) pre.textContent = pre.dataset.src;
+    }
+    drawDiagrams();
+    return true;
+  };
+  window.gorexSetMermaid = function (on) { mermaidOn = !!on; drawDiagrams(); return true; };
+  window.gorexScrollTo = function (id) {
+    const el = id ? document.getElementById(id) : null;
+    if (el) el.scrollIntoView({ block: "start" }); else if (!id) window.scrollTo(0, 0);
+    return !!el;
+  };
+
+  // Keep each diagram's source for re-drawing on a theme change.
+  const keepSources = () => { for (const pre of content.querySelectorAll("pre.mermaid")) if (pre.dataset.src === undefined) pre.dataset.src = pre.textContent; };
+  const origSet = window.gorexSetContent;
+  window.gorexSetContent = async function (html) { content.innerHTML = html; keepSources(); return origSet.call(null, content.innerHTML); };
+
+  // Links: anchors scroll here; everything else the app decides.
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest && e.target.closest("a[href]");
+    if (!a) return;
+    const href = a.getAttribute("href");
+    if (href.startsWith("#")) {
+      e.preventDefault();
+      window.gorexScrollTo(decodeURIComponent(href.slice(1)));
+      return;
+    }
+    // Let the navigation happen: the app's OnWillNavigate takes it.
+  });
+  initMermaid();
+})();
+</script>
+</body>
+</html>

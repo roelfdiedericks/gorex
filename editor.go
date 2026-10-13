@@ -93,6 +93,12 @@ type editorState struct {
 	// onDisk notes a file changed or gone on the host since it was read,
 	// while the buffer has changes of its own.
 	onDisk string
+	// preview is the pane's Markdown preview while in that mode;
+	// previewOnLoad asks for it once the file is read, scrolled to
+	// previewFragment.
+	preview         *previewState
+	previewOnLoad   bool
+	previewFragment string
 }
 
 func (e *editorState) label() (name, detail string) {
@@ -289,6 +295,24 @@ func (a *App) setFileText(p *Pane, text string, mod time.Time) {
 	e.diff = &editor.DiffState{Old: e.base, New: e.buf, Editable: true, HunkActions: true, LineSelection: true}
 	e.modTime = mod
 	e.err, e.tooLarge, e.onDisk = "", false, ""
+	if e.mode == modePreview && !isMarkdown(e.path) {
+		e.mode = modeEditor
+	}
+	if e.previewOnLoad {
+		e.previewOnLoad = false
+		if isMarkdown(e.path) {
+			e.mode = modePreview
+		}
+	}
+	if e.mode == modePreview {
+		a.ensurePreview(p)
+		if e.previewFragment != "" {
+			a.previewScrollTo(p, e.previewFragment)
+			e.previewFragment = ""
+		}
+	} else if e.preview != nil {
+		a.dropPreview(p)
+	}
 }
 
 // openFile shows a file in the tab's focused editor pane, or in a new
@@ -313,7 +337,8 @@ func (a *App) openFile(t *Tab, path string, split bool) {
 		delete(a.keptEdits, path)
 		target.edit = kept
 	} else {
-		target.edit = &editorState{path: path, mode: modeEditor}
+		a.dropPreview(target)
+		target.edit = &editorState{path: path, mode: modeEditor, previewOnLoad: isMarkdown(path) && is(a.eff.Editor.PreviewOnOpen)}
 		a.loadFile(target, 0)
 	}
 	t.setFocus(target)
@@ -431,6 +456,9 @@ func (a *App) modifiedPanes() []*Pane {
 func (a *App) keepEdits() {
 	for _, t := range a.tabs {
 		for _, p := range t.panes() {
+			if p.Kind == paneEditor {
+				a.dropPreview(p)
+			}
 			if p.Kind == paneEditor && p.edit.modified() && p.edit.path != "" {
 				if a.keptEdits == nil {
 					a.keptEdits = map[string]*editorState{}

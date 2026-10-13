@@ -69,6 +69,7 @@ func (a *App) applySettings() {
 		}
 	}
 	a.services.Invalidate()
+	a.previewThemeChanged()
 }
 
 // reattach makes a pane's terminal anew, attached to the same session,
