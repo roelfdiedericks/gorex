@@ -327,6 +327,10 @@ func (a *App) setFileText(p *Pane, text string, mod time.Time) {
 func (a *App) openFile(t *Tab, path string, split bool) {
 	for _, p := range t.panes() {
 		if p.Kind == paneEditor && p.edit.path == path {
+			// Its page showing something a link opened: the document.
+			if pv := p.edit.preview; pv != nil && pv.showing != "" && p.edit.mode == modePreview {
+				a.previewBack(p)
+			}
 			t.setFocus(p)
 			a.focusReq = p
 			return

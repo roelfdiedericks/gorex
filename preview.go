@@ -594,9 +594,11 @@ func (a *App) openHostPath(p *Pane, target, fragment string) {
 			case err != nil:
 				a.toast(ui.Toast{Title: "Not found on " + a.hostName(), Description: target, Type: "error"})
 			case fi.Dir:
+				// The tree opens and chooses it.
 				if b := t.Browser; b != nil {
-					b.files.tree.Open.Add(target)
 					b.files.isDir[target] = true
+					b.files.tree.Open.Add(target)
+					b.files.reveal = target
 					a.changed()
 				}
 			case viewable(target) != "":

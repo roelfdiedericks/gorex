@@ -64,13 +64,18 @@ func (a *App) openTowards(b *browserState, path string) {
 	}
 	for _, d := range dirs {
 		b.isDir[d] = true
-		b.tree.Open.Add(d)
+		if !b.tree.Open.Has(d) {
+			b.tree.Open.Add(d)
+			a.changed() // the layout keeps the folders open
+		}
 	}
 }
 
 // revealRow chooses the row of the file to reveal and scrolls to it,
 // once the tree has it; a listing read with no such row ends the wait.
-func (a *App) revealRow(b *browserState) {
+// The rows of this frame are built: the choice shows on the next, which
+// nothing else may ask for while the pointer is over a web view.
+func (a *App) revealRow(c *ui.Context, b *browserState) {
 	if b.reveal == "" {
 		return
 	}
@@ -79,7 +84,7 @@ func (a *App) revealRow(b *browserState) {
 			b.row = i
 			b.tree.List.ScrollIntoView(i)
 			b.reveal = ""
-			a.changed()
+			c.Invalidate()
 			return
 		}
 	}
@@ -159,7 +164,7 @@ func (a *App) browserBody(c *ui.Context, k *colors, t *Tab, p *Pane) {
 		o := ui.Outline(c, &b.tree, []string{b.root}, func(dir string) []string { return a.browserEntries(p, dir) }, func(item string) {
 			a.browserRow(c, k, t, p, item, item == focusedFile, modified[item])
 		}).Grow(1).MinHeight(0)
-		a.revealRow(b)
+		a.revealRow(c, b)
 		if a.focusReq == p && a.tab() == t {
 			o.Focus()
 			a.focusReq = nil
