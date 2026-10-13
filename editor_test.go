@@ -265,3 +265,35 @@ func TestBrowserFollowsChanges(t *testing.T) {
 		t.Errorf("the tree shows no status letters: %q", tt.Texts())
 	}
 }
+
+// TestBrowserRevealsFocusedFile: a file opened other than from the tree,
+// as by a link, gets its folders opened and its row chosen; the focus
+// moving to another split's file moves the tree there too.
+func TestBrowserRevealsFocusedFile(t *testing.T) {
+	a, tt := newTestApp(t)
+	a.eff = builtin
+	root := testDir(t)
+	defer os.RemoveAll(root)
+	os.MkdirAll(filepath.Join(root, "sub", "deep"), 0o755)
+	os.WriteFile(filepath.Join(root, "top.txt"), []byte("t\n"), 0o644)
+	os.WriteFile(filepath.Join(root, "sub", "deep", "inner.txt"), []byte("i\n"), 0o644)
+	tab := a.newEditorTab(root)
+	waitFor(t, tt, "the root's entries", func() bool { return tt.HasText("top.txt") })
+	b := tab.Browser.files
+	inner := filepath.Join(root, "sub", "deep", "inner.txt")
+	a.openFile(tab, inner, false)
+	waitFor(t, tt, "the inner file's row", func() bool {
+		return b.row >= 0 && b.row < b.tree.Rows() && b.tree.Item(b.row) == inner
+	})
+	if !b.tree.Open.Has(filepath.Join(root, "sub")) || !b.tree.Open.Has(filepath.Join(root, "sub", "deep")) {
+		t.Error("the folders down to the file are not open")
+	}
+	// Another split on top.txt: the focus there moves the tree.
+	first := tab.treeFocus()
+	a.openFile(tab, filepath.Join(root, "top.txt"), true)
+	waitFor(t, tt, "top's row", func() bool { return b.row >= 0 && b.tree.Item(b.row) == filepath.Join(root, "top.txt") })
+	tab.setFocus(first)
+	a.focusReq = first
+	a.changed()
+	waitFor(t, tt, "inner's row again", func() bool { return b.row >= 0 && b.tree.Item(b.row) == inner })
+}

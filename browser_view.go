@@ -47,6 +47,49 @@ func (a *App) browserHeader(c *ui.Context, k *colors, t *Tab, p *Pane, focused, 
 	})
 }
 
+// openTowards opens the folders from the browser's root down to a file,
+// so that its row comes, as the listings arrive. A file elsewhere than
+// under the root is nothing to the tree.
+func (a *App) openTowards(b *browserState, path string) {
+	if path == "" {
+		return
+	}
+	if !underDir(path, b.root) || samePath(path, b.root) {
+		b.reveal = ""
+		return
+	}
+	var dirs []string
+	for d := dirName(path); len(d) > len(b.root); d = dirName(d) {
+		dirs = append(dirs, d)
+	}
+	for _, d := range dirs {
+		b.isDir[d] = true
+		b.tree.Open.Add(d)
+	}
+}
+
+// revealRow chooses the row of the file to reveal and scrolls to it,
+// once the tree has it; a listing read with no such row ends the wait.
+func (a *App) revealRow(b *browserState) {
+	if b.reveal == "" {
+		return
+	}
+	for i := range b.tree.Rows() {
+		if samePath(b.tree.Item(i), b.reveal) {
+			b.row = i
+			b.tree.List.ScrollIntoView(i)
+			b.reveal = ""
+			a.changed()
+			return
+		}
+	}
+	if dir := dirName(b.reveal); !b.loading[dir] {
+		if _, ok := b.dirs[dir]; ok || b.errs[dir] != "" {
+			b.reveal = "" // listed, and not there: gone, or hidden
+		}
+	}
+}
+
 // refreshFocusedDir reads the chosen directory again: the directory of
 // the chosen row, or the root.
 func (a *App) refreshFocusedDir(p *Pane) {
@@ -107,9 +150,16 @@ func (a *App) browserBody(c *ui.Context, k *colors, t *Tab, p *Pane) {
 				modified[q.edit.path] = true
 			}
 		}
+		// The tree follows the focused pane's file: as one opens by a
+		// link, the layout, or the focus moving to another split.
+		if focusedFile != "" && focusedFile != b.revealed {
+			b.revealed, b.reveal = focusedFile, focusedFile
+		}
+		a.openTowards(b, b.reveal)
 		o := ui.Outline(c, &b.tree, []string{b.root}, func(dir string) []string { return a.browserEntries(p, dir) }, func(item string) {
 			a.browserRow(c, k, t, p, item, item == focusedFile, modified[item])
 		}).Grow(1).MinHeight(0)
+		a.revealRow(b)
 		if a.focusReq == p && a.tab() == t {
 			o.Focus()
 			a.focusReq = nil

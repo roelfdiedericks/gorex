@@ -43,6 +43,10 @@ type browserState struct {
 	isDir   map[string]bool
 	tree    ui.OutlineState[string]
 	row     int
+	// reveal is a file the tree is to show chosen, its folders opened,
+	// once its rows are there; revealed the last file shown so, which
+	// is the focused pane's: the tree follows it.
+	reveal, revealed string
 	// rootErr is why the root cannot be read, shown in place of the tree.
 	rootErr string
 	// changeRoot is the Change root… field, open while editing.
@@ -624,7 +628,7 @@ func (a *App) setRoot(p *Pane, root string) {
 	b.dirs, b.loading, b.errs, b.isDir = map[string][]rex.FileInfo{}, map[string]bool{}, map[string]string{}, map[string]bool{root: true}
 	b.tree.Open.Clear()
 	b.tree.Open.Add(root)
-	b.row = -1
+	b.row, b.reveal, b.revealed = -1, "", ""
 	a.changed()
 }
 
