@@ -130,6 +130,9 @@ type Editor struct {
 	DiffLayout  string `json:"diffLayout,omitempty" kind:"pc" label:"Changes shown" group:"Changes"`
 	DiffInline  string `json:"diffInline,omitempty" kind:"pc" label:"Highlight changes within lines by" group:"Changes"`
 	HiddenFiles *bool  `json:"hiddenFiles,omitempty" kind:"pc" label:"Show hidden files" group:"Files"`
+	// OpenOn is "click" or "doubleClick": what opens a file of the
+	// browser in the editor.
+	OpenOn string `json:"openOn,omitempty" kind:"pc" label:"Open files on" group:"Files"`
 	// MaxFile is the most bytes a file is opened with by itself; 0 for no
 	// cap. Larger files offer Open anyway.
 	MaxFile int64 `json:"maxFile,omitempty" kind:"pc" label:"Open files up to" group:"Files"`
@@ -148,7 +151,7 @@ var builtin = Settings{
 	},
 	Editor: Editor{
 		LineHeight: 1.5, WrapGuides: "100", SoftWrap: off, DiffLayout: "split", DiffInline: "words",
-		HiddenFiles: on, MaxFile: 8 << 20,
+		HiddenFiles: on, MaxFile: 8 << 20, OpenOn: "click",
 	},
 	Shell: Shell{Login: on, StartIn: "current"},
 	General: General{

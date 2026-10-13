@@ -107,7 +107,7 @@ func (a *App) browserBody(c *ui.Context, k *colors, t *Tab, p *Pane) {
 			}
 		}
 		o := ui.Outline(c, &b.tree, []string{b.root}, func(dir string) []string { return a.browserEntries(p, dir) }, func(item string) {
-			a.browserRow(c, k, b, item, item == focusedFile, modified[item])
+			a.browserRow(c, k, t, p, item, item == focusedFile, modified[item])
 		}).Grow(1).MinHeight(0)
 		if a.focusReq == p && a.tab() == t {
 			o.Focus()
@@ -117,16 +117,21 @@ func (a *App) browserBody(c *ui.Context, k *colors, t *Tab, p *Pane) {
 			t.setFocus(p)
 			a.changed()
 		}
+		// A click opens a file, or a double click (and Enter) when the
+		// settings say so; Shift with it opens in a new split, as Enter
+		// does in the first case.
+		byClick := a.eff.Editor.OpenOn != "doubleClick"
+		shift := c.Modifiers()&ui.Shift != 0
 		if o.Changed() && b.row >= 0 {
-			if item := b.tree.Item(b.row); !b.isDir[item] {
-				a.openFile(t, item, c.Modifiers()&ui.Shift != 0)
+			if item := b.tree.Item(b.row); byClick && !b.isDir[item] {
+				a.openFile(t, item, shift)
 			} else {
 				a.changed()
 			}
 		}
 		if o.Submitted() && b.row >= 0 {
 			if item := b.tree.Item(b.row); !b.isDir[item] {
-				a.openFile(t, item, true)
+				a.openFile(t, item, byClick || shift)
 			}
 		}
 		if o.Focused() && c.Shortcut(0, ui.KeyF5) {
@@ -138,7 +143,8 @@ func (a *App) browserBody(c *ui.Context, k *colors, t *Tab, p *Pane) {
 // browserRow draws a row of the tree: its icon and name, the accent color
 // on the focused editor's file, and a dot after a file with unsaved
 // changes.
-func (a *App) browserRow(c *ui.Context, k *colors, b *browserState, item string, current, modified bool) {
+func (a *App) browserRow(c *ui.Context, k *colors, t *Tab, p *Pane, item string, current, modified bool) {
+	b := p.files
 	name := baseName(item)
 	if item == b.root {
 		name = b.root
@@ -168,8 +174,33 @@ func (a *App) browserRow(c *ui.Context, k *colors, b *browserState, item string,
 	if strings.HasPrefix(name, ".") && !current {
 		col = k.textMuted
 	}
-	ui.Row(c).Gap(6).AlignItems(ui.Center).MinWidth(0).Children(func() {
+	row := ui.Row(c).Gap(6).AlignItems(ui.Center).MinWidth(0)
+	row.Children(func() {
 		ui.Icon(c, icon(glyph)).Size(14, 14).TextColor(iconCol).Shrink(0)
 		ui.Text(c, name).FontSize(12.5).TextColor(col).SingleLine().Ellipsis("…").MinWidth(0)
+	})
+	row.ContextMenu(func(m *ui.Menu) {
+		dir := b.isDir[item]
+		if !dir {
+			if m.Item("Open").Chosen() {
+				a.laterService(func() { a.openFile(t, item, false) })
+			}
+			if m.Item("Open to the Side").Chosen() {
+				a.laterService(func() { a.openFile(t, item, true) })
+			}
+			m.Separator()
+		}
+		if dir {
+			if m.Item("Refresh").Chosen() {
+				a.laterService(func() { a.refreshDir(p, item) })
+			}
+			if m.Item("Root Here").Disabled(item == b.root).Chosen() {
+				a.laterService(func() { a.setRoot(p, item) })
+			}
+			m.Separator()
+		}
+		if m.Item("Copy Path").Chosen() {
+			a.services.WriteClipboard(item)
+		}
 	})
 }

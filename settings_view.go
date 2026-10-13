@@ -500,6 +500,8 @@ func (a *App) settingControl(c *ui.Context, k *colors, scope string, f field) {
 		choices(c, &target, effv, []string{"split", "unified"}, []string{"Side by side", "Unified"}, changed)
 	case "editor.diffInline":
 		choices(c, &target, effv, []string{"words", "characters", "off"}, []string{"Words", "Characters", "Off"}, changed)
+	case "editor.openOn":
+		choices(c, &target, effv, []string{"click", "doubleClick"}, []string{"A click", "A double click"}, changed)
 	case "editor.maxFile":
 		v := sizeText(effv.Int())
 		sizes := []string{"1 MB", "2 MB", "4 MB", "8 MB", "16 MB", "32 MB", "No limit"}
