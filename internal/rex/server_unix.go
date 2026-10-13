@@ -75,3 +75,5 @@ func hostInfo() HostInfo {
 	}
 	return h
 }
+
+func hideWindow(*exec.Cmd) {}

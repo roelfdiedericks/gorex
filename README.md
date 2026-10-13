@@ -66,6 +66,13 @@ terminal plugin (Ghostty's libghostty-vt). No webview, no cgo: one ~15 MB app.
   over ssh too, through the session server; buffers live in the window,
   and unsaved changes survive a reconnect. The tab, its browser's root
   and open folders, and its panes and modes come back with the layout.
+  The tree follows the host: the server watches the folders it shows
+  (fsnotify) and tells every window of a file written there, by a shell
+  or anything else; an open file changed on the host reloads, or, with
+  edits of its own, says "changed on disk" in its header. In a git
+  repository the tree marks what `git status` sees: **M** modified,
+  **A** added, **D** deleted, **R** renamed, **U** untracked, **C**
+  conflict, folders by the strongest inside them, ignored files dimmed.
 - **Settings** (⌘, / Ctrl+,): a dialogue with a sidebar and a search over
   every row. The look of a window follows the host it shows: appearance,
   terminal colors (every Ghostty theme, with a previewer), the window's
@@ -177,4 +184,5 @@ connections fail, telling to run the tool.
 Icons: [Lucide](https://lucide.dev) (ISC) and [Simple Icons](https://simpleicons.org)
 (CC0). Font: [JetBrains Mono](https://www.jetbrains.com/lp/mono/) (OFL). The ssh
 link is multiplexed by [yamux](https://github.com/hashicorp/yamux) (MPL-2.0),
-unmodified.
+unmodified; directories are watched with [fsnotify](https://github.com/fsnotify/fsnotify)
+(BSD-3).

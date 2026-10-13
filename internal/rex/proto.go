@@ -17,7 +17,7 @@ import (
 )
 
 // ProtocolVersion changes whenever the wire protocol does.
-const ProtocolVersion = 3
+const ProtocolVersion = 4
 
 // BridgeReady starts the line a bridge prints before it multiplexes its
 // standard input and output; the rest of the line is its executable.
@@ -67,11 +67,39 @@ const ErrTooLarge = "too large"
 // ErrChanged is writeFile's error for a file modified since IfModTime.
 const ErrChanged = "changed on disk"
 
-// Response answers the Request with the same ID.
+// Response answers the Request with the same ID. An ID of 0 is an event
+// the server sends on its own: Event names it, "changed" with Path for a
+// watched directory whose entries or their contents changed, "sessions"
+// for a session created, ended, or whose program, directory or title
+// changed.
 type Response struct {
 	ID    int64           `json:"id"`
 	Error string          `json:"error,omitempty"`
 	Data  json.RawMessage `json:"data,omitempty"`
+	Event string          `json:"event,omitempty"`
+	Path  string          `json:"path,omitempty"`
+}
+
+// Event is what the server told on its own: see Response.
+type Event struct {
+	Event string
+	Path  string
+}
+
+// GitStatus is the answer to gitStatus: the repository Path is in, and
+// the files git sees as changed, relative to Root with "/".
+type GitStatus struct {
+	Root  string      `json:"root,omitempty"`
+	Files []GitChange `json:"files,omitempty"`
+	// Truncated tells that the list stopped at maxGitFiles.
+	Truncated bool `json:"truncated,omitempty"`
+}
+
+// GitChange is a file's status: one of M (modified), A (added), D
+// (deleted), R (renamed), U (untracked), C (conflict), I (ignored).
+type GitChange struct {
+	Path   string `json:"path"`
+	Status string `json:"status"`
 }
 
 // CreateOptions start a session.

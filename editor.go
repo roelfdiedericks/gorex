@@ -49,6 +49,13 @@ type browserState struct {
 	changing  bool
 	rootField string
 	menuOpen  bool
+	// watched are the directories the server watches for this browser,
+	// on watchClient; repos what git says of the repositories under the
+	// root, and noRepo the directories asked about that are in none.
+	watched     map[string]bool
+	watchClient *rex.Client
+	repos       []*gitRepo
+	noRepo      map[string]bool
 }
 
 func (b *browserState) saved(ratio float32) *savedBrowser {
@@ -83,6 +90,9 @@ type editorState struct {
 	elsewhere bool
 	// wrap is the pane's soft wrap, from the setting until toggled.
 	wrap *bool
+	// onDisk notes a file changed or gone on the host since it was read,
+	// while the buffer has changes of its own.
+	onDisk string
 }
 
 func (e *editorState) label() (name, detail string) {
@@ -177,7 +187,7 @@ func (a *App) newEditorTab(root string) *Tab {
 
 // newBrowserPane makes a tab's file browser from its saved state.
 func (a *App) newBrowserPane(t *Tab, s *savedBrowser) *Pane {
-	b := &browserState{root: s.Root, hidden: s.Hidden, dirs: map[string][]rex.FileInfo{}, loading: map[string]bool{}, errs: map[string]string{}, isDir: map[string]bool{}, row: -1}
+	b := &browserState{root: s.Root, hidden: s.Hidden, dirs: map[string][]rex.FileInfo{}, loading: map[string]bool{}, errs: map[string]string{}, isDir: map[string]bool{}, row: -1, noRepo: map[string]bool{}}
 	b.isDir[b.root] = true
 	b.tree.Open.Add(b.root)
 	for _, d := range s.Open {
@@ -278,7 +288,7 @@ func (a *App) setFileText(p *Pane, text string, mod time.Time) {
 	e.state = &editor.State{Buffer: e.buf, DiffBase: e.base}
 	e.diff = &editor.DiffState{Old: e.base, New: e.buf, Editable: true, HunkActions: true, LineSelection: true}
 	e.modTime = mod
-	e.err, e.tooLarge = "", false
+	e.err, e.tooLarge, e.onDisk = "", false, ""
 }
 
 // openFile shows a file in the tab's focused editor pane, or in a new
@@ -534,6 +544,7 @@ func (a *App) readDir(p *Pane, dir string) {
 				}
 			}
 			b.dirs[dir] = entries
+			a.askGit(p, dir)
 		})
 	}()
 }
@@ -546,6 +557,10 @@ func (a *App) refreshDir(p *Pane, dir string) {
 		if d == dir || strings.HasPrefix(d, joinPath(dir, "")) {
 			delete(b.dirs, d)
 		}
+	}
+	delete(b.noRepo, dir)
+	if r := a.repoOf(b, dir); r != nil {
+		a.scheduleGit(p, r)
 	}
 	a.readDir(p, dir)
 }
@@ -565,7 +580,9 @@ func (a *App) setRoot(p *Pane, root string) {
 	} else {
 		root = path.Clean(root)
 	}
+	a.unwatchAll(p)
 	b.root, b.rootErr = root, ""
+	b.repos, b.noRepo = nil, map[string]bool{}
 	b.dirs, b.loading, b.errs, b.isDir = map[string][]rex.FileInfo{}, map[string]bool{}, map[string]string{}, map[string]bool{root: true}
 	b.tree.Open.Clear()
 	b.tree.Open.Add(root)
@@ -614,4 +631,260 @@ func (a *App) changeRootFocused() {
 		p.files.changing, p.files.rootField = true, p.files.root
 		a.focusReq = p
 	}
+}
+
+// Watching and git status: the server tells of directories the browsers
+// have open, and git tells of the files it sees changed.
+
+// gitRepo is what git says of a repository under a browser's root.
+type gitRepo struct {
+	root string
+	// files holds each changed file's status by its path relative to
+	// root, with "/"; dirs the strongest status under each directory.
+	files, dirs map[string]string
+	truncated   bool
+	lastRun     time.Time
+	due         bool // a run is scheduled
+	running     bool
+}
+
+// gitStrength orders statuses for a folder's roll-up, the strongest
+// first.
+const gitStrength = "CDMARUTI"
+
+func stronger(a, b string) string {
+	if a == "" {
+		return b
+	}
+	if b == "" {
+		return a
+	}
+	if strings.Index(gitStrength, a) <= strings.Index(gitStrength, b) {
+		return a
+	}
+	return b
+}
+
+// syncWatches has the server watch the directories the browser has open,
+// and no others.
+func (a *App) syncWatches(p *Pane) {
+	b := p.files
+	client := a.client
+	if client == nil {
+		return
+	}
+	if b.watchClient != client {
+		b.watchClient, b.watched = client, map[string]bool{}
+	}
+	want := map[string]bool{b.root: true}
+	for d := range b.tree.Open.All() {
+		if b.isDir[d] {
+			want[d] = true
+		}
+	}
+	for d := range want {
+		if !b.watched[d] {
+			b.watched[d] = true
+			go client.Watch(d)
+		}
+	}
+	for d := range b.watched {
+		if !want[d] {
+			delete(b.watched, d)
+			go client.Unwatch(d)
+		}
+	}
+}
+
+// unwatchAll drops a browser's watches, as its tab closes.
+func (a *App) unwatchAll(p *Pane) {
+	b := p.files
+	if client := b.watchClient; client != nil {
+		for d := range b.watched {
+			go client.Unwatch(d)
+		}
+	}
+	b.watched, b.watchClient = nil, nil
+}
+
+// dirChanged takes the server's word that a directory changed: browsers
+// showing it read it again, editors on files in it look at them again,
+// and git is asked again for the repository it is in.
+func (a *App) dirChanged(dir string) {
+	for _, t := range a.tabs {
+		if t.Kind != paneEditor {
+			continue
+		}
+		if b := t.Browser; b != nil {
+			if _, ok := b.files.dirs[dir]; ok || samePath(dir, b.files.root) {
+				delete(b.files.dirs, dir)
+				a.readDir(b, dir)
+			}
+			if r := a.repoOf(b.files, dir); r != nil {
+				a.scheduleGit(b, r)
+			}
+		}
+		for _, p := range t.panes() {
+			if p.Kind == paneEditor && p.edit.path != "" && samePath(dirName(p.edit.path), dir) {
+				a.checkFile(p)
+			}
+		}
+	}
+}
+
+// checkFile looks at an open file on the host: one that changed since it
+// was read reloads when the buffer is unmodified, else is marked.
+func (a *App) checkFile(p *Pane) {
+	e := p.edit
+	client := a.client
+	if client == nil || e.buf == nil || e.loading {
+		return
+	}
+	path, had := e.path, e.modTime
+	go func() {
+		fi, err := client.Stat(path)
+		a.update(func() {
+			if p.edit != e || e.path != path || e.modTime != had {
+				return
+			}
+			switch {
+			case err != nil:
+				e.onDisk = "gone from disk"
+			case !fi.ModTime.Equal(had):
+				if e.modified() {
+					e.onDisk = "changed on disk"
+				} else {
+					a.loadFile(p, 0)
+				}
+			default:
+				e.onDisk = ""
+			}
+		})
+	}()
+}
+
+// repoOf finds the repository a path is in among those the browser
+// knows.
+func (a *App) repoOf(b *browserState, path string) *gitRepo {
+	for _, r := range b.repos {
+		if underDir(path, r.root) {
+			return r
+		}
+	}
+	return nil
+}
+
+// underDir reports whether path is dir or inside it.
+func underDir(path, dir string) bool {
+	if samePath(path, dir) {
+		return true
+	}
+	dir = strings.TrimRight(dir, `/\`)
+	return len(path) > len(dir) && samePath(path[:len(dir)], dir) && (path[len(dir)] == '/' || path[len(dir)] == '\\')
+}
+
+// gitStatusOf is what git says of an item of the tree: a file's status,
+// or the strongest under a folder; "" for nothing.
+func (a *App) gitStatusOf(b *browserState, item string) string {
+	r := a.repoOf(b, item)
+	if r == nil {
+		return ""
+	}
+	if samePath(item, r.root) {
+		return ""
+	}
+	rel := strings.ReplaceAll(item[len(strings.TrimRight(r.root, `/\`))+1:], `\`, "/")
+	if st, ok := r.files[rel]; ok {
+		return st
+	}
+	if st, ok := r.files[rel+"/"]; ok {
+		return st
+	}
+	return r.dirs[rel]
+}
+
+// askGit asks git about a directory just read, unless it is in a
+// repository the browser knows or one it asked about without a result.
+func (a *App) askGit(p *Pane, dir string) {
+	b := p.files
+	if a.repoOf(b, dir) != nil || b.noRepo[dir] {
+		return
+	}
+	for d := range b.noRepo {
+		if underDir(dir, d) && !b.isDir[d] {
+			return
+		}
+	}
+	a.runGit(p, dir, nil)
+}
+
+// scheduleGit runs git again for a repository, at most every two
+// seconds.
+func (a *App) scheduleGit(p *Pane, r *gitRepo) {
+	if r.due || r.running {
+		return
+	}
+	wait := 2*time.Second - time.Since(r.lastRun)
+	if wait <= 0 {
+		a.runGit(p, r.root, r)
+		return
+	}
+	r.due = true
+	time.AfterFunc(wait, func() {
+		a.update(func() {
+			r.due = false
+			if a.repoOf(p.files, r.root) == r {
+				a.runGit(p, r.root, r)
+			}
+		})
+	})
+}
+
+// runGit asks the server for git's status of the repository dir is in,
+// and keeps it on the browser.
+func (a *App) runGit(p *Pane, dir string, r *gitRepo) {
+	b := p.files
+	client := a.client
+	if client == nil {
+		return
+	}
+	if r != nil {
+		r.running = true
+	}
+	go func() {
+		st, err := client.GitStatus(dir)
+		a.update(func() {
+			if p.files != b || a.client != client {
+				return
+			}
+			if r != nil {
+				r.running = false
+			}
+			if err != nil || st.Root == "" {
+				if r == nil {
+					b.noRepo[dir] = true
+				}
+				return
+			}
+			if r == nil {
+				r = a.repoOf(b, st.Root)
+			}
+			if r == nil {
+				r = &gitRepo{root: st.Root}
+				b.repos = append(b.repos, r)
+			}
+			r.lastRun = time.Now()
+			r.truncated = st.Truncated
+			r.files = make(map[string]string, len(st.Files))
+			r.dirs = map[string]string{}
+			for _, f := range st.Files {
+				r.files[f.Path] = f.Status
+				rel := strings.TrimSuffix(f.Path, "/")
+				for i := strings.LastIndex(rel, "/"); i > 0; i = strings.LastIndex(rel[:i], "/") {
+					d := rel[:i]
+					r.dirs[d] = stronger(r.dirs[d], f.Status)
+				}
+			}
+		})
+	}()
 }

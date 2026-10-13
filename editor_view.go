@@ -41,6 +41,9 @@ func (a *App) editorHeader(c *ui.Context, k *colors, t *Tab, p *Pane, focused, h
 			if e.elsewhere {
 				ui.Text(c, "closed elsewhere").FontSize(11.5).TextColor(k.attention).SingleLine().Shrink(0)
 			}
+			if e.onDisk != "" {
+				ui.Text(c, e.onDisk).FontSize(11.5).TextColor(k.attention).SingleLine().Shrink(0).Tooltip("The file on the host differs from this buffer: Reload File drops your changes, Save overwrites it.")
+			}
 		})
 		show := focused || hovered
 		ui.Row(c).Gap(1).AlignItems(ui.Center).Opacity(map[bool]float32{true: 1, false: 0}[show]).Children(func() {

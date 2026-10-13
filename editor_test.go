@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
+	"time"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -203,3 +205,63 @@ func slicesContains(xs []string, s string) bool {
 }
 
 var _ = ui.KeyEnter
+
+// TestBrowserFollowsChanges: a file written in a directory the browser
+// shows appears by itself, and git's status marks the tree.
+func TestBrowserFollowsChanges(t *testing.T) {
+	a, tt := newTestApp(t)
+	a.eff = builtin
+	root := testDir(t)
+	defer os.RemoveAll(root)
+	os.WriteFile(filepath.Join(root, "first.txt"), []byte("1\n"), 0o644)
+	// The window's event loop, without a window: changed events reach
+	// the tabs on the next frame.
+	go func() {
+		for ev := range a.client.Events {
+			if ev.Event == "changed" {
+				path := ev.Path
+				a.post(func() { a.dirChanged(path) })
+			}
+		}
+	}()
+	tab := a.newEditorTab(root)
+	waitFor(t, tt, "the root's entries", func() bool { return tt.HasText("first.txt") })
+	waitFor(t, tt, "the watch", func() bool { return tab.Browser.files.watched[root] })
+	time.Sleep(200 * time.Millisecond) // the server's watch is in place
+	os.WriteFile(filepath.Join(root, "second.txt"), []byte("2\n"), 0o644)
+	waitFor(t, tt, "the new file in the tree", func() bool { return tt.HasText("second.txt") })
+
+	// An open file changed on disk while unmodified reloads itself.
+	a.openFile(tab, filepath.Join(root, "first.txt"), false)
+	ed := tab.treeFocus()
+	waitFor(t, tt, "the file", func() bool { return ed.edit.buf != nil })
+	time.Sleep(1100 * time.Millisecond) // a second later, so the mtime moves
+	os.WriteFile(filepath.Join(root, "first.txt"), []byte("1\nagain\n"), 0o644)
+	waitFor(t, tt, "the reload", func() bool { return ed.edit.buf != nil && strings.Contains(ed.edit.buf.String(), "again") })
+
+	// Git: a repository under the root marks its changed files.
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", root}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-q")
+	run("add", "-A")
+	run("commit", "-q", "-m", "one")
+	os.WriteFile(filepath.Join(root, "second.txt"), []byte("2 changed\n"), 0o644)
+	os.WriteFile(filepath.Join(root, "third.txt"), []byte("3\n"), 0o644)
+	a.refreshDir(tab.Browser, root)
+	waitFor(t, tt, "git's marks", func() bool {
+		b := tab.Browser.files
+		return a.gitStatusOf(b, filepath.Join(root, "second.txt")) == "M" && a.gitStatusOf(b, filepath.Join(root, "third.txt")) == "U"
+	})
+	if !tt.HasText("M") || !tt.HasText("U") {
+		t.Errorf("the tree shows no status letters: %q", tt.Texts())
+	}
+}

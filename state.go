@@ -602,6 +602,9 @@ func (a *App) removeTab(t *Tab) {
 
 // closeTab closes a tab and ends the sessions of its panes.
 func (a *App) closeTab(t *Tab) {
+	if t.Browser != nil {
+		a.unwatchAll(t.Browser)
+	}
 	for _, p := range t.allPanes() {
 		p.closed = true
 		if p.term != nil {
@@ -1082,11 +1085,31 @@ func sortedInfos(m map[string]rex.SessionInfo) []rex.SessionInfo {
 	return out
 }
 
-// poll asks the server what runs in each session, every half second,
-// until the window closes.
+// poll asks the server what runs in each session when it tells of a
+// change, and every ten seconds in case, until the window closes; and
+// hands the server's other events to the tabs.
 func (a *App) poll(win *mygo.Window, client *rex.Client) {
-	tick := time.NewTicker(500 * time.Millisecond)
+	tick := time.NewTicker(10 * time.Second)
 	defer tick.Stop()
+	// Events come in bursts; a list is asked at most every 100 ms.
+	var listDue <-chan time.Time
+	list := func() {
+		listDue = nil
+		infos, err := client.List()
+		if err != nil {
+			return
+		}
+		byID := make(map[string]rex.SessionInfo, len(infos))
+		for _, in := range infos {
+			byID[in.ID] = in
+		}
+		win.Update(func() {
+			if a.win == win {
+				a.apply(byID)
+			}
+		})
+	}
+	list()
 	for {
 		select {
 		case <-client.Closed():
@@ -1101,20 +1124,23 @@ func (a *App) poll(win *mygo.Window, client *rex.Client) {
 			})
 			return
 		case <-tick.C:
-		}
-		infos, err := client.List()
-		if err != nil {
-			continue
-		}
-		byID := make(map[string]rex.SessionInfo, len(infos))
-		for _, in := range infos {
-			byID[in.ID] = in
-		}
-		win.Update(func() {
-			if a.win == win {
-				a.apply(byID)
+			list()
+		case <-listDue:
+			list()
+		case ev := <-client.Events:
+			switch ev.Event {
+			case "sessions":
+				if listDue == nil {
+					listDue = time.After(100 * time.Millisecond)
+				}
+			case "changed":
+				win.Update(func() {
+					if a.win == win && a.client == client {
+						a.dirChanged(ev.Path)
+					}
+				})
 			}
-		})
+		}
 	}
 }
 

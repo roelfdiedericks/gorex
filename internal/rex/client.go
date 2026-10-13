@@ -24,6 +24,10 @@ type Client struct {
 	pending map[int64]chan Response
 	err     error
 	closed  chan struct{}
+	// Events are what the server tells on its own: watched directories
+	// that changed, sessions that changed. The channel is buffered;
+	// events a slow reader leaves are dropped, and a reader drains it.
+	Events chan Event
 }
 
 // Dialer opens a connection to the server.
@@ -74,7 +78,7 @@ func Connect(dial Dialer) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	c := &Client{conn: conn, dial: dial, pending: map[int64]chan Response{}, closed: make(chan struct{})}
+	c := &Client{conn: conn, dial: dial, pending: map[int64]chan Response{}, closed: make(chan struct{}), Events: make(chan Event, 256)}
 	go c.read()
 	return c, nil
 }
@@ -136,6 +140,13 @@ func (c *Client) read() {
 		}
 		var res Response
 		if json.Unmarshal(line, &res) != nil {
+			continue
+		}
+		if res.ID == 0 {
+			select {
+			case c.Events <- Event{Event: res.Event, Path: res.Path}:
+			default:
+			}
 			continue
 		}
 		c.mu.Lock()
@@ -248,6 +259,19 @@ func (c *Client) WriteFile(path string, data []byte, ifModTime time.Time) (time.
 	var fd FileData
 	err := c.call(Request{Op: "writeFile", Path: path, Data: data, IfModTime: ifModTime}, &fd)
 	return fd.ModTime, err
+}
+
+// Watch has the server tell of changes in a directory, as "changed"
+// events; Unwatch stops that.
+func (c *Client) Watch(path string) error { return c.call(Request{Op: "watch", Path: path}, nil) }
+
+func (c *Client) Unwatch(path string) error { return c.call(Request{Op: "unwatch", Path: path}, nil) }
+
+// GitStatus asks what git sees changed in the repository a directory is
+// in; an empty status without git or a repository.
+func (c *Client) GitStatus(path string) (st GitStatus, err error) {
+	err = c.call(Request{Op: "gitStatus", Path: path}, &st)
+	return
 }
 
 func (c *Client) Shutdown() error { return c.call(Request{Op: "shutdown"}, nil) }

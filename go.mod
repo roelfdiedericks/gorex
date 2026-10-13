@@ -5,6 +5,7 @@ go 1.27.1
 require (
 	github.com/ebitengine/purego v0.11.1
 	github.com/egoist/mygo v0.4.8
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/hashicorp/yamux v0.1.2
 	golang.org/x/image v0.46.0
 	golang.org/x/sys v0.48.0

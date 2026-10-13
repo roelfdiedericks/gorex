@@ -94,6 +94,7 @@ func (a *App) browserBody(c *ui.Context, k *colors, t *Tab, p *Pane) {
 			})
 			return
 		}
+		a.syncWatches(p)
 		b.tree.List.Selected = &b.row
 		b.tree.List.Label = func(row int) string { return baseName(b.tree.Item(row)) }
 		focusedFile := ""
@@ -174,10 +175,20 @@ func (a *App) browserRow(c *ui.Context, k *colors, t *Tab, p *Pane, item string,
 	if strings.HasPrefix(name, ".") && !current {
 		col = k.textMuted
 	}
+	git := a.gitStatusOf(b, item)
+	gitCol := gitColor(k, git)
+	if git == "I" {
+		col, iconCol = k.textFaint, k.textFaint
+	} else if git != "" && !current {
+		col = gitCol
+	}
 	row := ui.Row(c).Gap(6).AlignItems(ui.Center).MinWidth(0)
 	row.Children(func() {
 		ui.Icon(c, icon(glyph)).Size(14, 14).TextColor(iconCol).Shrink(0)
 		ui.Text(c, name).FontSize(12.5).TextColor(col).SingleLine().Ellipsis("…").MinWidth(0)
+		if git != "" && git != "I" {
+			ui.Text(c, git).FontSize(11).FontWeight(600).TextColor(gitCol).Shrink(0).Tooltip(gitLabel(git))
+		}
 	})
 	row.ContextMenu(func(m *ui.Menu) {
 		dir := b.isDir[item]
@@ -203,4 +214,24 @@ func (a *App) browserRow(c *ui.Context, k *colors, t *Tab, p *Pane, item string,
 			a.services.WriteClipboard(item)
 		}
 	})
+}
+
+// gitColor is the color of a git status, as editors show them: changes
+// amber, additions green, deletions and conflicts red, renames blue.
+func gitColor(k *colors, status string) ui.Color {
+	switch status {
+	case "M", "T":
+		return ui.Hex("#d29922")
+	case "A", "U":
+		return ui.Hex("#3fb950")
+	case "D", "C":
+		return ui.Hex("#f85149")
+	case "R":
+		return ui.Hex("#58a6ff")
+	}
+	return k.textFaint
+}
+
+func gitLabel(status string) string {
+	return map[string]string{"M": "Modified", "A": "Added", "D": "Deleted", "R": "Renamed", "U": "Untracked", "C": "Conflict", "T": "Type changed", "I": "Ignored"}[status]
 }

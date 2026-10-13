@@ -2,6 +2,7 @@ package rex
 
 import (
 	"os"
+	"os/exec"
 	"os/user"
 	"strconv"
 	"strings"
@@ -91,4 +92,10 @@ func placeholder(model string) bool {
 		return true
 	}
 	return false
+}
+
+// hideWindow keeps a console program the server runs from flashing a
+// window.
+func hideWindow(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 }

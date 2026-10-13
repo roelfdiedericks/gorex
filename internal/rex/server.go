@@ -39,6 +39,7 @@ type Server struct {
 	idleFrom time.Time
 	quit     chan struct{}
 	quitOnce sync.Once
+	events   *events
 }
 
 // idleTimeout is how long a server with no sessions and no app waits
@@ -69,7 +70,7 @@ func Serve() error {
 	os.Chmod(sock, 0o600)
 	s := &Server{
 		sessions: map[string]*session{}, docs: map[string]json.RawMessage{}, started: time.Now(), ln: ln,
-		hostDone: make(chan struct{}), idleFrom: time.Now(), quit: make(chan struct{}),
+		hostDone: make(chan struct{}), idleFrom: time.Now(), quit: make(chan struct{}), events: newEvents(),
 	}
 	s.exe, s.exeTime = Executable()
 	go func() {
@@ -78,6 +79,7 @@ func Serve() error {
 		close(s.hostDone)
 	}()
 	go s.watchIdle()
+	go s.watchSessions()
 	go func() {
 		<-s.quit
 		ln.Close()
@@ -180,14 +182,23 @@ func (s *Server) control(conn net.Conn, r *bufio.Reader, first []byte) {
 		conn.Write(append(b, '\n'))
 		wmu.Unlock()
 	}
+	ctl := &control{reply: reply}
+	s.events.add(ctl)
+	defer s.events.remove(ctl)
 	line := first
 	for {
 		var req Request
 		if err := json.Unmarshal(line, &req); err == nil {
-			// Kills wait for the session to end: answer them aside.
-			if req.Op == "kill" {
+			switch req.Op {
+			case "kill":
+				// Kills wait for the session to end: answer them aside.
 				go func() { reply(s.request(req)) }()
-			} else {
+			case "watch":
+				reply(s.answer(req, nil, s.events.watch(ctl, req.Path)))
+			case "unwatch":
+				s.events.unwatch(ctl, req.Path)
+				reply(Response{ID: req.ID})
+			default:
 				reply(s.request(req))
 			}
 		}
@@ -201,6 +212,11 @@ func (s *Server) control(conn net.Conn, r *bufio.Reader, first []byte) {
 
 func (s *Server) request(req Request) Response {
 	data, err := s.do(req)
+	return s.answer(req, data, err)
+}
+
+// answer makes the response to req of data, or of err.
+func (s *Server) answer(req Request, data any, err error) Response {
 	res := Response{ID: req.ID}
 	if err != nil {
 		res.Error = err.Error()
@@ -253,6 +269,11 @@ func (s *Server) do(req Request) (any, error) {
 		s.sessions[id] = ss
 		s.order = append(s.order, id)
 		s.mu.Unlock()
+		go func() {
+			<-ss.done
+			s.events.broadcast("sessions", "")
+		}()
+		s.events.broadcast("sessions", "")
 		return ss.info(), nil
 	case "kill":
 		ss, err := s.session(req.SID)
@@ -267,6 +288,7 @@ func (s *Server) do(req Request) (any, error) {
 			s.idleFrom = time.Now()
 		}
 		s.mu.Unlock()
+		s.events.broadcast("sessions", "")
 		return nil, nil
 	case "resize":
 		ss, err := s.session(req.SID)
@@ -287,6 +309,8 @@ func (s *Server) do(req Request) (any, error) {
 		return readFile(req.Path, req.Max)
 	case "writeFile":
 		return writeFile(req.Path, req.Data, req.IfModTime)
+	case "gitStatus":
+		return gitStatus(req.Path)
 	case "shutdown":
 		go func() {
 			time.Sleep(50 * time.Millisecond)

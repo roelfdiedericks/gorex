@@ -1,13 +1,16 @@
 package rex
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -134,4 +137,104 @@ func writeFile(path string, data []byte, ifModTime time.Time) (any, error) {
 		return nil, err
 	}
 	return FileData{ModTime: fi.ModTime()}, nil
+}
+
+// maxGitFiles caps what gitStatus lists.
+const maxGitFiles = 20000
+
+// gitStatus answers gitStatus: the repository the directory is in and
+// the files git sees as changed, by the user's own git. No git, or no
+// repository: an empty answer.
+func gitStatus(path string) (any, error) {
+	path, err := filePath(path)
+	if err != nil {
+		return nil, err
+	}
+	git, err := exec.LookPath("git")
+	if err != nil {
+		return GitStatus{}, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	top := exec.CommandContext(ctx, git, "-C", path, "rev-parse", "--show-toplevel")
+	hideWindow(top)
+	out, err := top.Output()
+	if err != nil {
+		return GitStatus{}, nil
+	}
+	root := strings.TrimSpace(string(out))
+	if root == "" {
+		return GitStatus{}, nil
+	}
+	root = filepath.FromSlash(root)
+	st := exec.CommandContext(ctx, git, "-C", root, "status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignored=matching")
+	hideWindow(st)
+	out, err = st.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git status: %v", err)
+	}
+	files, truncated := parsePorcelain(out, maxGitFiles)
+	return GitStatus{Root: root, Files: files, Truncated: truncated}, nil
+}
+
+// parsePorcelain reads git status --porcelain=v2 -z: records separated
+// by NUL, a renamed or copied file's record followed by its old path as a
+// record of its own.
+func parsePorcelain(out []byte, max int) (files []GitChange, truncated bool) {
+	recs := strings.Split(string(out), "\x00")
+	for i := 0; i < len(recs); i++ {
+		rec := recs[i]
+		if rec == "" {
+			continue
+		}
+		var status, path string
+		switch rec[0] {
+		case '1', '2', 'u':
+			// "1 XY sub mH mI mW hH hI path", "2 XY sub mH mI mW hH hI Xscore path",
+			// "u XY sub m1 m2 m3 mW h1 h2 h3 path": the path is the last field.
+			fields := strings.SplitN(rec, " ", 2)
+			if len(fields) < 2 {
+				continue
+			}
+			rest := fields[1]
+			xy := rest[:min(2, len(rest))]
+			n := 8
+			if rec[0] == '2' {
+				n = 9
+			}
+			if rec[0] == 'u' {
+				n = 10
+			}
+			parts := strings.SplitN(rest, " ", n)
+			if len(parts) < n {
+				continue
+			}
+			path = parts[n-1]
+			switch {
+			case rec[0] == 'u':
+				status = "C"
+			case len(xy) == 2 && xy[1] != '.':
+				status = string(xy[1])
+			case len(xy) >= 1:
+				status = string(xy[0])
+			}
+			if rec[0] == '2' {
+				i++ // the old path
+			}
+		case '?':
+			status, path = "U", strings.TrimPrefix(rec, "? ")
+		case '!':
+			status, path = "I", strings.TrimPrefix(rec, "! ")
+		default:
+			continue
+		}
+		if path == "" || status == "" || status == "." {
+			continue
+		}
+		if len(files) >= max {
+			return files, true
+		}
+		files = append(files, GitChange{Path: path, Status: status})
+	}
+	return files, false
 }
