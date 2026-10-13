@@ -14,7 +14,7 @@ func TestPreviewURLs(t *testing.T) {
 	for goos, p := range map[string]string{"windows": `C:\Users\me\My Docs\img one.png`, "linux": "/home/me/docs/img one.png"} {
 		hostGOOS = goos
 		u, err := url.Parse(fileURL(p))
-		if err != nil || u.Scheme != "gorex-file" || u.Host != "host" {
+		if err != nil || u.Scheme != "gorex-file" || u.Host != "localhost" {
 			t.Fatalf("%s: %v %v", goos, u, err)
 		}
 		if back := hostPathOf(u); back != p {

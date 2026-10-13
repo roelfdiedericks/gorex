@@ -53,7 +53,11 @@ func TestHeadings(t *testing.T) {
 }
 
 func TestCSS(t *testing.T) {
-	if css := CSS("github"); !strings.Contains(css, ".ch-kd") {
-		t.Errorf("no keyword class in %q", css[:min(200, len(css))])
+	css := CSS("github", "github-dark")
+	if !strings.Contains(css, "*/ .ch-chroma .ch-kd {") {
+		t.Errorf("no light keyword class in %q", css[:min(200, len(css))])
+	}
+	if !strings.Contains(css, "\n[data-theme=\"dark\"] .ch-chroma .ch-kd {") {
+		t.Errorf("no dark keyword class in %q", css)
 	}
 }

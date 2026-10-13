@@ -50,7 +50,7 @@ func main() {
 		}
 	}
 	registerFonts()
-	a := &App{stateKey: "main"}
+	a := &App{stateKey: "main", k: &lightColors}
 	a.loadSettings()
 	a.registerProtocols()
 	// ssh <destination> opens a window on the sessions of a server there.

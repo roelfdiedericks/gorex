@@ -160,8 +160,14 @@ func (a *App) editorBody(c *ui.Context, k *colors, t *Tab, p *Pane) {
 				a.ensurePreview(p)
 				pv = e.preview
 			}
+			if pv != nil && pv.web != nil && !pv.loaded {
+				a.editorNote(c, k, "Preview", pv.phase)
+				col.Focusable()
+				a.editorFocus(col, t, p)
+				return
+			}
 			if pv != nil && pv.web != nil {
-				if pv.loaded && pv.version != e.buf.Version() {
+				if pv.version != e.buf.Version() {
 					a.renderPreview(p)
 				}
 				v := ui.WebView(c.Key("preview"), pv.web).Grow(1).FillWidth().MinHeight(0)
@@ -243,6 +249,9 @@ func (a *App) editorStatus(c *ui.Context, k *colors, e *editorState) {
 	}
 	if e.mode == modePreview {
 		status = "Preview"
+		if pv := e.preview; pv != nil && pv.phase != "" {
+			status = "Preview · " + pv.phase
+		}
 	}
 	ui.Row(c).Gap(16).Padding(3, 10, 2, 10).Shrink(0).Children(func() {
 		ui.Text(c, status).FontSize(11.5).TextColor(k.textFaint).SingleLine()

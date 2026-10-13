@@ -31,6 +31,7 @@ func (a *App) view(c *ui.Context) {
 	}
 	k := a.colors(c)
 	a.focusedWin = a.win == nil || a.win.IsFocused()
+	a.k = k
 	if dark := c.Theme().Dark; dark != a.dark {
 		a.dark = dark
 		a.previewThemeChanged()

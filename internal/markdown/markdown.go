@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/alecthomas/chroma/v2"
 	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
 	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/microcosm-cc/bluemonday"
@@ -132,17 +133,29 @@ func Render(src string) string {
 	return policy.Sanitize(buf.String())
 }
 
-// CSS is the stylesheet of the highlighted code, for the Chroma style
-// name, with the prefix Render's classes carry.
-func CSS(style string) string {
-	st := styles.Get(style)
-	if st == nil {
-		st = styles.Fallback
-	}
+// CSS is the stylesheet of the highlighted code, with the prefix Render's
+// classes carry: the light Chroma style, and the dark one under
+// [data-theme="dark"], which the page sets on its root.
+func CSS(light, dark string) string {
 	var buf bytes.Buffer
 	f := chromahtml.New(chromahtml.WithClasses(true), chromahtml.ClassPrefix("ch-"))
-	f.WriteCSS(&buf, st)
+	f.WriteCSS(&buf, styleOf(light))
+	var d bytes.Buffer
+	f.WriteCSS(&d, styleOf(dark))
+	// Chroma writes a rule a line: /* Name */ .ch-x { … }.
+	for line := range strings.Lines(d.String()) {
+		if _, rule, ok := strings.Cut(line, "*/ "); ok {
+			buf.WriteString(`[data-theme="dark"] ` + rule)
+		}
+	}
 	return buf.String()
+}
+
+func styleOf(name string) *chroma.Style {
+	if st := styles.Get(name); st != nil {
+		return st
+	}
+	return styles.Fallback
 }
 
 // Headings lists the headings of a text in order, as anchors: the

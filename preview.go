@@ -27,6 +27,11 @@ import (
 //go:embed assets/preview
 var previewAssets embed.FS
 
+// assetOrigin is where the page finds gorex-asset:// from: the scheme
+// itself, but on Windows, where custom schemes are http://<scheme>.localhost
+// and a page at one scheme can't name another.
+var assetOrigin = "gorex-asset://localhost"
+
 const (
 	modePreview = "preview"
 	// previewDebounce is how long after an edit the preview renders.
@@ -48,6 +53,9 @@ type previewState struct {
 	again   bool   // the buffer changed during it
 	dark    bool
 	navOff  func()
+	// phase says what the preview waits on until the page shows the
+	// text, or what went wrong, in the pane's status line.
+	phase string
 }
 
 // isMarkdown reports whether a file's name is a Markdown file's.
@@ -61,7 +69,9 @@ func isMarkdown(name string) bool {
 
 // registerProtocols serves the preview's page and the host's files to
 // web views: gorex-asset://localhost/<file> from the embedded assets,
-// gorex-file://host/<path> through the window's server.
+// gorex-file://localhost/<path> through the window's server. (MyGo serves
+// custom schemes at localhost only: on Windows they become
+// http://<scheme>.localhost/.)
 func (a *App) registerProtocols() {
 	assets, err := fs.Sub(previewAssets, "assets/preview")
 	if err != nil {
@@ -71,7 +81,7 @@ func (a *App) registerProtocols() {
 		name := strings.TrimPrefix(r.URL.Path, "/")
 		if name == "chroma.css" {
 			w.Header().Set("Content-Type", "text/css; charset=utf-8")
-			w.Write([]byte(markdown.CSS("github")))
+			w.Write([]byte(markdown.CSS("github", "github-dark")))
 			return
 		}
 		http.ServeFileFS(w, r, assets, name)
@@ -80,11 +90,13 @@ func (a *App) registerProtocols() {
 		p := hostPathOf(r.URL)
 		client := a.client
 		if client == nil || p == "" {
+			log.Printf("preview: file %s: not connected", r.URL)
 			http.Error(w, "not connected", http.StatusServiceUnavailable)
 			return
 		}
 		fd, err := client.ReadFile(p, previewFileCap)
 		if err != nil {
+			log.Printf("preview: file %s: %v", p, err)
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
@@ -102,7 +114,7 @@ func fileURL(p string) string {
 	if !strings.HasPrefix(p, "/") {
 		p = "/" + p // C:/… becomes /C:/…
 	}
-	return "gorex-file://host" + (&url.URL{Path: p}).EscapedPath()
+	return "gorex-file://localhost" + (&url.URL{Path: p}).EscapedPath()
 }
 
 // hostPathOf is the host's path a gorex-file URL names, in the host's
@@ -166,17 +178,19 @@ func (a *App) ensurePreview(p *Pane) {
 	if a.win == nil {
 		return
 	}
-	web, err := a.win.NewWebView(mygo.WebViewOptions{Transparent: true, BackgroundColor: "transparent"})
+	log.Printf("preview: making the web view of %s", e.path)
+	web, err := a.win.NewWebView(mygo.WebViewOptions{BackgroundColor: hexOf(a.k.bgBottom)})
 	if err != nil {
 		log.Printf("preview: %v", err)
 		a.toast(ui.Toast{Title: "Can't show the preview", Description: err.Error(), Type: "error"})
 		e.mode = modeEditor
 		return
 	}
-	pv := &previewState{web: web}
+	pv := &previewState{web: web, phase: "loading the page…"}
 	e.preview = pv
 	page := web.Page()
 	pv.navOff = page.OnWillNavigate(func(ev *mygo.NavigateEvent) {
+		log.Printf("preview: navigating to %s (user %v)", ev.URL, ev.UserInitiated)
 		if !ev.UserInitiated {
 			return
 		}
@@ -184,20 +198,33 @@ func (a *App) ensurePreview(p *Pane) {
 		target := ev.URL
 		a.update(func() { a.followLink(p, target) })
 	})
-	page.OnDidNavigate(func(string) {
+	page.OnDidFinishLoad(func() {
+		log.Printf("preview: page loaded")
 		a.update(func() {
 			if e.preview != pv {
 				return
 			}
 			pv.loaded = true
+			pv.phase = "rendering…"
 			a.applyPreviewTheme(p)
 			pv.version = 0
 			a.renderPreview(p)
+			a.changed()
+		})
+	})
+	page.OnDidFailLoad(func(err *mygo.LoadError) {
+		log.Printf("preview: page failed: %v", err)
+		a.update(func() {
+			if e.preview == pv {
+				pv.phase = "the page failed to load: " + err.Error()
+				a.changed()
+			}
 		})
 	})
 	html, _ := previewAssets.ReadFile("assets/preview/index.html")
 	base := fileURL(dirName(e.path)) + "/"
-	page.LoadHTML(string(html), base)
+	log.Printf("preview: loading the page, base %s", base)
+	page.LoadHTML(strings.ReplaceAll(string(html), "gorex-asset://localhost", assetOrigin), base)
 }
 
 // dropPreview destroys the pane's web view.
@@ -259,8 +286,10 @@ func (a *App) renderPreview(p *Pane) {
 					pv.busy = false
 					if err != nil {
 						log.Printf("preview: %v", err)
+						pv.phase = "the page failed: " + err.Error()
 					} else {
 						pv.version = v
+						pv.phase = ""
 					}
 					if pv.again {
 						pv.again = false
@@ -287,11 +316,12 @@ func (a *App) applyPreviewTheme(p *Pane) {
 	if pv == nil || !pv.loaded || a.win == nil {
 		return
 	}
-	dark := a.darkWindow()
+	dark := a.dark
 	pv.dark = dark
-	k := a.colorsFor(dark)
+	k := a.k
 	font := a.editorFont()
 	vars := map[string]string{
+		"bg":        hexOf(k.bgBottom),
 		"text":      hexOf(k.text),
 		"muted":     hexOf(k.textMuted),
 		"accent":    hexOf(k.busy),
@@ -301,8 +331,13 @@ func (a *App) applyPreviewTheme(p *Pane) {
 	js, _ := json.Marshal(vars)
 	mermaid := is(a.eff.Editor.Mermaid)
 	web := pv.web
+	// The window's own background follows the system's appearance, not
+	// the app's: the web view paints the theme's.
+	web.SetBackgroundColor(hexOf(k.bgBottom))
 	go func() {
-		web.Page().Eval(fmt.Sprintf("gorexSetTheme(%v, %s); gorexSetMermaid(%v); return true", dark, js, mermaid))
+		if _, err := web.Page().Eval(fmt.Sprintf("gorexSetTheme(%v, %s); gorexSetMermaid(%v); return true", dark, js, mermaid)); err != nil {
+			log.Printf("preview: theme: %v", err)
+		}
 	}()
 }
 
@@ -422,18 +457,6 @@ func (a *App) previewScrollTo(p *Pane, id string) {
 		time.Sleep(previewDebounce + 250*time.Millisecond)
 		web.Page().Eval("return gorexScrollTo(" + string(js) + ")")
 	}()
-}
-
-// darkWindow reports whether the window's theme is dark, as of the last
-// frame.
-func (a *App) darkWindow() bool { return a.dark }
-
-// colorsFor is the palette of a light or dark window, untinted.
-func (a *App) colorsFor(dark bool) *colors {
-	if dark {
-		return &darkColors
-	}
-	return &lightColors
 }
 
 // editorLanguage reports whether the editor knows a language for a file

@@ -168,8 +168,10 @@ type App struct {
 	// keptEdits are editor buffers with unsaved changes kept across a
 	// reconnect, by path, until a pane takes them over.
 	keptEdits map[string]*editorState
-	// dark is whether the window's theme was dark in the last frame.
+	// dark is whether the window's theme was dark in the last frame, k
+	// the palette it drew with, for what paints outside a frame.
 	dark bool
+	k    *colors
 
 	// focusReq asks the view to give the keyboard focus to a pane's
 	// terminal.
