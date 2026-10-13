@@ -39,6 +39,9 @@ const (
 	// previewFileCap is the most bytes the file protocol serves of one
 	// file, as an image in a README.
 	previewFileCap = 32 << 20
+	// previewCaretReach is how far below the editor's top line the caret
+	// may stay as the editor follows the page; further, it comes along.
+	previewCaretReach = 40
 )
 
 // previewState is an editor pane's preview: its web view and page, made
@@ -59,9 +62,9 @@ type previewState struct {
 	// showing is a file the page shows instead of the document, as an
 	// image a link opened; the document loads again on the way back.
 	showing string
-	// section is the heading the caret was under as the pane last left
-	// Preview: coming back scrolls only when the caret moved elsewhere.
-	section string
+	// caretLine is where the caret was as the pane last left Preview, or
+	// -1: coming back scrolls the page only when the caret moved.
+	caretLine int
 	// phase says what the preview waits on until the page shows the
 	// text, or what went wrong, in the pane's status line.
 	phase string
@@ -147,7 +150,10 @@ func hostPathOf(u *url.URL) string {
 	return p
 }
 
-// showPreview switches an editor pane into Preview, or out of it.
+// showPreview switches an editor pane into Preview, or out of it, each
+// view taking up where the other was: the page scrolls to the caret's
+// line, unless it is as it was left and the caret has not moved; the
+// editor scrolls to the line at the top of the page.
 func (a *App) showPreview(p *Pane, on bool) {
 	if p == nil || p.Kind != paneEditor || p.edit.buf == nil {
 		return
@@ -160,34 +166,53 @@ func (a *App) showPreview(p *Pane, on bool) {
 		e.mode = modePreview
 		kept := e.preview != nil && e.preview.loaded && e.preview.showing == "" && e.preview.path == e.path
 		a.ensurePreview(p)
-		// Where the caret is: the heading above it, unless the page is
-		// as it was left and the caret is still in that section.
-		if section := a.caretSection(e); section != "" && !(kept && section == e.preview.section) {
-			a.previewScrollTo(p, section)
+		if e.state != nil && !(kept && e.state.CursorPos().Line == e.preview.caretLine) {
+			a.previewScrollToLine(p, e.state.CursorPos().Line)
 		}
 	} else {
 		e.mode = modeEditor
 		if pv := e.preview; pv != nil {
-			pv.section = a.caretSection(e)
+			pv.caretLine = -1
+			if e.state != nil {
+				pv.caretLine = e.state.CursorPos().Line
+			}
+			a.editorFollowsPreview(p)
 		}
 	}
 	a.focusReq = p
 	a.changed()
 }
 
-// caretSection is the id of the heading above the editor's caret, or "".
-func (a *App) caretSection(e *editorState) string {
-	if e.state == nil || e.buf == nil {
-		return ""
+// editorFollowsPreview scrolls the editor to the line at the top of the
+// page, as the pane leaves Preview, and brings the caret along when it
+// would be far out of view, so that typing goes where the eye is.
+func (a *App) editorFollowsPreview(p *Pane) {
+	e := p.edit
+	pv := e.preview
+	if pv == nil || pv.web == nil || !pv.loaded || pv.showing != "" || e.state == nil {
+		return
 	}
-	line := e.state.CursorPos().Line
-	id := ""
-	for _, h := range markdown.Headings(e.buf.String()) {
-		if h.Line <= line {
-			id = h.ID
+	web := pv.web
+	go func() {
+		v, err := web.Page().Eval("return gorexTopLine()")
+		f, ok := v.(float64)
+		if err != nil || !ok {
+			return
 		}
-	}
-	return id
+		a.update(func() {
+			if p.edit != e || e.state == nil || e.buf == nil || e.mode != modeEditor {
+				return
+			}
+			n := e.buf.LineCount()
+			line := min(int(f), n-1)
+			e.state.ScrollTo(line)
+			if c := e.state.CursorPos().Line; c < line || c > line+previewCaretReach {
+				e.state.GoTo(editor.Pos{Line: line})
+			}
+			pv.caretLine = e.state.CursorPos().Line
+			a.changed()
+		})
+	}()
 }
 
 // togglePreview switches the focused editor pane's preview.
@@ -221,7 +246,7 @@ func (a *App) ensurePreview(p *Pane) {
 		e.mode = modeEditor
 		return
 	}
-	pv := &previewState{web: web}
+	pv := &previewState{web: web, caretLine: -1}
 	e.preview = pv
 	// The pane's current preview: the state moves to the next file's.
 	current := func() bool { return p.edit != nil && p.edit.preview == pv }
@@ -502,22 +527,31 @@ func (a *App) previewWhenLoaded(p *Pane, fragment string) {
 	e.previewOnLoad, e.previewFragment = true, fragment
 }
 
-// previewScrollTo scrolls a preview to a heading's id: at once when the
-// page shows the buffer as it is, else once the render due has run.
+// previewScrollTo scrolls a preview to a heading's id, previewScrollToLine
+// to a source line: at once when the page shows the buffer as it is,
+// else once the render due has run.
 func (a *App) previewScrollTo(p *Pane, id string) {
+	js, _ := json.Marshal(id)
+	a.previewEval(p, "return gorexScrollTo("+string(js)+")")
+}
+
+func (a *App) previewScrollToLine(p *Pane, line int) {
+	a.previewEval(p, fmt.Sprintf("return gorexScrollToLine(%d)", line))
+}
+
+func (a *App) previewEval(p *Pane, code string) {
 	e := p.edit
 	pv := e.preview
 	if pv == nil || pv.web == nil {
 		return
 	}
-	js, _ := json.Marshal(id)
 	web := pv.web
 	settled := pv.loaded && !pv.due && !pv.busy && e.buf != nil && pv.version == e.buf.Version() && pv.path == e.path
 	go func() {
 		if !settled {
 			time.Sleep(previewDebounce + 250*time.Millisecond)
 		}
-		web.Page().Eval("return gorexScrollTo(" + string(js) + ")")
+		web.Page().Eval(code)
 	}()
 }
 

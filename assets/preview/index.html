@@ -108,6 +108,52 @@
     return !!el;
   };
 
+  // The blocks carrying their source line, in document order, with
+  // their tops in page coordinates.
+  function lineMarks() {
+    const marks = [];
+    for (const el of content.querySelectorAll("[data-line]")) {
+      const line = parseInt(el.dataset.line, 10);
+      if (isNaN(line)) continue;
+      const top = el.getBoundingClientRect().top + window.scrollY;
+      if (marks.length && marks[marks.length - 1].line >= line) continue; // nested: the parent said it
+      marks.push({ line, top, el });
+    }
+    return marks;
+  }
+
+  // topLine is the source line at the top of the viewport, with the
+  // way into the block that spans it as a fraction, for the editor.
+  window.gorexTopLine = function () {
+    const marks = lineMarks();
+    if (!marks.length) return 0;
+    const y = window.scrollY;
+    if (y <= marks[0].top) return 0;
+    const atEnd = window.innerHeight + y >= document.documentElement.scrollHeight - 2;
+    let i = marks.length - 1;
+    while (i > 0 && marks[i].top > y) i--;
+    const m = marks[i], next = marks[i + 1];
+    if (!next) {
+      if (atEnd) return 1e9; // the end: the editor goes to its end too
+      return m.line;
+    }
+    const f = Math.max(0, Math.min(1, (y - m.top) / Math.max(1, next.top - m.top)));
+    return m.line + f * (next.line - m.line);
+  };
+
+  // scrollToLine puts a source line at the top of the viewport.
+  window.gorexScrollToLine = function (line) {
+    const marks = lineMarks();
+    if (!marks.length) return false;
+    let i = marks.length - 1;
+    while (i > 0 && marks[i].line > line) i--;
+    const m = marks[i], next = marks[i + 1];
+    let y = m.top;
+    if (next && line > m.line) y += (next.top - m.top) * Math.min(1, (line - m.line) / (next.line - m.line));
+    window.scrollTo(0, y);
+    return true;
+  };
+
   // Links: anchors scroll here; everything else the app decides.
   document.addEventListener("click", (e) => {
     const a = e.target.closest && e.target.closest("a[href]");

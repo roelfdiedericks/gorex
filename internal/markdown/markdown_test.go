@@ -20,16 +20,16 @@ const sample = "# Title\n\nSome *em* and **strong** text with `code` and ~~gone~
 func TestRender(t *testing.T) {
 	out := Render(sample)
 	for _, want := range []string{
-		`<h1 id="title">Title</h1>`, "<em>em</em>", "<strong>strong</strong>", "<code>code</code>", "<del>gone</del>",
-		`<table>`, `text-align: right`,
+		`<h1 id="title" data-line="0">Title</h1>`, "<em>em</em>", "<strong>strong</strong>", "<code>code</code>", "<del>gone</del>",
+		`<table data-line="4">`, `text-align: right`,
 		`type="checkbox"`, `checked`,
 		`class="footnote-ref"`,
-		`class="ch-chroma"`, `<span class="ch-kd">func</span>`,
-		`<pre class="mermaid">graph TD; A--&gt;B;`,
+		`<div data-line="15"><pre class="ch-chroma">`, `<span class="ch-kd">func</span>`,
+		`<pre class="mermaid" data-line="19">graph TD; A--&gt;B;`,
 		`<details><summary>More</summary>hidden</details>`,
 		`<img src="img.png" alt="pic"`,
 		`<a href="docs/other.md">sibling</a>`, `<a href="https://example.com"`,
-		`<h2 id="second-heading">`,
+		`<h2 id="second-heading" data-line="33">`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)

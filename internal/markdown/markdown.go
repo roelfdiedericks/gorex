@@ -7,6 +7,8 @@ package markdown
 import (
 	"bytes"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -39,8 +41,10 @@ func setup() {
 				highlighting.WithStyle("github"),
 				highlighting.WithFormatOptions(chromahtml.WithClasses(true), chromahtml.ClassPrefix("ch-")),
 				highlighting.WithGuessLanguage(false),
+				highlighting.WithWrapperRenderer(codeWrapper),
 			),
 			&mermaidKeeper{},
+			&lineMarker{},
 		),
 		goldmark.WithParserOptions(parser.WithAutoHeadingID()),
 		goldmark.WithRendererOptions(html.WithUnsafe()),
@@ -57,6 +61,7 @@ func setup() {
 	policy.AllowAttrs("src", "controls", "poster", "loop", "muted").OnElements("video", "audio", "source")
 	policy.AllowAttrs("title", "lang", "dir").Globally()
 	policy.AllowAttrs("role", "aria-hidden", "aria-label").Globally()
+	policy.AllowAttrs("data-line").Matching(regexp.MustCompile(`^[0-9]+$`)).Globally()
 	// The page's own scheme for the host's files, beside the web's.
 	policy.AllowURLSchemes("http", "https", "mailto", "gorex-file", "data")
 	policy.AllowRelativeURLs(true)
@@ -104,6 +109,7 @@ func (t *mermaidTransformer) Transform(doc *ast.Document, reader text.Reader, pc
 			src = append(src, seg.Value(source)...)
 		}
 		m := &mermaidNode{source: src}
+		m.SetLines(lines)
 		b.Parent().ReplaceChild(b.Parent(), b, m)
 	}
 }
@@ -116,11 +122,74 @@ func (r *mermaidRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer)
 
 func (r *mermaidRenderer) render(w util.BufWriter, source []byte, n ast.Node, entering bool) (ast.WalkStatus, error) {
 	if entering {
-		w.WriteString(`<pre class="mermaid">`)
+		w.WriteString(`<pre class="mermaid"`)
+		html.RenderAttributes(w, n, nil)
+		w.WriteString(`>`)
 		w.Write(util.EscapeHTML(n.(*mermaidNode).source))
 		w.WriteString("</pre>\n")
 	}
 	return ast.WalkSkipChildren, nil
+}
+
+// codeWrapper wraps a highlighted code block in a div carrying its source
+// line, which Chroma's own markup can't.
+func codeWrapper(w util.BufWriter, ctx highlighting.CodeBlockContext, entering bool) {
+	if !entering {
+		w.WriteString("</div>")
+		return
+	}
+	w.WriteString("<div")
+	if v, ok := ctx.Attributes().Get([]byte("data-line")); ok {
+		if line, ok := v.(string); ok {
+			w.WriteString(` data-line="` + line + `"`)
+		}
+	}
+	w.WriteString(">")
+}
+
+// lineMarker gives every block node a data-line attribute: the source
+// line it starts on, from 0, which the page maps scroll positions to
+// lines by, both ways. A container's line is its first leaf's.
+type lineMarker struct{}
+
+func (m *lineMarker) Extend(g goldmark.Markdown) {
+	g.Parser().AddOptions(parser.WithASTTransformers(util.Prioritized(&lineTransformer{}, 200)))
+}
+
+type lineTransformer struct{}
+
+func (t *lineTransformer) Transform(doc *ast.Document, reader text.Reader, pc parser.Context) {
+	source := reader.Source()
+	// Line starts, for a binary search by offset.
+	starts := []int{0}
+	for i, c := range source {
+		if c == '\n' {
+			starts = append(starts, i+1)
+		}
+	}
+	lineOf := func(off int) int {
+		return sort.Search(len(starts), func(i int) bool { return starts[i] > off }) - 1
+	}
+	var mark func(n ast.Node) int
+	mark = func(n ast.Node) int {
+		first := -1
+		if n.Type() == ast.TypeBlock && n.Lines() != nil && n.Lines().Len() > 0 {
+			first = lineOf(n.Lines().At(0).Start)
+			if k := n.Kind(); (k == ast.KindFencedCodeBlock || k == kindMermaid) && first > 0 {
+				first-- // the lines are the content's; the fence is above
+			}
+		}
+		for c := n.FirstChild(); c != nil; c = c.NextSibling() {
+			if l := mark(c); l >= 0 && (first < 0 || l < first) {
+				first = l
+			}
+		}
+		if first >= 0 && n.Type() == ast.TypeBlock && n.Kind() != ast.KindDocument {
+			n.SetAttributeString("data-line", strconv.Itoa(first))
+		}
+		return first
+	}
+	mark(doc)
 }
 
 // Render turns Markdown into an HTML fragment for the preview's page.
