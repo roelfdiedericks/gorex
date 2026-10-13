@@ -66,7 +66,7 @@ var (
 	cmdSave          = command{Title: "Save", Accel: "CmdOrCtrl+S", Keys: "⌘S", Other: shortcut{ui.Ctrl, ui.KeyS}, Run: func(a *App) { a.saveFocused() }, Editor: true}
 	cmdToggleChanges = command{Title: "Show Changes", Accel: "CmdOrCtrl+Shift+M", Keys: "⇧⌘M", Other: ctrlShift(ui.KeyM), Run: func(a *App) { a.toggleChanges(a.focusedEditor()) }, Editor: true}
 	cmdSoftWrap      = command{Title: "Soft Wrap", Run: func(a *App) { a.toggleWrap(a.focusedEditor()) }, Editor: true}
-	cmdTogglePreview = command{Title: "Show Preview", Accel: "CmdOrCtrl+Shift+U", Keys: "⇧⌘U", Other: ctrlShift(ui.KeyU), Run: func(a *App) { a.togglePreview(a.focusedEditor()) }, Editor: true}
+	cmdTogglePreview = command{Title: "Show Preview", Accel: "CmdOrCtrl+Shift+V", Keys: "⇧⌘V", Other: ctrlShift(ui.KeyV), Run: func(a *App) { a.togglePreview(a.focusedEditor()) }, Editor: true}
 	cmdReloadFile    = command{Title: "Reload File", Run: func(a *App) { a.reloadFocused() }, Editor: true}
 	cmdRefreshFiles  = command{Title: "Refresh Files", Run: func(a *App) { a.refreshFocusedBrowser() }, Editor: true}
 	cmdChangeRoot    = command{Title: "Change Root…", Run: func(a *App) { a.changeRootFocused() }, Editor: true}
