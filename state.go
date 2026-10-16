@@ -342,25 +342,30 @@ func (a *App) attach(p *Pane, cols, rows int) {
 	// session's.
 	stream := p.stream
 	term, err := terminal.New(terminal.Options{
-		Conn:             p.stream,
-		Font:             termFont,
-		Theme:            light,
-		DarkTheme:        dark,
-		Transparent:      is(a.eff.Appearance.Transparent),
-		Cursor:           cursorOf(&a.eff),
-		NoBlink:          !is(a.eff.Terminal.Blink),
-		Scrollback:       a.eff.Terminal.Scrollback * 256,
-		OptionAsAlt:      is(a.eff.Terminal.OptionAsAlt),
-		CopyOnSelect:     is(a.eff.Terminal.CopyOnSelect),
-		CtrlCCopies:      is(a.eff.Terminal.CtrlCCopies),
-		CtrlVPastes:      is(a.eff.Terminal.CtrlVPastes),
-		InsertKeys:       is(a.eff.Terminal.InsertKeys),
-		RightClickPastes: is(a.eff.Terminal.RightClickPastes),
-		OnZoom: func(steps int) {
-			update(func() { a.stepFontSize(steps) })
+		Conn:         p.stream,
+		Font:         termFont,
+		Theme:        light,
+		DarkTheme:    dark,
+		Transparent:  is(a.eff.Appearance.Transparent),
+		Cursor:       cursorOf(&a.eff),
+		NoBlink:      !is(a.eff.Terminal.Blink),
+		Scrollback:   a.eff.Terminal.Scrollback * 256,
+		OptionAsAlt:  is(a.eff.Terminal.OptionAsAlt),
+		CopyOnSelect: copyOnSelectOf(&a.eff),
+		Keybinds:     keybindsOf(&a.eff),
+		RightClick:   rightClickOf(&a.eff),
+		OnZoom: func(z terminal.Zoom) bool {
+			update(func() {
+				if z.Reset {
+					a.defaultFontSize()
+				} else {
+					a.stepFontSize(z.Steps)
+				}
+			})
+			return true
 		},
-		OnPasteStatus: func(status terminal.PasteStatus, sent, total int) {
-			update(func() { a.pasteStatus(p, status, sent, total) })
+		OnPasteStatus: func(pr terminal.PasteProgress) {
+			update(func() { a.pasteStatus(p, pr.Status, int(pr.Sent), int(pr.Total)) })
 		},
 		OnTitle: func(title string) {
 			update(func() { p.title = title })

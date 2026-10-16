@@ -11,6 +11,7 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/terminal"
+	"github.com/egoist/mygo/ui"
 
 	"gorex/internal/rex"
 )
@@ -326,6 +327,47 @@ func cursorOf(s *Settings) terminal.CursorStyle {
 		return terminal.CursorUnderline
 	}
 	return terminal.CursorBlock
+}
+
+// copyOnSelectOf is where a selection is copied as it ends: the clipboard,
+// or nowhere.
+func copyOnSelectOf(s *Settings) terminal.CopyOnSelect {
+	if is(s.Terminal.CopyOnSelect) {
+		return terminal.CopyOnSelectClipboard
+	}
+	return terminal.CopyOnSelectNone
+}
+
+// keybindsOf binds the copy and paste keys the settings turn on, over the
+// terminal's defaults, and unbinds those turned off, so that the program
+// gets them: Control+C and Control+V as Windows Terminal's, when they do
+// something (performable), and Control+Insert and Shift+Insert. macOS
+// has Command for these and no such settings.
+func keybindsOf(s *Settings) []terminal.Keybind {
+	if runtime.GOOS == "darwin" {
+		return nil
+	}
+	bind := func(on bool, mods ui.Modifiers, key ui.Key, action terminal.Action, performable bool) terminal.Keybind {
+		if !on {
+			return terminal.Keybind{Mods: mods, Key: key, Action: terminal.ActionNone}
+		}
+		return terminal.Keybind{Mods: mods, Key: key, Action: action, Performable: performable}
+	}
+	return []terminal.Keybind{
+		bind(is(s.Terminal.CtrlCCopies), ui.Ctrl, ui.KeyC, terminal.ActionCopy, true),
+		bind(is(s.Terminal.CtrlVPastes), ui.Ctrl, ui.KeyV, terminal.ActionPaste, true),
+		bind(is(s.Terminal.InsertKeys), ui.Ctrl, ui.KeyInsert, terminal.ActionCopy, false),
+		bind(is(s.Terminal.InsertKeys), ui.Shift, ui.KeyInsert, terminal.ActionPaste, false),
+	}
+}
+
+// rightClickOf is what a secondary click does: paste, or copy a selection,
+// as Windows Terminal's, or the context menu.
+func rightClickOf(s *Settings) terminal.RightClickAction {
+	if is(s.Terminal.RightClickPastes) {
+		return terminal.RightClickCopyOrPaste
+	}
+	return terminal.RightClickContextMenu
 }
 
 // is reads a *bool, false when nil.

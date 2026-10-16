@@ -91,9 +91,9 @@ func (a *App) openSettings() {
 	// The monospaced families this PC has, but the icons, and the generic
 	// name, which always resolves.
 	s.fonts = s.fonts[:0]
-	for _, f := range ui.FontFamilies(true) {
-		if f != symbolsFont {
-			s.fonts = append(s.fonts, f)
+	for _, f := range ui.FontFamilies() {
+		if f.Monospaced && f.Name != symbolsFont {
+			s.fonts = append(s.fonts, f.Name)
 		}
 	}
 	s.fonts = append(s.fonts, "monospace")

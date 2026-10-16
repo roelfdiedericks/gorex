@@ -5,7 +5,7 @@ go 1.27.1
 require (
 	github.com/alecthomas/chroma/v2 v2.27.0
 	github.com/ebitengine/purego v0.11.1
-	github.com/egoist/mygo v0.4.9-0.20261013135532-2905a45efb89
+	github.com/egoist/mygo v0.5.6-0.20261016201914-e529e1a86f63
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/hashicorp/yamux v0.1.2
 	github.com/microcosm-cc/bluemonday v1.0.27
@@ -20,7 +20,10 @@ require (
 	github.com/dlclark/regexp2/v2 v2.2.1 // indirect
 	github.com/go-text/typesetting v0.3.5 // indirect
 	github.com/gorilla/css v1.0.1 // indirect
-	golang.org/x/net v0.26.0 // indirect
+	golang.org/x/net v0.59.0 // indirect
+	golang.org/x/text v0.43.0 // indirect
 )
 
 tool github.com/egoist/mygo/cmd/mygo
+
+replace github.com/egoist/mygo => ../mygo
