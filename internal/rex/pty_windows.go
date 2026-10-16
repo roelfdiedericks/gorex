@@ -44,7 +44,7 @@ func startPTY(path string, argv []string, dir string, env []string, cols, rows i
 		return nil, fmt.Errorf("pty: %w", err)
 	}
 	var console windows.Handle
-	err := windows.CreatePseudoConsole(coord(cols, rows), inR, outW, 0, &console)
+	err := createPseudoConsole(coord(cols, rows), inR, outW, 0, &console)
 	// The console has its own copies of its ends.
 	windows.CloseHandle(inR)
 	windows.CloseHandle(outW)
@@ -122,7 +122,7 @@ func (p *pty) close() error {
 	// Before Windows 11 24H2, ClosePseudoConsole waits for its output to be
 	// read, which read goes on doing.
 	go func() {
-		windows.ClosePseudoConsole(console)
+		closePseudoConsole(console)
 		p.out.Close()
 	}()
 	return nil
@@ -134,7 +134,7 @@ func (p *pty) resize(cols, rows int) error {
 	if p.console == 0 {
 		return os.ErrClosed
 	}
-	return windows.ResizePseudoConsole(p.console, coord(cols, rows))
+	return resizePseudoConsole(p.console, coord(cols, rows))
 }
 
 func (p *pty) pid() int { return p.processID }
