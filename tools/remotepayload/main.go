@@ -5,6 +5,7 @@
 //
 //	go run ./tools/remotepayload
 //	go run ./tools/remotepayload -targets linux/amd64
+//	go run ./tools/remotepayload -work dev/.tools/payload-build
 //
 // The libraries are those of the MyGo that go.mod pins, checked against
 // its SHA-256 sums; they come from MyGo's download cache, where the mygo
@@ -26,6 +27,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -43,6 +45,7 @@ type nativeFile struct {
 func main() {
 	log.SetFlags(0)
 	targets := flag.String("targets", strings.Join(allTargets, ","), "comma separated GOOS/GOARCH targets")
+	workDir := flag.String("work", "", "directory to build the servers in, kept so that go build links only what changed (default: a temporary one)")
 	flag.Parse()
 	libs, err := libraries()
 	if err != nil {
@@ -51,11 +54,15 @@ func main() {
 	if err := os.MkdirAll(out, 0o755); err != nil {
 		log.Fatal(err)
 	}
-	work, err := os.MkdirTemp("", "remotepayload")
-	if err != nil {
-		log.Fatal(err)
+	work := *workDir
+	if work == "" {
+		if work, err = os.MkdirTemp("", "remotepayload"); err != nil {
+			log.Fatal(err)
+		}
+		defer os.RemoveAll(work)
 	}
-	defer os.RemoveAll(work)
+	var wg sync.WaitGroup
+	errs := make(chan error, len(strings.Split(*targets, ",")))
 	for _, t := range strings.Split(*targets, ",") {
 		goos, goarch, ok := strings.Cut(strings.TrimSpace(t), "/")
 		if !ok {
@@ -65,9 +72,21 @@ func main() {
 		if !ok {
 			log.Fatalf("MyGo's terminal plugin has no libghostty-vt for %s/%s", goos, goarch)
 		}
-		if err := buildTarget(work, goos, goarch, lib); err != nil {
-			log.Fatalf("%s/%s: %v", goos, goarch, err)
-		}
+		wg.Go(func() {
+			if err := buildTarget(work, goos, goarch, lib); err != nil {
+				errs <- fmt.Errorf("%s/%s: %v", goos, goarch, err)
+			}
+		})
+	}
+	wg.Wait()
+	close(errs)
+	failed := false
+	for err := range errs {
+		log.Print(err)
+		failed = true
+	}
+	if failed {
+		os.Exit(1)
 	}
 }
 
@@ -132,7 +151,9 @@ func mygoDir() (string, error) {
 	return dir, err
 }
 
-// buildTarget builds the server for goos/goarch and writes its archive.
+// buildTarget builds the server for goos/goarch and writes its archive,
+// unless the archive holds the same files already: an unchanged archive
+// keeps its time, so that make copies it no further.
 func buildTarget(work, goos, goarch string, lib nativeFile) error {
 	exe := filepath.Join(work, goos+"-"+goarch, "gorex")
 	build := exec.Command("go", "build", "-trimpath", "-ldflags=-s -w", "-o", exe, ".")
@@ -146,7 +167,13 @@ func buildTarget(work, goos, goarch string, lib nativeFile) error {
 		return err
 	}
 	archive := filepath.Join(out, goos+"-"+goarch+".tar.gz")
-	if err := writeArchive(archive, []entry{{"gorex", exe, 0o755}, {lib.Name, libPath, 0o644}}); err != nil {
+	entries := []entry{{"gorex", exe, 0o755}, {lib.Name, libPath, 0o644}}
+	sums := "gorex " + fileSum(exe) + " " + lib.Name + " " + lib.SHA256
+	if archiveSums(archive) == sums {
+		fmt.Printf("%s\tunchanged\n", archive)
+		return nil
+	}
+	if err := writeArchive(archive, entries, sums); err != nil {
 		return err
 	}
 	st, err := os.Stat(archive)
@@ -155,6 +182,22 @@ func buildTarget(work, goos, goarch string, lib nativeFile) error {
 	}
 	fmt.Printf("%s\t%d bytes\n", archive, st.Size())
 	return nil
+}
+
+// archiveSums returns the names and SHA-256 sums of an archive's files,
+// which writeArchive keeps in the gzip header's comment, or "" when it
+// can't be read.
+func archiveSums(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	zr, err := gzip.NewReader(f)
+	if err != nil {
+		return ""
+	}
+	return zr.Comment
 }
 
 // cached returns the library in MyGo's download cache, where the mygo CLI
@@ -180,15 +223,18 @@ type entry struct {
 	mode       int64
 }
 
-// writeArchive writes the files as a gzipped tar archive. It records no
-// time, so that the same files make the same archive, and the same ID.
-func writeArchive(path string, entries []entry) error {
+// writeArchive writes the files as a gzipped tar archive, with sums, the
+// names and SHA-256 sums of the files, as the gzip header's comment. It
+// records no time, so that the same files make the same archive, and the
+// same ID.
+func writeArchive(path string, entries []entry, sums string) error {
 	tmp := path + ".tmp"
 	f, err := os.Create(tmp)
 	if err != nil {
 		return err
 	}
 	zw := gzip.NewWriter(f)
+	zw.Comment = sums
 	tw := tar.NewWriter(zw)
 	for _, e := range entries {
 		if err = addFile(tw, e); err != nil {
