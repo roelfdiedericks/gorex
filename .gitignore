@@ -1,4 +1,5 @@
 /build/
+/dev/
 /.mygo/
 mygo_windows_*.syso
 /resources/remote/
