@@ -34,6 +34,26 @@ APP_SRC  := $(filter-out ./$(DEV)/% ./build/%,$(call rwildcard,.,%.go)) \
 MYGO_SRC := $(if $(MYGO_DIR),$(filter-out %_test.go,$(call rwildcard,$(MYGO_DIR),%.go)))
 APP_DEPS := $(APP_SRC) $(MYGO_SRC)
 
+# Timing and debug: every step says what it remakes and why (how many of
+# its prerequisites are newer, and the first of them), the command, and
+# how long it took; each goal ends with the time since make started.
+now   := date +%s%3N
+START := $(shell $(now))
+
+define run
+$(info [make] $@: remaking: $(if $?,$(words $?) of $(words $^) prerequisites newer$(comma) first $(firstword $?),it does not exist or is phony))
+$(info [make] $@: $(1))
+@t=$$($(now)); $(1); s=$$?; echo "[make] $@: $$(( $$($(now)) - t )) ms$$( [ $$s -ne 0 ] && echo "$(comma) failed ($$s)")"; exit $$s
+endef
+comma := ,
+
+total = @echo "[make] $@: total $$(( $$($(now)) - $(START) )) ms since make started"
+
+$(info [make] goals: $(or $(MAKECMDGOALS),dev) (make $(MAKE_VERSION), REMOTE=$(REMOTE)))
+$(info [make] app: $(NAME) $(call json,version) ($(call json,identifier)) -> $(EXE))
+$(info [make] MyGo: $(or $(MYGO_DIR),the module cache, not a checkout))
+$(info [make] inputs: $(words $(APP_SRC)) GoRex files, $(words $(MYGO_SRC)) MyGo files; read in $(shell echo $$(( $$($(now)) - $(START) ))) ms)
+
 PAYLOADS    := linux-amd64 linux-arm64 darwin-amd64 darwin-arm64
 WANT_REMOTE := $(subst /,-,$(REMOTE))
 CONPTY      := resources/windows-amd64/conpty.dll resources/windows-amd64/x64/OpenConsole.exe
@@ -41,44 +61,51 @@ CONPTY      := resources/windows-amd64/conpty.dll resources/windows-amd64/x64/Op
 .PHONY: dev dev-remote run payloads release test vet clean
 
 dev: $(EXE) $(DEV)/conpty.dll $(DEV)/x64/OpenConsole.exe $(DEV)/conpty-LICENSE.txt $(DEV)/icon.png
+	$(total)
 
 dev-remote: dev $(WANT_REMOTE:%=$(DEV)/remote/%.tar.gz)
+	$(total)
 
 run: dev
-	./$(EXE)
+	$(call run,./$(EXE))
 
 $(EXE): $(APP_DEPS)
-	go build -o $@ -ldflags "$(LDFLAGS)" .
+	$(call run,go build -o $@ -ldflags "$(LDFLAGS)" .)
 
 # A host platform's payload is GoRex's server built for it: any change to
 # the code makes it stale.
 resources/remote/%.tar.gz: $(APP_DEPS) tools/remotepayload/main.go
-	go run ./tools/remotepayload -targets $(subst -,/,$*)
+	$(call run,go run ./tools/remotepayload -targets $(subst -,/,$*))
 
 payloads: $(PAYLOADS:%=resources/remote/%.tar.gz)
+	$(total)
 
 # ConPTY is fetched once, and again when the tool, which pins its version,
 # changes.
 $(CONPTY) &: tools/conpty/main.go
-	go run ./tools/conpty
+	$(call run,go run ./tools/conpty)
 
 # Copied beside the dev executable when newer.
 $(DEV)/%: resources/windows-amd64/%
-	@mkdir -p $(@D) && cp -p $< $@
+	$(call run,mkdir -p $(@D) && cp -p $< $@)
 $(DEV)/remote/%: resources/remote/%
-	@mkdir -p $(@D) && cp -p $< $@
+	$(call run,mkdir -p $(@D) && cp -p $< $@)
 $(DEV)/icon.png: resources/icon.png
-	@mkdir -p $(@D) && cp -p $< $@
+	$(call run,mkdir -p $(@D) && cp -p $< $@)
 
 # mygo.json's buildCommand builds every payload; make has done so already.
 release: payloads $(CONPTY)
-	go tool mygo build --skip-build-command
+	$(call run,go tool mygo build --skip-build-command)
+	$(total)
 
 test:
-	go test ./...
+	$(call run,go test ./...)
+	$(total)
 
 vet:
-	go vet ./...
+	$(call run,go vet ./...)
+	$(total)
 
 clean:
-	rm -rf $(DEV)
+	$(call run,rm -rf $(DEV))
+	$(total)
