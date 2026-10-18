@@ -6,7 +6,7 @@
 //	go tool mygo dev                 the app, rebuilt as the code changes
 //	go run . -server                 the session server alone, in the foreground
 //	GoRex ssh user@host              a window on the sessions of a server on host
-//	go run ./tools/remotepayload     builds the Linux server ssh copies there
+//	go run ./tools/remotepayload     builds the servers ssh copies there
 package main
 
 import (

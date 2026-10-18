@@ -1,18 +1,17 @@
 # GoRex's builds.
 #
 #   make dev       GoRex for this machine's platform in dev/, with the
-#                  servers it copies to ssh hosts in dev/remote: go build
-#                  decides what changed, and files are only copied when they
-#                  change. PAYLOADS lists the hosts' platforms.
-#   make payloads  the servers in resources/remote
+#                  servers it copies to ssh hosts in dev/remote, one per
+#                  platform in PAYLOADS; go build decides what changed
 #   make run       dev, and run it
-#   make release   go tool mygo build: every remote payload, the installer
+#   make release   go tool mygo build: every server, the installer
 #   make test, vet, clean
 
-# The executable and the payloads build side by side.
+# The app and the servers build side by side.
 MAKEFLAGS += -j
 
-DEV := dev
+DEV      := dev
+PAYLOADS ?= linux/amd64,linux/arm64,darwin/amd64,darwin/arm64
 
 # This machine's platform, as Go names it, e.g. windows-amd64.
 GOENV    := $(shell go env GOOS GOARCH)
@@ -36,26 +35,15 @@ LDFLAGS := $(if $(filter windows,$(GOOS)),-H=windowsgui) \
 CONPTY := resources/windows-amd64/conpty.dll resources/windows-amd64/x64/OpenConsole.exe
 
 # The resources of this platform, and those of every platform but the
-# remote payloads, which have rules of their own.
+# servers, which dev builds itself.
 rfiles   = $(foreach f,$(wildcard $(1)/*),$(if $(wildcard $(f)/.),$(call rfiles,$(f)),$(f)))
 PLAT_RES := $(patsubst resources/$(PLATFORM)/%,$(DEV)/%,$(sort $(call rfiles,resources/$(PLATFORM)) \
 	$(if $(filter windows-amd64,$(PLATFORM)),$(CONPTY))))
 TOP_RES  := $(patsubst resources/%,$(DEV)/%,$(filter-out resources/remote resources/%-amd64 resources/%-arm64,$(wildcard resources/*)))
 
-# The servers GoRex copies to the hosts it connects to over ssh: GoRex
-# built for each host platform, with its libghostty-vt. tools/remotepayload
-# builds them, built itself once; it keeps the servers it built, so that go
-# build links only what changed, and an archive that holds the same files,
-# so that an unchanged one is not copied again.
-PAYLOADS      ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
-PAYLOAD_FILES := $(foreach t,$(PAYLOADS),resources/remote/$(subst /,-,$(t)).tar.gz)
-REMOTE_TOOL   := $(DEV)/.tools/remotepayload$(if $(filter windows,$(GOOS)),.exe)
-space := $(subst ,, )
-
-# Timing and debug: every step says why it runs, the command, and how
-# long it took; each goal ends with the time since make started.
-# A clock in milliseconds: GNU date's, or Perl's on macOS, whose date has
-# no %N.
+# Every step says why it runs, the command, and how long it took; each
+# goal ends with the time since make started. The clock is GNU date's, or
+# Perl's on macOS, whose date has no milliseconds.
 comma := ,
 now   := $(if $(filter darwin,$(GOOS)),perl -MTime::HiRes=time -e 'printf "%d\n"$(comma) time*1000',date +%s%3N)
 START := $(shell $(now))
@@ -70,14 +58,10 @@ total = @echo "[make] $@: total $$(( $$($(now)) - $(START) )) ms since make star
 
 $(info [make] goals: $(or $(MAKECMDGOALS),dev) (make $(MAKE_VERSION), $(PLATFORM)))
 $(info [make] app: $(NAME) $(VERSION) ($(IDENT)) -> $(EXE))
-$(info [make] MyGo: $(shell go list -m -f '{{if .Replace}}{{.Replace.Path}}{{else}}{{.Version}}{{end}}' github.com/egoist/mygo))
 
-.PHONY: dev payloads run release test vet clean FORCE
+.PHONY: dev run release test vet clean FORCE
 
-dev: $(EXE) $(PLAT_RES) $(TOP_RES) $(PAYLOAD_FILES:resources/%=$(DEV)/%)
-	$(total)
-
-payloads: $(PAYLOAD_FILES)
+dev: $(EXE) $(DEV)/remote $(PLAT_RES) $(TOP_RES)
 	$(total)
 
 run: dev
@@ -86,14 +70,11 @@ run: dev
 $(EXE): FORCE
 	$(call run,go build -o $@ -ldflags "$(LDFLAGS)" .)
 
+$(DEV)/remote: FORCE
+	$(call run,go run ./tools/remotepayload -out $@ -targets $(PAYLOADS))
+
 $(CONPTY) &: tools/conpty/main.go
 	$(call run,go run ./tools/conpty)
-
-$(REMOTE_TOOL): tools/remotepayload/main.go
-	$(call run,go build -o $@ ./tools/remotepayload)
-
-$(PAYLOAD_FILES) &: $(REMOTE_TOOL) FORCE
-	$(call run,./$(REMOTE_TOOL) -work $(DEV)/.tools/payload-build -targets $(subst $(space),$(comma),$(PAYLOADS)))
 
 # Copied beside the dev executable when newer.
 $(DEV)/%: resources/$(PLATFORM)/%

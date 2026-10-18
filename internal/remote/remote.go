@@ -5,8 +5,10 @@
 package remote
 
 import (
+	"archive/tar"
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"errors"
 	"fmt"
 	"io"
@@ -105,7 +107,7 @@ func Open(t Target, profile string, p Payload, prog Progress) (*Link, error) {
 			return nil, err
 		}
 		prog.Status("Copying GoRex to " + t.Spec + "…")
-		prog.Log(fmt.Sprintf("%s is %s: copying %s (%s)", t.Spec, system, filepath.Base(s.archive), s.id))
+		prog.Log(fmt.Sprintf("%s is %s: copying the %s server (%s)", t.Spec, system, s.name, s.id))
 		if err := upload(t, s, prog.Log); err != nil {
 			return nil, err
 		}
@@ -176,7 +178,8 @@ func bridge(t Target, profile string, p Payload, logf func(string)) (*Link, stri
 }
 
 // upload copies the server s to t, where it lands in ~/.cache/gorex/<id>
-// whole or not at all.
+// whole or not at all. Its files go as a gzipped tar archive made on the
+// way, which the host's tar unpacks.
 func upload(t Target, s server, logf func(string)) error {
 	script := `set -e; c="$HOME/.cache/gorex"; mkdir -p "$c"; t=$(mktemp -d "$c/.upload.XXXXXX"); ` +
 		`trap 'rm -rf "$t"' EXIT; tar -xzf - -C "$t"; chmod 755 "$t/gorex"; ` +
@@ -185,17 +188,49 @@ func upload(t Target, s server, logf func(string)) error {
 	if err != nil {
 		return err
 	}
-	f, err := os.Open(s.archive)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
+	pr, pw := io.Pipe()
+	go func() { pw.CloseWithError(writeArchive(pw, s.files())) }()
+	defer pr.Close()
 	var out bytes.Buffer
-	cmd.Stdin, cmd.Stdout = f, &out
+	cmd.Stdin, cmd.Stdout = pr, &out
 	if err := cmd.Run(); err != nil || !strings.Contains(out.String(), "GOREX-DEPLOYED") {
 		return cmd.err()
 	}
 	return nil
+}
+
+// writeArchive writes the files to w as a gzipped tar archive, by their
+// base names.
+func writeArchive(w io.Writer, paths []string) error {
+	zw := gzip.NewWriter(w)
+	tw := tar.NewWriter(zw)
+	for _, path := range paths {
+		if err := addFile(tw, path); err != nil {
+			return err
+		}
+	}
+	if err := tw.Close(); err != nil {
+		return err
+	}
+	return zw.Close()
+}
+
+func addFile(tw *tar.Writer, path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	hdr := &tar.Header{Name: filepath.Base(path), Mode: 0o644, Size: st.Size(), ModTime: st.ModTime(), Format: tar.FormatUSTAR}
+	if err := tw.WriteHeader(hdr); err != nil {
+		return err
+	}
+	_, err = io.Copy(tw, f)
+	return err
 }
 
 // rwc makes ssh's output and input one connection for yamux.

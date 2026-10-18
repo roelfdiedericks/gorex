@@ -123,6 +123,8 @@ GoRex needs [Go](https://go.dev/dl/) 1.27+ and MyGo 0.3.0, whose CLI
 `go.mod` pins as a tool:
 
 ```sh
+make dev             # this platform's GoRex in dev/, with the servers for ssh hosts
+make release         # go tool mygo build: the app and its installer, in build/
 go tool mygo dev     # GoRex Dev, rebuilt and restarted as the code changes
 go test ./...        # the server, and the view without a window
 go tool mygo build   # build/darwin-arm64/GoRex.app and a .dmg
@@ -172,14 +174,15 @@ resizes from its sides and bottom, not its top.
 | `internal/remote` | reaching a server over ssh: copying the host's server there, the multiplexed link |
 
 `go run ./tools/remotepayload` builds the servers GoRex copies to ssh
-hosts, one archive per platform in `resources/remote/` (Linux and macOS,
-amd64 and arm64), each with the libghostty-vt of the MyGo that `go.mod`
-pins, from MyGo's download cache or a `replace`d checkout. `mygo build`
-runs it first, as `mygo.json`'s `buildCommand`, so a build never ships
-servers older than itself (`-skip-build-command` skips it); for `mygo dev`
-run it by hand. `mygo build` and `mygo dev` ship them next to the
-executable, so hosts never download anything; without them, ssh
-connections fail, telling to run the tool.
+hosts, one directory per platform in `resources/remote/` (Linux and macOS,
+amd64 and arm64): GoRex built for that platform, with the libghostty-vt of
+the MyGo that `go.mod` pins, from MyGo's download cache or a `replace`d
+checkout. GoRex packs a host's server into a gzipped tar as it copies it
+there, which the host's `tar` unpacks. `mygo build` runs the tool first,
+as `mygo.json`'s `buildCommand`, so a build never ships servers older than
+itself (`-skip-build-command` skips it), and ships them next to the
+executable, so hosts never download anything; `make dev` builds them into
+`dev/remote`. Without them, ssh connections fail, telling to run the tool.
 
 Icons: [Lucide](https://lucide.dev) (ISC) and [Simple Icons](https://simpleicons.org)
 (CC0). Font: [JetBrains Mono](https://www.jetbrains.com/lp/mono/) (OFL). The ssh

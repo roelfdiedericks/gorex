@@ -1,23 +1,22 @@
 // Command remotepayload builds the session servers GoRex copies to the
-// hosts it connects to over ssh, one archive per platform in
-// resources/remote: the server and the libghostty-vt it needs. Run it from
-// the module's root:
+// hosts it connects to over ssh, one directory per platform: the server,
+// GoRex built for that platform, and the libghostty-vt it needs. Run it
+// from the module's root:
 //
-//	go run ./tools/remotepayload
-//	go run ./tools/remotepayload -targets linux/amd64
-//	go run ./tools/remotepayload -work dev/.tools/payload-build
+//	go run ./tools/remotepayload                      # into resources/remote
+//	go run ./tools/remotepayload -out dev/remote -targets linux/amd64
 //
-// The libraries are those of the MyGo that go.mod pins, checked against
-// its SHA-256 sums; they come from MyGo's download cache, where the mygo
-// CLI keeps them, and are downloaded there when missing.
+// The platforms build side by side, and go build relinks only what
+// changed. The libraries are those of the MyGo that go.mod pins, checked
+// against its SHA-256 sums; they come from MyGo's download cache, where the
+// mygo CLI keeps them, and are downloaded there when missing.
 package main
 
 import (
-	"archive/tar"
-	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -28,10 +27,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 )
-
-const out = "resources/remote"
 
 // allTargets are the platforms of the hosts GoRex connects to.
 var allTargets = []string{"linux/amd64", "linux/arm64", "darwin/amd64", "darwin/arm64"}
@@ -44,25 +40,18 @@ type nativeFile struct {
 
 func main() {
 	log.SetFlags(0)
+	out := flag.String("out", "resources/remote", "directory of the servers, one directory per platform")
 	targets := flag.String("targets", strings.Join(allTargets, ","), "comma separated GOOS/GOARCH targets")
-	workDir := flag.String("work", "", "directory to build the servers in, kept so that go build links only what changed (default: a temporary one)")
 	flag.Parse()
 	libs, err := libraries()
 	if err != nil {
 		log.Fatal(err)
 	}
-	if err := os.MkdirAll(out, 0o755); err != nil {
-		log.Fatal(err)
-	}
-	work := *workDir
-	if work == "" {
-		if work, err = os.MkdirTemp("", "remotepayload"); err != nil {
-			log.Fatal(err)
-		}
-		defer os.RemoveAll(work)
-	}
-	var wg sync.WaitGroup
-	errs := make(chan error, len(strings.Split(*targets, ",")))
+	var (
+		wg   sync.WaitGroup
+		mu   sync.Mutex
+		errs []error
+	)
 	for _, t := range strings.Split(*targets, ",") {
 		goos, goarch, ok := strings.Cut(strings.TrimSpace(t), "/")
 		if !ok {
@@ -73,20 +62,16 @@ func main() {
 			log.Fatalf("MyGo's terminal plugin has no libghostty-vt for %s/%s", goos, goarch)
 		}
 		wg.Go(func() {
-			if err := buildTarget(work, goos, goarch, lib); err != nil {
-				errs <- fmt.Errorf("%s/%s: %v", goos, goarch, err)
+			if err := buildTarget(*out, goos, goarch, lib); err != nil {
+				mu.Lock()
+				errs = append(errs, fmt.Errorf("%s/%s: %w", goos, goarch, err))
+				mu.Unlock()
 			}
 		})
 	}
 	wg.Wait()
-	close(errs)
-	failed := false
-	for err := range errs {
-		log.Print(err)
-		failed = true
-	}
-	if failed {
-		os.Exit(1)
+	if err := errors.Join(errs...); err != nil {
+		log.Fatal(err)
 	}
 }
 
@@ -151,53 +136,26 @@ func mygoDir() (string, error) {
 	return dir, err
 }
 
-// buildTarget builds the server for goos/goarch and writes its archive,
-// unless the archive holds the same files already: an unchanged archive
-// keeps its time, so that make copies it no further.
-func buildTarget(work, goos, goarch string, lib nativeFile) error {
-	exe := filepath.Join(work, goos+"-"+goarch, "gorex")
-	build := exec.Command("go", "build", "-trimpath", "-ldflags=-s -w", "-o", exe, ".")
+// buildTarget builds the server for goos/goarch in out/<goos>-<goarch>,
+// with the library beside it. go build relinks the server only when it
+// changed, and the library is copied only when it differs.
+func buildTarget(out, goos, goarch string, lib nativeFile) error {
+	dir := filepath.Join(out, goos+"-"+goarch)
+	build := exec.Command("go", "build", "-trimpath", "-ldflags=-s -w", "-o", filepath.Join(dir, "gorex"), ".")
 	build.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS="+goos, "GOARCH="+goarch)
 	build.Stdout, build.Stderr = os.Stdout, os.Stderr
 	if err := build.Run(); err != nil {
 		return fmt.Errorf("building the server: %w", err)
 	}
-	libPath, err := cached(lib)
-	if err != nil {
-		return err
-	}
-	archive := filepath.Join(out, goos+"-"+goarch+".tar.gz")
-	entries := []entry{{"gorex", exe, 0o755}, {lib.Name, libPath, 0o644}}
-	sums := "gorex " + fileSum(exe) + " " + lib.Name + " " + lib.SHA256
-	if archiveSums(archive) == sums {
-		fmt.Printf("%s\tunchanged\n", archive)
+	dst := filepath.Join(dir, lib.Name)
+	if fileSum(dst) == lib.SHA256 {
 		return nil
 	}
-	if err := writeArchive(archive, entries, sums); err != nil {
-		return err
-	}
-	st, err := os.Stat(archive)
+	src, err := cached(lib)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("%s\t%d bytes\n", archive, st.Size())
-	return nil
-}
-
-// archiveSums returns the names and SHA-256 sums of an archive's files,
-// which writeArchive keeps in the gzip header's comment, or "" when it
-// can't be read.
-func archiveSums(path string) string {
-	f, err := os.Open(path)
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
-	zr, err := gzip.NewReader(f)
-	if err != nil {
-		return ""
-	}
-	return zr.Comment
+	return copyFile(src, dst)
 }
 
 // cached returns the library in MyGo's download cache, where the mygo CLI
@@ -218,61 +176,27 @@ func cached(f nativeFile) (string, error) {
 	return path, download(f.URL, path, f.SHA256)
 }
 
-type entry struct {
-	name, path string
-	mode       int64
-}
-
-// writeArchive writes the files as a gzipped tar archive, with sums, the
-// names and SHA-256 sums of the files, as the gzip header's comment. It
-// records no time, so that the same files make the same archive, and the
-// same ID.
-func writeArchive(path string, entries []entry, sums string) error {
-	tmp := path + ".tmp"
-	f, err := os.Create(tmp)
+// copyFile copies src to dst, which it replaces only once it is whole.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
 	if err != nil {
 		return err
 	}
-	zw := gzip.NewWriter(f)
-	zw.Comment = sums
-	tw := tar.NewWriter(zw)
-	for _, e := range entries {
-		if err = addFile(tw, e); err != nil {
-			break
-		}
+	defer in.Close()
+	tmp := dst + ".tmp"
+	out, err := os.Create(tmp)
+	if err != nil {
+		return err
 	}
-	if err == nil {
-		err = tw.Close()
-	}
-	if err == nil {
-		err = zw.Close()
-	}
-	if cerr := f.Close(); err == nil {
+	_, err = io.Copy(out, in)
+	if cerr := out.Close(); err == nil {
 		err = cerr
 	}
 	if err != nil {
 		os.Remove(tmp)
 		return err
 	}
-	return os.Rename(tmp, path)
-}
-
-func addFile(tw *tar.Writer, e entry) error {
-	f, err := os.Open(e.path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	st, err := f.Stat()
-	if err != nil {
-		return err
-	}
-	hdr := &tar.Header{Name: e.name, Mode: e.mode, Size: st.Size(), ModTime: time.Unix(0, 0), Format: tar.FormatUSTAR}
-	if err := tw.WriteHeader(hdr); err != nil {
-		return err
-	}
-	_, err = io.Copy(tw, f)
-	return err
+	return os.Rename(tmp, dst)
 }
 
 // fileSum returns the SHA-256 of a file in hex, "" when it can't be read.

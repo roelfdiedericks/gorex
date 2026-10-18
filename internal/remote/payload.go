@@ -13,12 +13,12 @@ import (
 
 // platform is a system GoRex has a server for.
 type platform struct {
-	// name is its GOOS-GOARCH, and that of its archive among the app's
-	// resources: remote/<name>.tar.gz.
+	// name is its GOOS-GOARCH, and that of the directory of its server
+	// among the app's resources: remote/<name>.
 	name string
 	// unames are the ways uname -s -m names it.
 	unames []string
-	// lib is the libghostty-vt in its archive, beside the server.
+	// lib is the libghostty-vt beside the server.
 	lib string
 }
 
@@ -42,11 +42,17 @@ func platformOf(system string) (platform, bool) {
 	return platform{}, false
 }
 
-// server is the archive of a platform's server, and its ID, which names
-// the directory it unpacks to on a host: another build, another ID.
+// server is the directory of a platform's server, and its ID, which names
+// the directory it lands in on a host: another build, another ID.
 type server struct {
 	platform
-	archive, id string
+	dir, id string
+}
+
+// files are the server's files: the server, and the libghostty-vt beside
+// it.
+func (s server) files() []string {
+	return []string{filepath.Join(s.dir, "gorex"), filepath.Join(s.dir, s.lib)}
 }
 
 // Payload is the servers GoRex copies to the hosts it connects to, for the
@@ -57,15 +63,16 @@ type Payload struct{ servers []server }
 func LoadPayload(resources string) (Payload, error) {
 	var p Payload
 	for _, pl := range platforms {
-		path := filepath.Join(resources, "remote", pl.name+".tar.gz")
-		id, err := fileID(path)
+		s := server{platform: pl, dir: filepath.Join(resources, "remote", pl.name)}
+		id, err := filesID(s.files())
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
 		if err != nil {
 			return Payload{}, err
 		}
-		p.servers = append(p.servers, server{pl, path, id})
+		s.id = id
+		p.servers = append(p.servers, s)
 	}
 	if len(p.servers) == 0 {
 		return Payload{}, errors.New("this GoRex has no servers for other hosts: build them with go run ./tools/remotepayload")
@@ -73,16 +80,20 @@ func LoadPayload(resources string) (Payload, error) {
 	return p, nil
 }
 
-// fileID returns the first 16 hex digits of a file's SHA-256.
-func fileID(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
+// filesID returns the first 16 hex digits of the SHA-256 of the files'
+// contents, one after the other.
+func filesID(paths []string) (string, error) {
 	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
+	for _, path := range paths {
+		f, err := os.Open(path)
+		if err != nil {
+			return "", err
+		}
+		_, err = io.Copy(h, f)
+		f.Close()
+		if err != nil {
+			return "", err
+		}
 	}
 	return hex.EncodeToString(h.Sum(nil))[:16], nil
 }
