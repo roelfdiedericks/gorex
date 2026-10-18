@@ -1,101 +1,84 @@
-# GoRex's builds. Development builds are a plain go build in dev/, with the
-# files GoRex looks for beside its executable copied there when they
-# change; the remote payloads and ConPTY are rebuilt or fetched only when
-# their inputs change; the installer is made only by make release, with
-# mygo build, into the out directory of mygo.json.
+# GoRex's builds.
 #
-#   make dev          GoRex in dev/ (no payloads rebuilt, no installer)
-#   make dev-remote   dev, plus the payloads of REMOTE (default linux/amd64)
-#   make run          dev, and run it
-#   make payloads     the payloads of every host platform
-#   make release      everything, as shipped: payloads, ConPTY, installer
+#   make dev       GoRex for this machine's platform in dev/: a go build,
+#                  which decides itself what changed, and the platform's
+#                  resources copied beside it when they change
+#   make run       dev, and run it
+#   make release   go tool mygo build: every remote payload, the installer
 #   make test, vet, clean
 
-DEV    := dev
-REMOTE ?= linux/amd64
+DEV := dev
+
+# This machine's platform, as Go names it, e.g. windows-amd64.
+GOENV    := $(shell go env GOOS GOARCH)
+GOOS     := $(word 1,$(GOENV))
+PLATFORM := $(GOOS)-$(word 2,$(GOENV))
 
 # The app's name, version and identifier, from mygo.json, which mygo build
 # links in too.
-json   = $(shell sed -n 's/^ *"$(1)": *"\([^"]*\)".*/\1/p' mygo.json)
-NAME   := $(call json,name)
-EXE    := $(DEV)/$(NAME).exe
-LDFLAGS := -H=windowsgui \
+json    = $(shell sed -n 's/^ *"$(1)": *"\([^"]*\)".*/\1/p' mygo.json)
+NAME    := $(call json,name)
+VERSION := $(call json,version)
+IDENT   := $(call json,identifier)
+EXE     := $(DEV)/$(NAME)$(if $(filter windows,$(GOOS)),.exe)
+LDFLAGS := $(if $(filter windows,$(GOOS)),-H=windowsgui) \
 	-X 'github.com/egoist/mygo.packageName=$(NAME)' \
-	-X 'github.com/egoist/mygo.packageVersion=$(call json,version)' \
-	-X 'github.com/egoist/mygo.packageIdentifier=$(call json,identifier)'
+	-X 'github.com/egoist/mygo.packageVersion=$(VERSION)' \
+	-X 'github.com/egoist/mygo.packageIdentifier=$(IDENT)'
 
-# What the app is built from: its Go code and embedded assets, and MyGo's
-# code where go.mod replaces MyGo with a checkout. rwildcard walks a tree
-# with make alone: find is Windows' own on many a PATH.
-rwildcard = $(foreach d,$(wildcard $(1:=/*)),$(call rwildcard,$(d),$(2)) $(filter $(2),$(d)))
-MYGO_DIR := $(shell sed -n 's/^replace github.com\/egoist\/mygo => \(\.[^ ]*\)$$/\1/p' go.mod)
-APP_SRC  := $(filter-out ./$(DEV)/% ./build/%,$(call rwildcard,.,%.go)) \
-	$(call rwildcard,assets,%) go.mod go.sum
-MYGO_SRC := $(if $(MYGO_DIR),$(filter-out %_test.go,$(call rwildcard,$(MYGO_DIR),%.go)))
-APP_DEPS := $(APP_SRC) $(MYGO_SRC)
+# ConPTY, Windows' pseudoconsole that GoRex runs its sessions in, is
+# fetched by tools/conpty, which pins its version.
+CONPTY := resources/windows-amd64/conpty.dll resources/windows-amd64/x64/OpenConsole.exe
 
-# Timing and debug: every step says what it remakes and why (how many of
-# its prerequisites are newer, and the first of them), the command, and
-# how long it took; each goal ends with the time since make started.
-now   := date +%s%3N
+# The resources of this platform, and those of every platform but the
+# remote payloads, which only release builds.
+rfiles   = $(foreach f,$(wildcard $(1)/*),$(if $(wildcard $(f)/.),$(call rfiles,$(f)),$(f)))
+PLAT_RES := $(patsubst resources/$(PLATFORM)/%,$(DEV)/%,$(sort $(call rfiles,resources/$(PLATFORM)) \
+	$(if $(filter windows-amd64,$(PLATFORM)),$(CONPTY))))
+TOP_RES  := $(patsubst resources/%,$(DEV)/%,$(filter-out resources/remote resources/%-amd64 resources/%-arm64,$(wildcard resources/*)))
+
+# Timing and debug: every step says why it runs, the command, and how
+# long it took; each goal ends with the time since make started.
+# A clock in milliseconds: GNU date's, or Perl's on macOS, whose date has
+# no %N.
+comma := ,
+now   := $(if $(filter darwin,$(GOOS)),perl -MTime::HiRes=time -e 'printf "%d\n"$(comma) time*1000',date +%s%3N)
 START := $(shell $(now))
 
 define run
-$(info [make] $@: remaking: $(if $?,$(words $?) of $(words $^) prerequisites newer$(comma) first $(firstword $?),it does not exist or is phony))
+$(info [make] $@: $(if $(filter-out FORCE,$?),$(words $(filter-out FORCE,$?)) of $(words $(filter-out FORCE,$^)) prerequisites newer$(comma) first $(firstword $(filter-out FORCE,$?)),$(if $(filter FORCE,$^),go build decides what changed,it does not exist or is phony)))
 $(info [make] $@: $(1))
 @t=$$($(now)); $(1); s=$$?; echo "[make] $@: $$(( $$($(now)) - t )) ms$$( [ $$s -ne 0 ] && echo "$(comma) failed ($$s)")"; exit $$s
 endef
-comma := ,
 
 total = @echo "[make] $@: total $$(( $$($(now)) - $(START) )) ms since make started"
 
-$(info [make] goals: $(or $(MAKECMDGOALS),dev) (make $(MAKE_VERSION), REMOTE=$(REMOTE)))
-$(info [make] app: $(NAME) $(call json,version) ($(call json,identifier)) -> $(EXE))
-$(info [make] MyGo: $(or $(MYGO_DIR),the module cache, not a checkout))
-$(info [make] inputs: $(words $(APP_SRC)) GoRex files, $(words $(MYGO_SRC)) MyGo files; read in $(shell echo $$(( $$($(now)) - $(START) ))) ms)
+$(info [make] goals: $(or $(MAKECMDGOALS),dev) (make $(MAKE_VERSION), $(PLATFORM)))
+$(info [make] app: $(NAME) $(VERSION) ($(IDENT)) -> $(EXE))
+$(info [make] MyGo: $(shell go list -m -f '{{if .Replace}}{{.Replace.Path}}{{else}}{{.Version}}{{end}}' github.com/egoist/mygo))
 
-PAYLOADS    := linux-amd64 linux-arm64 darwin-amd64 darwin-arm64
-WANT_REMOTE := $(subst /,-,$(REMOTE))
-CONPTY      := resources/windows-amd64/conpty.dll resources/windows-amd64/x64/OpenConsole.exe
+.PHONY: dev run release test vet clean FORCE
 
-.PHONY: dev dev-remote run payloads release test vet clean
-
-dev: $(EXE) $(DEV)/conpty.dll $(DEV)/x64/OpenConsole.exe $(DEV)/conpty-LICENSE.txt $(DEV)/icon.png
-	$(total)
-
-dev-remote: dev $(WANT_REMOTE:%=$(DEV)/remote/%.tar.gz)
+dev: $(EXE) $(PLAT_RES) $(TOP_RES)
 	$(total)
 
 run: dev
 	$(call run,./$(EXE))
 
-$(EXE): $(APP_DEPS)
+$(EXE): FORCE
 	$(call run,go build -o $@ -ldflags "$(LDFLAGS)" .)
 
-# A host platform's payload is GoRex's server built for it: any change to
-# the code makes it stale.
-resources/remote/%.tar.gz: $(APP_DEPS) tools/remotepayload/main.go
-	$(call run,go run ./tools/remotepayload -targets $(subst -,/,$*))
-
-payloads: $(PAYLOADS:%=resources/remote/%.tar.gz)
-	$(total)
-
-# ConPTY is fetched once, and again when the tool, which pins its version,
-# changes.
 $(CONPTY) &: tools/conpty/main.go
 	$(call run,go run ./tools/conpty)
 
 # Copied beside the dev executable when newer.
-$(DEV)/%: resources/windows-amd64/%
+$(DEV)/%: resources/$(PLATFORM)/%
 	$(call run,mkdir -p $(@D) && cp -p $< $@)
-$(DEV)/remote/%: resources/remote/%
-	$(call run,mkdir -p $(@D) && cp -p $< $@)
-$(DEV)/icon.png: resources/icon.png
+$(DEV)/%: resources/%
 	$(call run,mkdir -p $(@D) && cp -p $< $@)
 
-# mygo.json's buildCommand builds every payload; make has done so already.
-release: payloads $(CONPTY)
-	$(call run,go tool mygo build --skip-build-command)
+release: $(CONPTY)
+	$(call run,go tool mygo build)
 	$(total)
 
 test:
