@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"path/filepath"
@@ -55,9 +56,9 @@ func loadPayload() (remote.Payload, error) {
 }
 
 // dialBinding connects to the server of b, telling prog how it goes. The
-// link is nil for this machine's server. restart has the server started
-// anew, ending its sessions, as a development build does by itself with
-// a server of another build.
+// link is nil for this machine's server. restart has the server replaced
+// by this build's, as a development build does by itself with a server of
+// another build.
 func dialBinding(b binding, prog remote.Progress, restart bool) (*rex.Client, *remote.Link, rex.Hello, error) {
 	var client *rex.Client
 	var link *remote.Link
@@ -93,10 +94,19 @@ func dialBinding(b binding, prog remote.Progress, restart bool) (*rex.Client, *r
 	}
 	if restart || mygo.IsDev() && (!b.remote && staleServer(h) || b.remote && h.Exe != link.Exe()) {
 		// A server a build before this one started runs that build's
-		// code: start one of this build's, ending its sessions.
-		prog.Status("Restarting the session server of " + b.label() + "…")
-		prog.Log(fmt.Sprintf("restarting the server (%s, protocol %d, pid %d)", h.Exe, h.Version, h.PID))
-		nc, err := client.Restart(h.PID)
+		// code: it becomes one of this build's in place, keeping its
+		// sessions, or, where it can't, a new one starts, ending them.
+		exe, _ := rex.Executable()
+		if b.remote {
+			exe = link.Exe()
+		}
+		prog.Status("Upgrading the session server of " + b.label() + "…")
+		prog.Log(fmt.Sprintf("upgrading the server (%s, protocol %d, pid %d) to %s", h.Exe, h.Version, h.PID, exe))
+		nc, err := client.Upgrade(h, exe)
+		if errors.Is(err, rex.ErrNoUpgrade) {
+			prog.Log(fmt.Sprintf("%v: restarting it, ending its sessions", err))
+			nc, err = client.Restart(h.PID)
+		}
 		if err != nil {
 			return fail(err)
 		}
@@ -238,9 +248,9 @@ func (a *App) attachBinding(win *mygo.Window, b binding, gen int64, client *rex.
 		a.logOpen, a.logAuto = false, false
 	}
 	if h.Version != rex.ProtocolVersion {
-		a.err = fmt.Sprintf("The session server on %s speaks protocol %d; this GoRex speaks %d. Restarting it with this GoRex's server ends its sessions.",
+		a.err = fmt.Sprintf("The session server on %s speaks protocol %d; this GoRex speaks %d. Replacing it with this GoRex's server keeps its sessions on Linux and macOS, and ends them on Windows.",
 			b.label(), h.Version, rex.ProtocolVersion)
-		a.errAction, a.errRun = "Restart server", a.restartServer
+		a.errAction, a.errRun = "Replace server", a.restartServer
 	}
 	if !a.restore() {
 		a.newTab(hostHome)

@@ -120,6 +120,33 @@ func (c *Client) Restart(pid int) (*Client, error) {
 	return nil, errors.New("rex: the server did not restart")
 }
 
+// ErrNoUpgrade is Upgrade's error when the server can't upgrade in place,
+// as on Windows, or as an older server can't: Restart replaces it then.
+var ErrNoUpgrade = errors.New("rex: the server can't upgrade in place")
+
+// Upgrade has the server h describes replace itself in place with exe,
+// keeping its sessions, and connects to the new server: one that started
+// after it, from exe.
+func (c *Client) Upgrade(h Hello, exe string) (*Client, error) {
+	if err := c.call(Request{Op: "upgrade", Path: exe}, nil); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrNoUpgrade, err)
+	}
+	c.Close()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+		nc, err := Connect(c.dial)
+		if err != nil {
+			continue
+		}
+		if nh, err := nc.Hello(); err == nil && nh.Exe == exe && nh.Started.After(h.Started) {
+			return nc, nil
+		}
+		nc.Close()
+	}
+	return nil, errors.New("rex: the server did not upgrade")
+}
+
 // Closed is closed once the connection to the server is lost.
 func (c *Client) Closed() <-chan struct{} { return c.closed }
 

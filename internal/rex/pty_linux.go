@@ -15,12 +15,14 @@ func openMaster() (*os.File, string, error) {
 	if err != nil {
 		return nil, "", fmt.Errorf("pty: %w", err)
 	}
-	fd := int(master.Fd())
-	if err := unix.IoctlSetPointerInt(fd, unix.TIOCSPTLCK, 0); err != nil {
-		master.Close()
-		return nil, "", fmt.Errorf("pty: %w", err)
-	}
-	n, err := unix.IoctlGetInt(fd, unix.TIOCGPTN)
+	var n int
+	err = withFD(master, func(fd int) error {
+		if err := unix.IoctlSetPointerInt(fd, unix.TIOCSPTLCK, 0); err != nil {
+			return err
+		}
+		n, err = unix.IoctlGetInt(fd, unix.TIOCGPTN)
+		return err
+	})
 	if err != nil {
 		master.Close()
 		return nil, "", fmt.Errorf("pty: %w", err)

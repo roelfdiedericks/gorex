@@ -26,11 +26,18 @@ import (
 )
 
 func main() {
-	// -server runs the session server; other arguments are AppKit's, as
-	// -NSWindowResizeTime, which it reads itself.
+	// -server runs the session server, and -server -resume <state> the one
+	// a server upgrading in place becomes; other arguments are AppKit's,
+	// as -NSWindowResizeTime, which it reads itself.
 	if len(os.Args) > 1 && os.Args[1] == "-server" {
 		log.SetPrefix("[server] ")
-		if err := rex.Serve(); err != nil {
+		var err error
+		if len(os.Args) > 3 && os.Args[2] == "-resume" {
+			err = rex.Resume(os.Args[3])
+		} else {
+			err = rex.Serve()
+		}
+		if err != nil {
 			log.Fatal(err)
 		}
 		return

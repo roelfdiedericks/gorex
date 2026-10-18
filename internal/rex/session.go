@@ -4,6 +4,7 @@ package rex
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"net"
 	"os"
@@ -30,6 +31,8 @@ type session struct {
 	shell   string
 	created time.Time
 	p       *pty
+	// keep is how many bytes of scrollback the screen keeps.
+	keep int
 
 	mu sync.Mutex
 	// vt is the session's screen, kept by the terminal emulator of the
@@ -47,6 +50,12 @@ type session struct {
 	code       int
 	cols, rows int
 	done       chan struct{}
+	// readDone is closed when the reader is done. While pausing, the
+	// reader, its read cut short, says so on pauseAck and waits for
+	// pauseEnd: an upgrade in place pauses every session.
+	readDone           chan struct{}
+	pausing            atomic.Bool
+	pauseAck, pauseEnd chan struct{}
 }
 
 // attached is a connection attached to a session, whose output a
@@ -97,39 +106,50 @@ func newSession(id string, o CreateOptions) (*session, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &session{
-		id: id, shell: name, created: time.Now(), p: p,
-		clients: map[*attached]struct{}{},
-		cols:    cols, rows: rows, done: make(chan struct{}),
-	}
-	// The emulator's Conn reads nothing, and what it would answer programs
-	// is dropped: the windows' terminals answer them.
-	pr, pw := io.Pipe()
 	keep := scrollback
 	if o.Scrollback > 0 {
 		keep = o.Scrollback * scrollbackLine
 	}
-	vt, err := terminal.New(terminal.Options{Conn: discard{pr}, Scrollback: keep, OnBell: func() { s.bells.Add(1) }})
-	if err != nil {
+	s := &session{id: id, shell: name, created: time.Now(), p: p, keep: keep, cols: cols, rows: rows}
+	if err := s.start(nil); err != nil {
 		p.hangup()
 		return nil, err
 	}
-	vt.Resize(cols, rows)
+	return s, nil
+}
+
+// start runs the session: its screen, first fed screen when the session
+// is resumed from the server this one replaced, and the goroutines that
+// read what it prints and wait for its end.
+func (s *session) start(screen []byte) error {
+	s.clients = map[*attached]struct{}{}
+	s.done, s.readDone = make(chan struct{}), make(chan struct{})
+	s.pauseAck, s.pauseEnd = make(chan struct{}), make(chan struct{})
+	// The emulator's Conn reads nothing, and what it would answer programs
+	// is dropped: the windows' terminals answer them.
+	pr, pw := io.Pipe()
+	vt, err := terminal.New(terminal.Options{Conn: discard{pr}, Scrollback: s.keep, OnBell: func() { s.bells.Add(1) }})
+	if err != nil {
+		return err
+	}
+	vt.Resize(s.cols, s.rows)
+	if len(screen) > 0 {
+		vt.Feed(screen)
+	}
 	s.vt, s.vtIn = vt, pw
-	read := make(chan struct{})
 	go func() {
 		s.read()
-		close(read)
+		close(s.readDone)
 	}()
 	go func() {
-		code := p.wait()
+		code := s.p.wait()
 		// What it printed last is still to read; then hang up whatever
 		// else holds the terminal, as terminal apps do.
 		select {
-		case <-read:
+		case <-s.readDone:
 		case <-time.After(150 * time.Millisecond):
-			p.close()
-			<-read
+			s.p.close()
+			<-s.readDone
 		}
 		s.mu.Lock()
 		s.exited, s.code = true, code
@@ -142,7 +162,7 @@ func newSession(id string, o CreateOptions) (*session, error) {
 		s.vtIn.Close()
 		s.vt.Close()
 	}()
-	return s, nil
+	return nil
 }
 
 // sessionEnv returns the environment of a session's shell: the server's,
@@ -197,6 +217,13 @@ func (s *session) read() {
 			s.mu.Unlock()
 		}
 		if err != nil {
+			// A pause for an upgrade in place: what the terminal has is
+			// left to the server that replaces this one.
+			if s.pausing.Load() && errors.Is(err, os.ErrDeadlineExceeded) {
+				s.pauseAck <- struct{}{}
+				<-s.pauseEnd
+				continue
+			}
 			return
 		}
 	}

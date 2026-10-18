@@ -3,7 +3,6 @@
 package rex
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,10 +13,12 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// pty is a pseudo-terminal and the process it runs.
+// pty is a pseudo-terminal and the process it runs: one the server
+// started, or that the server it replaced in place started, still its
+// child, as the process is the same.
 type pty struct {
 	master *os.File
-	cmd    *exec.Cmd
+	proc   *os.Process
 }
 
 // startPTY runs argv (argv[0] as the program sees it, path the file) in a
@@ -48,7 +49,7 @@ func startPTY(path string, argv []string, dir string, env []string, cols, rows i
 		master.Close()
 		return nil, err
 	}
-	return &pty{master: master, cmd: cmd}, nil
+	return &pty{master: master, proc: cmd.Process}, nil
 }
 
 func (p *pty) read(b []byte) (int, error)  { return p.master.Read(b) }
@@ -61,10 +62,10 @@ func (p *pty) close() error { return p.master.Close() }
 func (p *pty) resize(cols, rows int) error { return setSize(p.master, cols, rows) }
 
 func (p *pty) pid() int {
-	if p.cmd.Process == nil {
+	if p.proc == nil {
 		return 0
 	}
-	return p.cmd.Process.Pid
+	return p.proc.Pid
 }
 
 // kill kills the process group of the session's process.
@@ -76,15 +77,18 @@ func (p *pty) kill() {
 
 func setSize(f *os.File, cols, rows int) error {
 	ws := &unix.Winsize{Col: uint16(clamp(cols)), Row: uint16(clamp(rows))}
-	return unix.IoctlSetWinsize(int(f.Fd()), unix.TIOCSWINSZ, ws)
+	return withFD(f, func(fd int) error { return unix.IoctlSetWinsize(fd, unix.TIOCSWINSZ, ws) })
 }
 
 func clamp(v int) int { return max(1, min(v, 0xFFFF)) }
 
 // foreground returns the process group in the foreground of the terminal.
 func (p *pty) foreground() int {
-	pg, err := unix.IoctlGetInt(int(p.master.Fd()), unix.TIOCGPGRP)
-	if err != nil {
+	var pg int
+	if withFD(p.master, func(fd int) (err error) {
+		pg, err = unix.IoctlGetInt(fd, unix.TIOCGPGRP)
+		return err
+	}) != nil {
 		return 0
 	}
 	return pg
@@ -93,29 +97,40 @@ func (p *pty) foreground() int {
 // wait waits for the process and returns its exit code, 128 plus the
 // signal's number for a process a signal ended.
 func (p *pty) wait() int {
-	err := p.cmd.Wait()
-	if e, ok := errors.AsType[*exec.ExitError](err); ok {
-		if ws, ok := e.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
-			return 128 + int(ws.Signal())
-		}
-		return e.ExitCode()
-	}
+	st, err := p.proc.Wait()
 	if err != nil {
 		return -1
 	}
-	return 0
+	if ws, ok := st.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+		return 128 + int(ws.Signal())
+	}
+	return st.ExitCode()
 }
 
 // hangup ends the session: its processes get SIGHUP, as when a terminal
 // window closes.
 func (p *pty) hangup() {
-	if p.cmd.Process != nil {
-		syscall.Kill(-p.cmd.Process.Pid, syscall.SIGHUP)
+	if pid := p.pid(); pid > 0 {
+		syscall.Kill(-pid, syscall.SIGHUP)
 		if pg := p.foreground(); pg > 0 {
 			syscall.Kill(-pg, syscall.SIGHUP)
 		}
 	}
 	p.master.Close()
+}
+
+// withFD runs fn with the file's descriptor. Unlike Fd, it leaves the
+// file non-blocking, so that its reads take deadlines.
+func withFD(f *os.File, fn func(fd int) error) error {
+	rc, err := f.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var ferr error
+	if err := rc.Control(func(fd uintptr) { ferr = fn(int(fd)) }); err != nil {
+		return err
+	}
+	return ferr
 }
 
 // shellCommand returns the program, its arguments and the shell's name

@@ -33,6 +33,7 @@ type Server struct {
 	host     HostInfo
 	hostDone chan struct{}
 	ln       net.Listener
+	lock     *os.File
 	exe      string
 	exeTime  time.Time
 	controls int
@@ -48,31 +49,54 @@ const idleTimeout = 10 * time.Minute
 
 // Serve runs the server until it is shut down: it returns an error at
 // once when another server already runs.
-func Serve() error {
+func Serve() error { return serve("") }
+
+// Resume runs the server that an upgrade in place made of the one before
+// it, which left its socket, lock and sessions in the process, as the
+// state file says.
+func Resume(state string) error { return serve(state) }
+
+func serve(state string) error {
 	dir := Dir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	lock, err := os.OpenFile(filepath.Join(dir, "server.lock"), os.O_CREATE|os.O_RDWR, 0o600)
-	if err != nil {
-		return err
-	}
-	if err := lockFile(lock); err != nil {
-		return errors.New("rex: a server already runs")
+	sock := SocketPath()
+	var (
+		lock *os.File
+		ln   net.Listener
+		st   *upgradeState
+		err  error
+	)
+	if state != "" {
+		if st, err = readState(state); err != nil {
+			return err
+		}
+		if lock, ln, err = st.adopt(); err != nil {
+			return err
+		}
+	} else {
+		if lock, err = os.OpenFile(filepath.Join(dir, "server.lock"), os.O_CREATE|os.O_RDWR, 0o600); err != nil {
+			return err
+		}
+		if err := lockFile(lock); err != nil {
+			return errors.New("rex: a server already runs")
+		}
+		os.Remove(sock)
+		if ln, err = net.Listen("unix", sock); err != nil {
+			return err
+		}
+		os.Chmod(sock, 0o600)
 	}
 	defer lock.Close()
-	sock := SocketPath()
-	os.Remove(sock)
-	ln, err := net.Listen("unix", sock)
-	if err != nil {
-		return err
-	}
-	os.Chmod(sock, 0o600)
 	s := &Server{
-		sessions: map[string]*session{}, docs: map[string]json.RawMessage{}, started: time.Now(), ln: ln,
+		sessions: map[string]*session{}, docs: map[string]json.RawMessage{}, started: time.Now(), ln: ln, lock: lock,
 		hostDone: make(chan struct{}), idleFrom: time.Now(), quit: make(chan struct{}), events: newEvents(),
 	}
 	s.exe, s.exeTime = Executable()
+	if st != nil {
+		s.resume(st)
+	}
 	go func() {
 		s.host = hostInfo()
 		s.host.GOOS = runtime.GOOS
@@ -84,7 +108,7 @@ func Serve() error {
 		<-s.quit
 		ln.Close()
 	}()
-	log.Printf("rex: serving on %s (pid %d)", sock, os.Getpid())
+	log.Printf("rex: serving on %s (pid %d, %d sessions)", sock, os.Getpid(), len(s.sessions))
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
@@ -315,6 +339,19 @@ func (s *Server) do(req Request) (any, error) {
 		go func() {
 			time.Sleep(50 * time.Millisecond)
 			s.shutdown()
+		}()
+		return nil, nil
+	case "upgrade":
+		// The answer goes out before the server replaces itself; the
+		// client then waits for the new server's hello.
+		if err := canUpgrade(req.Path); err != nil {
+			return nil, err
+		}
+		go func() {
+			time.Sleep(50 * time.Millisecond)
+			if err := s.upgrade(req.Path); err != nil {
+				log.Printf("rex: upgrading to %s: %v", req.Path, err)
+			}
 		}()
 		return nil, nil
 	}

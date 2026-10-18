@@ -23,14 +23,20 @@ func openMaster() (*os.File, string, error) {
 		return nil, "", fmt.Errorf("pty: %w", err)
 	}
 	var name [128]byte
-	for _, step := range []struct {
-		req uintptr
-		arg unsafe.Pointer
-	}{{tiocptygrant, nil}, {tiocptyunlk, nil}, {tiocptygname, unsafe.Pointer(&name[0])}} {
-		if _, _, e := syscall.Syscall(syscall.SYS_IOCTL, master.Fd(), step.req, uintptr(step.arg)); e != 0 {
-			master.Close()
-			return nil, "", fmt.Errorf("pty: %w", e)
+	err = withFD(master, func(fd int) error {
+		for _, step := range []struct {
+			req uintptr
+			arg unsafe.Pointer
+		}{{tiocptygrant, nil}, {tiocptyunlk, nil}, {tiocptygname, unsafe.Pointer(&name[0])}} {
+			if _, _, e := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), step.req, uintptr(step.arg)); e != 0 {
+				return e
+			}
 		}
+		return nil
+	})
+	if err != nil {
+		master.Close()
+		return nil, "", fmt.Errorf("pty: %w", err)
 	}
 	n := bytes.IndexByte(name[:], 0)
 	if n < 0 {
