@@ -254,10 +254,21 @@ func (a *App) editorFollowsPreview(p *Pane) {
 	}()
 }
 
-// togglePreview switches the focused editor pane's preview.
+// togglePreview cycles the focused editor pane of a Markdown file through
+// the editor, the web view's preview and MyGo's.
 func (a *App) togglePreview(p *Pane) {
-	if p != nil && p.Kind == paneEditor && isMarkdown(p.edit.path) {
-		a.showPreview(p, p.edit.mode != modePreview)
+	if p == nil || p.Kind != paneEditor || !isMarkdown(p.edit.path) {
+		return
+	}
+	switch p.edit.mode {
+	case modePreview:
+		a.switchRenderer(p)
+	case modeNative:
+		p.edit.mode = modeEditor
+		a.focusReq = p
+		a.changed()
+	default:
+		a.showPreview(p, true)
 	}
 }
 

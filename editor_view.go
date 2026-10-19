@@ -75,12 +75,28 @@ func (a *App) editorHeader(c *ui.Context, k *colors, t *Tab, p *Pane, focused, h
 					a.toggleChanges(p)
 				}
 				if isMarkdown(e.path) {
+					previewing := e.mode == modePreview || e.mode == modeNative
+					if previewing {
+						// The renderer of the preview: the web view's, or
+						// MyGo's, on trial.
+						label, tooltip := "Web", "Previewed by the web view: click for MyGo's renderer"
+						if e.mode == modeNative {
+							label, tooltip = "MyGo", "Previewed by MyGo's renderer: click for the web view"
+						}
+						if textButton(c, k, label).Tooltip(tooltip).Clicked() {
+							t.setFocus(p)
+							a.switchRenderer(p)
+						}
+					}
 					label := "Show Preview"
-					if e.mode == modePreview {
+					switch e.mode {
+					case modePreview:
+						label = "Show MyGo Preview"
+					case modeNative:
 						label = "Show Editor"
 					}
 					eye := iconButton(c, k, "eye", label, 26, 15).Tooltip(tip(label, &cmdTogglePreview))
-					if e.mode == modePreview {
+					if previewing {
 						eye.Background(k.pressed)
 					}
 					if eye.Clicked() {
@@ -166,7 +182,9 @@ func (a *App) editorBody(c *ui.Context, k *colors, t *Tab, p *Pane) {
 		if e.wrap != nil {
 			wrap = *e.wrap
 		}
-		if e.mode == modePreview {
+		if e.mode == modeNative {
+			a.nativeBody(c, k, t, p)
+		} else if e.mode == modePreview {
 			pv := e.preview
 			if pv == nil || pv.web == nil || pv.web.IsDestroyed() {
 				a.ensurePreview(p)
@@ -295,11 +313,14 @@ func (a *App) editorStatus(c *ui.Context, k *colors, e *editorState) {
 	if added, deleted := e.diff.Stats(); added > 0 || deleted > 0 {
 		status += fmt.Sprintf(" · +%d −%d", added, deleted)
 	}
-	if e.mode == modePreview {
+	switch e.mode {
+	case modePreview:
 		status = "Preview"
 		if pv := e.preview; pv != nil && pv.phase != "" {
 			status = "Preview · " + pv.phase
 		}
+	case modeNative:
+		status = "Preview · MyGo"
 	}
 	ui.Row(c).Gap(16).Padding(3, 10, 2, 10).Shrink(0).Children(func() {
 		ui.Text(c, status).FontSize(11.5).TextColor(k.textFaint).SingleLine()

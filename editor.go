@@ -101,6 +101,7 @@ type editorState struct {
 	// previewOnLoad asks for it once the file is read, scrolled to
 	// previewFragment.
 	preview         *previewState
+	native          *nativePreview
 	previewOnLoad   bool
 	previewFragment string
 }
@@ -301,7 +302,7 @@ func (a *App) setFileText(p *Pane, text string, mod time.Time) {
 	e.diff = &editor.DiffState{Old: e.base, New: e.buf, Editable: true, HunkActions: true, LineSelection: true}
 	e.modTime = mod
 	e.err, e.tooLarge, e.onDisk = "", false, ""
-	if e.mode == modePreview && !isMarkdown(e.path) {
+	if (e.mode == modePreview || e.mode == modeNative) && !isMarkdown(e.path) {
 		e.mode = modeEditor
 	}
 	if e.previewOnLoad {

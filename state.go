@@ -943,7 +943,11 @@ func (a *App) snapshot() savedLayout {
 	save = func(n *Node) *savedNode {
 		if p := n.Pane; p != nil {
 			if p.Kind == paneEditor {
-				return &savedNode{Path: p.edit.path, Mode: p.edit.mode}
+				mode := p.edit.mode
+				if mode == modeNative {
+					mode = modePreview // the trial's renderer isn't kept
+				}
+				return &savedNode{Path: p.edit.path, Mode: mode}
 			}
 			s := &savedNode{SID: p.SID, Dir: p.info.Dir}
 			if s.Dir == "" {
