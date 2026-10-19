@@ -43,10 +43,15 @@ type sessionShape struct {
 	program, dir, title string
 	idle, exited        bool
 	attached            int
+	status              ProgramStatus
 }
 
 func shapeOf(in SessionInfo) sessionShape {
-	return sessionShape{program: in.Program, dir: in.Dir, title: in.Title, idle: in.Idle, exited: in.Exited, attached: in.Attached}
+	sh := sessionShape{program: in.Program, dir: in.Dir, title: in.Title, idle: in.Idle, exited: in.Exited, attached: in.Attached}
+	if in.Status != nil {
+		sh.status = *in.Status
+	}
+	return sh
 }
 
 func newEvents() *events {

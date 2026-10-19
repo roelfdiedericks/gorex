@@ -47,6 +47,8 @@ type session struct {
 	lastOutput time.Time
 	lastInput  time.Time
 	resync     *time.Timer
+	// status is what the session's programs say they are doing.
+	status     statusTracker
 	exited     bool
 	code       int
 	cols, rows int
@@ -226,6 +228,9 @@ func (s *session) read() {
 			data := append([]byte(nil), buf[:n]...)
 			s.mu.Lock()
 			s.vt.Feed(data)
+			s.status.feed(data)
+			query := s.status.query
+			s.status.query = false
 			s.output += uint64(n)
 			s.lastOutput = time.Now()
 			for a := range s.clients {
@@ -235,6 +240,11 @@ func (s *session) read() {
 				}
 			}
 			s.mu.Unlock()
+			if query {
+				// The program asks whether the terminal speaks the
+				// Program Status Protocol, which the server does.
+				s.p.write([]byte("\x1b]7501;?\x1b\\"))
+			}
 		}
 		if err != nil {
 			// A pause for an upgrade in place: what the terminal has is
@@ -397,7 +407,7 @@ func (s *session) info() SessionInfo {
 		ID: s.id, Shell: s.shell, Created: s.created,
 		Title: s.vt.Title(), LastOutput: s.lastOutput, LastInput: s.lastInput,
 		Output: s.output, Bells: int(s.bells.Load()), Exited: s.exited, ExitCode: s.code,
-		Attached: len(s.clients), Cols: s.cols, Rows: s.rows,
+		Attached: len(s.clients), Cols: s.cols, Rows: s.rows, Status: s.status.status(),
 	}
 	s.mu.Unlock()
 	in.PID = s.p.pid()
@@ -409,6 +419,13 @@ func (s *session) info() SessionInfo {
 		fg = in.PID
 	}
 	in.Idle = fg == in.PID
+	if in.Idle && isShellName(s.shell) {
+		// The shell is back at its prompt: what ran before has ended.
+		s.mu.Lock()
+		s.status.dropRunning()
+		in.Status = s.status.status()
+		s.mu.Unlock()
+	}
 	p := inspect(fg)
 	in.Program, in.Args, in.Dir = p.programName(), p.args, p.dir
 	if in.Program == "" {

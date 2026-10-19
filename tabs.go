@@ -10,6 +10,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
+
+	"gorex/internal/rex"
 )
 
 const (
@@ -127,10 +129,10 @@ func (a *App) tabItem(c *ui.Context, k *colors, i int, t *Tab, width float32) {
 					}
 				})
 			}
-		} else if t.attention() {
-			ui.Box(c).Size(7, 7).Radius(4).Background(k.attention).Margin(0, 5, 0, 0)
-		} else if a.tabBusy(c, t) {
-			activityDot(c, k.busy, 5.5)
+		} else if s, st := a.tabStatus(c, t); s != statusIdle && s != statusQuiet {
+			if e, ok := statusMark(c, k, s, st, 6); ok && s != statusRunning && s != statusWorking {
+				e.Margin(0, 5, 0, 0)
+			}
 		}
 	})
 }
@@ -160,22 +162,21 @@ func (a *App) renameField(c *ui.Context, t *Tab, name string) {
 	}
 }
 
-func (t *Tab) attention() bool {
+// tabStatus is what the tab shows of its panes: the status that most
+// needs the user, with what its program said, and a modified editor as
+// attention.
+func (a *App) tabStatus(c *ui.Context, t *Tab) (status, *rex.ProgramStatus) {
+	best, bestSt := statusIdle, (*rex.ProgramStatus)(nil)
 	for _, p := range t.panes() {
-		if p.attention || p.Kind == paneEditor && p.edit.modified() {
-			return true
+		s := a.statusOf(c, p)
+		if p.Kind == paneEditor && p.edit.modified() {
+			s = statusAttention
+		}
+		if statusRank[s] > statusRank[best] {
+			best, bestSt = s, p.info.Status
 		}
 	}
-	return false
-}
-
-func (a *App) tabBusy(c *ui.Context, t *Tab) bool {
-	for _, p := range t.panes() {
-		if a.statusOf(c, p) == statusRunning {
-			return true
-		}
-	}
-	return false
+	return best, bestSt
 }
 
 func (a *App) moveTab(t *Tab, to int) {

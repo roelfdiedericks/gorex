@@ -98,6 +98,9 @@ type Terminal struct {
 	// TERM_PROGRAM: "ghostty", whose terminal GoRex's is, so that they use
 	// what it draws (links, notifications, images), or "gorex".
 	Identity string `json:"identity,omitempty" kind:"look" label:"Programs see it as" group:"Identity"`
+	// StatusNotify notifies when a program says it waits on the user, has
+	// finished or failed (OSC 7501), out of sight.
+	StatusNotify *bool `json:"statusNotify,omitempty" kind:"look" label:"Notify when a program needs you, finishes or fails" group:"Program status"`
 }
 
 type Shell struct {
@@ -159,7 +162,7 @@ var builtin = Settings{
 	Appearance: Appearance{Theme: "GoRex", ThemeLight: "GoRex", Tint: "gorex", Transparent: on, WindowTitle: "host"},
 	Terminal: Terminal{
 		Font: "JetBrains Mono", Size: defaultFontSize, Weight: 400, LineHeight: 1, Ligatures: on, Thicken: off,
-		Cursor: "block", Blink: on, Scrollback: 10000, Images: 320, CopyOnSelect: off, OptionAsAlt: off, Bell: "mark", Identity: "ghostty",
+		Cursor: "block", Blink: on, Scrollback: 10000, Images: 320, CopyOnSelect: off, OptionAsAlt: off, Bell: "mark", Identity: "ghostty", StatusNotify: on,
 		CtrlCCopies: onWindows, CtrlVPastes: onWindows, InsertKeys: on, RightClickPastes: onWindows,
 	},
 	Editor: Editor{

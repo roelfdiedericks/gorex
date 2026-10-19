@@ -154,6 +154,9 @@ type SessionInfo struct {
 	Attached   int       `json:"attached"`
 	Cols       int       `json:"cols"`
 	Rows       int       `json:"rows"`
+	// Status is what its programs say they are doing, by the Program
+	// Status Protocol (OSC 7501) or OSC 9;4 progress; nil when none says.
+	Status *ProgramStatus `json:"status,omitempty"`
 }
 
 // Hello is the server's answer to "hello".

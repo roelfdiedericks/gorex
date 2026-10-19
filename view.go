@@ -9,6 +9,8 @@ import (
 
 	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
+
+	"gorex/internal/rex"
 )
 
 const (
@@ -340,6 +342,9 @@ func (a *App) paneCard(c *ui.Context, k *colors, t *Tab, p *Pane) ui.Element {
 			}
 			if tv.Focused() {
 				p.attention = false
+				if a.focusedWin {
+					p.statusSeen = statusKey(p.info.Status)
+				}
 			}
 		})
 	})
@@ -413,13 +418,44 @@ func (a *App) paneHeader(c *ui.Context, k *colors, t *Tab, p *Pane, focused, hov
 type status int
 
 const (
-	statusIdle      status = iota // a shell at its prompt
+	statusIdle      status = iota // a shell at its prompt, or a program that says it is idle
 	statusRunning                 // a program printing
 	statusQuiet                   // a program running quietly
 	statusAttention               // done or ringing out of sight
+	// What a program says (OSC 7501): it works, has finished or failed
+	// unseen, or waits on the user.
+	statusWorking
+	statusDone
+	statusError
+	statusBlocked
 )
 
+// statusRank orders what a tab shows of its panes: the one that most
+// needs the user.
+var statusRank = map[status]int{
+	statusIdle: 0, statusQuiet: 1, statusRunning: 2, statusWorking: 3,
+	statusDone: 4, statusAttention: 5, statusError: 6, statusBlocked: 7,
+}
+
 func (a *App) statusOf(c *ui.Context, p *Pane) status {
+	st := p.info.Status
+	if st != nil && !p.info.Exited {
+		unseen := statusKey(st) != p.statusSeen
+		switch {
+		case st.State == "blocked":
+			return statusBlocked
+		case st.State == "error" && unseen:
+			return statusError
+		case st.State == "done" && unseen:
+			return statusDone
+		case p.attention:
+			return statusAttention
+		case st.State == "working":
+			return statusWorking
+		}
+		// A program that says it is at rest is, whatever it prints.
+		return statusIdle
+	}
 	if p.attention {
 		return statusAttention
 	}
@@ -435,14 +471,34 @@ func (a *App) statusOf(c *ui.Context, p *Pane) status {
 }
 
 // activityBadge shows what a pane does: a pulse while its program
-// prints, a dot when it asks for attention.
+// prints or says it works, a dot when it asks for attention, waits on
+// the user or failed, a check when it finished.
 func (a *App) activityBadge(c *ui.Context, k *colors, p *Pane) {
-	switch a.statusOf(c, p) {
-	case statusRunning:
-		activityDot(c, k.busy, 6)
-	case statusAttention:
-		ui.Box(c).Size(7, 7).Radius(4).Background(k.attention).Margin(0, 0, 0, 2).Tooltip("Needs attention")
+	if e, ok := statusMark(c, k, a.statusOf(c, p), p.info.Status, 6); ok {
+		e.Margin(0, 0, 0, 2)
 	}
+}
+
+// statusMark draws the mark of a status, of a size, and reports whether
+// there is one; st is what the program said, for the tooltip.
+func statusMark(c *ui.Context, k *colors, s status, st *rex.ProgramStatus, size float32) (ui.Element, bool) {
+	tip := "Needs attention"
+	if st != nil && s != statusAttention && s != statusRunning {
+		tip = statusTip(st)
+	}
+	switch s {
+	case statusRunning:
+		return activityDot(c, k.busy, size), true
+	case statusWorking:
+		return activityDot(c, k.busy, size).Tooltip(tip), true
+	case statusAttention, statusBlocked:
+		return ui.Box(c).Size(size+1, size+1).Radius(4).Background(k.attention).Tooltip(tip), true
+	case statusError:
+		return ui.Box(c).Size(size+1, size+1).Radius(4).Background(ui.Hex("#ef4444")).Tooltip(tip), true
+	case statusDone:
+		return ui.Icon(c, icon("check")).Size(size+6, size+6).TextColor(k.busy).Tooltip(tip), true
+	}
+	return ui.Element{}, false
 }
 
 // activityDot is the dot of a program printing: a solid dot in a soft

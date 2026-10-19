@@ -85,6 +85,11 @@ type Pane struct {
 	// attention marks a pane that rang the bell or whose program finished
 	// while it was out of sight; seen clears it.
 	attention bool
+	// statusSeen is the program status the user last saw in the pane,
+	// which a done or failed one no longer marks, and noticed when its
+	// program's status last made a notification.
+	statusSeen string
+	noticed    time.Time
 	// bounds is where the pane's card was in the last frame.
 	bounds ui.Rect
 	closed bool
@@ -1182,10 +1187,11 @@ func (a *App) apply(byID map[string]rex.SessionInfo) {
 			}
 			was := p.info
 			p.info = in
+			seen := ti == a.active && t.Focus == p && a.focusedWin
+			a.statusNotice(p, was.Status, in.Status, seen, in.Dir)
 			// A program that ran a while and finished out of sight
 			// asks for attention.
 			if !was.Idle && was.Program != "" && in.Idle && was.Program != in.Program {
-				seen := ti == a.active && t.Focus == p && a.focusedWin
 				if !seen && is(a.eff.General.Attention) {
 					p.attention = true
 				}
