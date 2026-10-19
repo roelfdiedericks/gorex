@@ -477,6 +477,20 @@ func (s *Stream) ResizePixels(cols, rows, width, height int) error {
 	return s.sync()
 }
 
+// Resend tells the session the size the stream was last given again, as
+// the window in use does when another window gave the session its own.
+func (s *Stream) Resend() error {
+	s.mu.Lock()
+	if s.conn == nil || s.cols <= 0 || s.rows <= 0 {
+		s.mu.Unlock()
+		return nil
+	}
+	cols, rows, width, height := s.cols, s.rows, s.width, s.height
+	s.sentCols, s.sentRows, s.sentWidth, s.sentHeight = cols, rows, width, height
+	s.mu.Unlock()
+	return s.c.Resize(s.sid, cols, rows, width, height)
+}
+
 // Close detaches; the session goes on.
 func (s *Stream) Close() error {
 	s.mu.Lock()

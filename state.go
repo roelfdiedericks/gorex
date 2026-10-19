@@ -90,6 +90,8 @@ type Pane struct {
 	// program's status last made a notification.
 	statusSeen string
 	noticed    time.Time
+	// drawn is the frame the pane was last drawn in.
+	drawn uint64
 	// bounds is where the pane's card was in the last frame.
 	bounds ui.Rect
 	closed bool
@@ -203,6 +205,12 @@ type App struct {
 	focusedWin   bool
 	lastSnapshot string
 	title        string
+
+	// frame counts the window's frames, and gainedFocus tells that the
+	// window got the focus in this one: for the panes that start showing
+	// in the window in use (claimSize).
+	frame       uint64
+	gainedFocus bool
 
 	// posted are changes to make in the next frame, from terminals of a
 	// view without a window, as in tests.
@@ -374,6 +382,11 @@ func (a *App) attach(p *Pane, cols, rows int) {
 				}
 			})
 			return true
+		},
+		OnKey: func(ui.Modifiers, ui.Key) bool {
+			// Typing in a pane makes this window the one in use.
+			a.claimSize(p)
+			return false
 		},
 		OnPasteStatus: func(pr terminal.PasteProgress) {
 			update(func() { a.pasteStatus(p, pr.Status, int(pr.Sent), int(pr.Total)) })

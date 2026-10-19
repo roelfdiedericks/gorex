@@ -32,7 +32,10 @@ func (a *App) view(c *ui.Context) {
 		c.AddToast(t)
 	}
 	k := a.colors(c)
-	a.focusedWin = a.win == nil || a.win.IsFocused()
+	focused := a.win == nil || a.win.IsFocused()
+	a.gainedFocus = focused && !a.focusedWin
+	a.focusedWin = focused
+	a.frame++
 	a.k = k
 	if dark := c.Theme().Dark; dark != a.dark {
 		a.dark = dark
@@ -346,12 +349,21 @@ func (a *App) paneCard(c *ui.Context, k *colors, t *Tab, p *Pane) ui.Element {
 					p.statusSeen = statusKey(p.info.Status)
 				}
 			}
+			// A pane that starts showing in the window in use, or as the
+			// window gets the focus, gives its session its size again.
+			if a.focusedWin && (a.gainedFocus || p.drawn+1 != a.frame) {
+				a.claimSize(p)
+			}
+			p.drawn = a.frame
 		})
 	})
 	p.bounds = card.Bounds()
-	if card.Pressed() && t.Focus != p {
-		t.setFocus(p)
-		a.focusReq = p
+	if card.Pressed() {
+		a.claimSize(p)
+		if t.Focus != p {
+			t.setFocus(p)
+			a.focusReq = p
+		}
 	}
 	return card
 }

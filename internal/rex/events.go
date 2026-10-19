@@ -43,11 +43,14 @@ type sessionShape struct {
 	program, dir, title string
 	idle, exited        bool
 	attached            int
-	status              ProgramStatus
+	// cols and rows tell the windows that another gave the session its
+	// size, for the one in use to give its own again.
+	cols, rows int
+	status     ProgramStatus
 }
 
 func shapeOf(in SessionInfo) sessionShape {
-	sh := sessionShape{program: in.Program, dir: in.Dir, title: in.Title, idle: in.Idle, exited: in.Exited, attached: in.Attached}
+	sh := sessionShape{program: in.Program, dir: in.Dir, title: in.Title, idle: in.Idle, exited: in.Exited, attached: in.Attached, cols: in.Cols, rows: in.Rows}
 	if in.Status != nil {
 		sh.status = *in.Status
 	}
