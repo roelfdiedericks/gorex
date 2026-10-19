@@ -126,6 +126,9 @@ type App struct {
 	errRun    func()
 	// restartNext has the next connection restart the host's server.
 	restartNext bool
+	// upgrades counts the window's upgrades of its server, which stop when
+	// another GoRex keeps upgrading it back.
+	upgrades upgradeGuard
 
 	// bind is the server the window shows the sessions of, and link the
 	// ssh that reaches it when it is remote. status tells how connecting

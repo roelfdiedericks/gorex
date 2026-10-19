@@ -55,11 +55,59 @@ func loadPayload() (remote.Payload, error) {
 	return payload, payloadErr
 }
 
+// upgradeLoop is how many times within upgradeWindow a window upgrades a
+// server before it takes it for a loop: another GoRex, of another build,
+// connected to the same server, upgrades it back to its own build, which
+// drops this window's connection, which upgrades it again as it
+// reconnects, and so on.
+const (
+	upgradeLoop   = 3
+	upgradeWindow = 30 * time.Second
+)
+
+// upgradeGuard counts a window's upgrades of its server.
+type upgradeGuard struct {
+	mu    sync.Mutex
+	times []time.Time
+}
+
+// allow notes an upgrade about to be made, and reports whether it may be:
+// not when the window made upgradeLoop of them within upgradeWindow.
+func (g *upgradeGuard) allow() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	now := time.Now()
+	g.times = slices.DeleteFunc(g.times, func(t time.Time) bool { return now.Sub(t) > upgradeWindow })
+	if len(g.times) >= upgradeLoop {
+		return false
+	}
+	g.times = append(g.times, now)
+	return true
+}
+
+func (g *upgradeGuard) reset() {
+	g.mu.Lock()
+	g.times = nil
+	g.mu.Unlock()
+}
+
+// upgradeLoopError is dialBinding's error when the window stops upgrading
+// a server that another GoRex keeps upgrading back to its build.
+type upgradeLoopError struct {
+	host, other string
+}
+
+func (e *upgradeLoopError) Error() string {
+	return fmt.Sprintf("Another GoRex keeps replacing the session server of %s with its own build (%s), and this one replaced it back %d times in %d seconds; the sessions are kept, but neither window can stay connected. Close the other GoRex, or update it to this build, then Connect Again.",
+		e.host, e.other, upgradeLoop, int(upgradeWindow.Seconds()))
+}
+
 // dialBinding connects to the server of b, telling prog how it goes. The
 // link is nil for this machine's server. restart has the server replaced
 // by this build's, as a development build does by itself with a server of
-// another build.
-func dialBinding(b binding, prog remote.Progress, restart bool) (*rex.Client, *remote.Link, rex.Hello, error) {
+// another build, unless guard says this window does so in a loop; a nil
+// guard leaves the server as it is.
+func dialBinding(b binding, prog remote.Progress, restart bool, guard *upgradeGuard) (*rex.Client, *remote.Link, rex.Hello, error) {
 	var client *rex.Client
 	var link *remote.Link
 	var err error
@@ -92,10 +140,14 @@ func dialBinding(b binding, prog remote.Progress, restart bool) (*rex.Client, *r
 	if err != nil {
 		return fail(err)
 	}
-	if restart || mygo.IsDev() && (!b.remote && staleServer(h) || b.remote && h.Exe != link.Exe()) {
+	stale := mygo.IsDev() && (!b.remote && staleServer(h) || b.remote && h.Exe != link.Exe())
+	if guard != nil && (restart || stale) {
 		// A server a build before this one started runs that build's
 		// code: it becomes one of this build's in place, keeping its
 		// sessions, or, where it can't, a new one starts, ending them.
+		if !restart && !guard.allow() {
+			return fail(&upgradeLoopError{host: b.label(), other: h.Exe})
+		}
 		exe, _ := rex.Executable()
 		if b.remote {
 			exe = link.Exe()
@@ -144,6 +196,14 @@ func (a *App) restartServer() {
 	a.switchTo(a.bind, true)
 }
 
+// connectAgain connects again after the window stopped upgrading a
+// server another GoRex kept upgrading back.
+func (a *App) connectAgain() {
+	a.err, a.errAction, a.errRun = "", "", nil
+	a.upgrades.reset()
+	a.switchTo(a.bind, true)
+}
+
 // connectLoop connects the window to the server of b, trying a few times,
 // unless the window moves on to another attempt (gen) meanwhile.
 func (a *App) connectLoop(win *mygo.Window, b binding, gen int64, attempts int, restart bool) {
@@ -164,7 +224,7 @@ func (a *App) connectLoop(win *mygo.Window, b binding, gen int64, attempts int, 
 	}
 	for try := 1; ; try++ {
 		prog.Log(fmt.Sprintf("connecting to %s, attempt %d of %d", b.label(), try, attempts))
-		client, link, h, err := dialBinding(b, prog, restart && try == 1)
+		client, link, h, err := dialBinding(b, prog, restart && try == 1, &a.upgrades)
 		if !current() {
 			if err == nil {
 				client.Close()
@@ -185,6 +245,18 @@ func (a *App) connectLoop(win *mygo.Window, b binding, gen int64, attempts int, 
 			return
 		}
 		prog.Log("failed: " + err.Error())
+		if loop := (*upgradeLoopError)(nil); errors.As(err, &loop) {
+			// Retrying would only go on with the other GoRex.
+			win.Update(func() {
+				if current() {
+					a.status = "Stopped: another GoRex keeps replacing the session server of " + b.label()
+					a.connDown = true
+					a.err = loop.Error()
+					a.errAction, a.errRun = "Connect Again", a.connectAgain
+				}
+			})
+			return
+		}
 		if try == attempts {
 			win.Update(func() {
 				if current() {

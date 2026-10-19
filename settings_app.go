@@ -195,9 +195,10 @@ func readHostSettings(spec string) (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
+	// A read of the settings leaves the host's server as it is (nil guard).
 	client, link, _, err := dialBinding(binding{remote: true, target: t}, remote.Progress{
 		Status: func(string) {}, Log: func(s string) { log.Print(s) },
-	}, false)
+	}, false, nil)
 	if err != nil {
 		return Settings{}, err
 	}
