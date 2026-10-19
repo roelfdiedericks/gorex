@@ -245,8 +245,10 @@ func (c *Client) Create(o CreateOptions) (s SessionInfo, err error) {
 
 func (c *Client) Kill(sid string) error { return c.call(Request{Op: "kill", SID: sid}, nil) }
 
-func (c *Client) Resize(sid string, cols, rows int) error {
-	return c.call(Request{Op: "resize", SID: sid, Cols: cols, Rows: rows}, nil)
+// Resize tells the session the size of its screen in cells, and in
+// pixels when width and height are not zero.
+func (c *Client) Resize(sid string, cols, rows, width, height int) error {
+	return c.call(Request{Op: "resize", SID: sid, Cols: cols, Rows: rows, Width: width, Height: height}, nil)
 }
 
 // Get returns a document the app keeps with the server, nil for none.
@@ -317,10 +319,13 @@ type Stream struct {
 	conn     net.Conn
 	err      error
 	closed   bool
-	// cols and rows are the terminal's size; sentCols and sentRows the
-	// size the server was told last.
-	cols, rows         int
-	sentCols, sentRows int
+	// cols and rows are the terminal's size, and width and height the
+	// same in pixels, zero when unknown; the sent ones are the size the
+	// server was told last.
+	cols, rows            int
+	width, height         int
+	sentCols, sentRows    int
+	sentWidth, sentHeight int
 
 	// OnData, when set, is called with the size of what the session
 	// prints, from the reading goroutine.
@@ -347,11 +352,11 @@ func (s *Stream) attach() {
 		s.mu.Unlock()
 		return
 	}
-	cols, rows := s.cols, s.rows
+	cols, rows, width, height := s.cols, s.rows, s.width, s.height
 	s.mu.Unlock()
 	conn, err := s.c.dial()
 	if err == nil {
-		b, _ := json.Marshal(Attach{Op: "attach", SID: s.sid, Cols: cols, Rows: rows})
+		b, _ := json.Marshal(Attach{Op: "attach", SID: s.sid, Cols: cols, Rows: rows, Width: width, Height: height})
 		if _, err = conn.Write(append(b, '\n')); err == nil {
 			err = readOK(conn)
 		}
@@ -370,7 +375,7 @@ func (s *Stream) attach() {
 	if err != nil {
 		s.err = err
 	} else {
-		s.conn, s.sentCols, s.sentRows = conn, cols, rows
+		s.conn, s.sentCols, s.sentRows, s.sentWidth, s.sentHeight = conn, cols, rows, width, height
 	}
 	s.cond.Broadcast()
 }
@@ -379,14 +384,14 @@ func (s *Stream) attach() {
 // told another.
 func (s *Stream) sync() error {
 	s.mu.Lock()
-	if s.conn == nil || s.cols == s.sentCols && s.rows == s.sentRows {
+	if s.conn == nil || s.cols == s.sentCols && s.rows == s.sentRows && s.width == s.sentWidth && s.height == s.sentHeight {
 		s.mu.Unlock()
 		return nil
 	}
-	cols, rows := s.cols, s.rows
-	s.sentCols, s.sentRows = cols, rows
+	cols, rows, width, height := s.cols, s.rows, s.width, s.height
+	s.sentCols, s.sentRows, s.sentWidth, s.sentHeight = cols, rows, width, height
 	s.mu.Unlock()
-	return s.c.Resize(s.sid, cols, rows)
+	return s.c.Resize(s.sid, cols, rows, width, height)
 }
 
 // readOK reads the server's answer to an attach, a byte at a time so as
@@ -455,6 +460,18 @@ func (s *Stream) Write(p []byte) (int, error) {
 func (s *Stream) Resize(cols, rows int) error {
 	s.mu.Lock()
 	s.cols, s.rows = cols, rows
+	s.mu.Unlock()
+	s.attach()
+	return s.sync()
+}
+
+// ResizePixels tells the session the size of the screen in cells and in
+// pixels, which its pseudo-terminal reports to programs that size images
+// with it, attaching first. A terminal tells a Conn with it in place of
+// Resize.
+func (s *Stream) ResizePixels(cols, rows, width, height int) error {
+	s.mu.Lock()
+	s.cols, s.rows, s.width, s.height = cols, rows, width, height
 	s.mu.Unlock()
 	s.attach()
 	return s.sync()

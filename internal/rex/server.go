@@ -181,7 +181,7 @@ func (s *Server) handle(conn net.Conn) {
 			b, _ := r.Peek(n)
 			ss.input(b)
 		}
-		ss.attach(conn, a.Cols, a.Rows)
+		ss.attach(conn, a.Cols, a.Rows, a.Width, a.Height)
 		return
 	}
 	s.control(conn, r, first)
@@ -319,7 +319,7 @@ func (s *Server) do(req Request) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		ss.resize(req.Cols, req.Rows)
+		ss.resize(req.Cols, req.Rows, req.Width, req.Height)
 		return nil, nil
 	case "get":
 		return s.get(req.Key)

@@ -34,7 +34,7 @@ func startPTY(path string, argv []string, dir string, env []string, cols, rows i
 		return nil, fmt.Errorf("pty: opening %s: %w", slaveName, err)
 	}
 	defer slave.Close()
-	if err := setSize(master, cols, rows); err != nil {
+	if err := setSize(master, cols, rows, 0, 0); err != nil {
 		master.Close()
 		return nil, err
 	}
@@ -59,7 +59,9 @@ func (p *pty) write(b []byte) (int, error) { return p.master.Write(b) }
 // terminal had.
 func (p *pty) close() error { return p.master.Close() }
 
-func (p *pty) resize(cols, rows int) error { return setSize(p.master, cols, rows) }
+func (p *pty) resize(cols, rows, width, height int) error {
+	return setSize(p.master, cols, rows, width, height)
+}
 
 func (p *pty) pid() int {
 	if p.proc == nil {
@@ -75,8 +77,10 @@ func (p *pty) kill() {
 	}
 }
 
-func setSize(f *os.File, cols, rows int) error {
-	ws := &unix.Winsize{Col: uint16(clamp(cols)), Row: uint16(clamp(rows))}
+// setSize sets the terminal's size in cells and in pixels, which programs
+// read to size images; zero pixels when unknown.
+func setSize(f *os.File, cols, rows, width, height int) error {
+	ws := &unix.Winsize{Col: uint16(clamp(cols)), Row: uint16(clamp(rows)), Xpixel: uint16(min(max(width, 0), 0xFFFF)), Ypixel: uint16(min(max(height, 0), 0xFFFF))}
 	return withFD(f, func(fd int) error { return unix.IoctlSetWinsize(fd, unix.TIOCSWINSZ, ws) })
 }
 

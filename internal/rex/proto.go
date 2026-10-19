@@ -31,6 +31,11 @@ type Request struct {
 	Cols   int            `json:"cols,omitempty"`
 	Rows   int            `json:"rows,omitempty"`
 	Create *CreateOptions `json:"create,omitempty"`
+	// Width and Height are the screen's size in pixels, for resize and
+	// attach: the session's pseudo-terminal reports them to programs,
+	// which size images with them. Zero when unknown.
+	Width  int `json:"width,omitempty"`
+	Height int `json:"height,omitempty"`
 	// Key names a document of the app's, for get and set, which keeps
 	// Value; the server stores it and does not read it.
 	Key   string          `json:"key,omitempty"`
@@ -179,6 +184,9 @@ type Attach struct {
 	SID  string `json:"sid"`
 	Cols int    `json:"cols"`
 	Rows int    `json:"rows"`
+	// Width and Height are the screen's size in pixels, as for resize.
+	Width  int `json:"width,omitempty"`
+	Height int `json:"height,omitempty"`
 }
 
 // Dir returns the directory of the server's socket, log and state.

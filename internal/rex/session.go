@@ -50,6 +50,8 @@ type session struct {
 	code       int
 	cols, rows int
 	done       chan struct{}
+	// width and height are the screen's size in pixels, zero when unknown.
+	width, height int
 	// readDone is closed when the reader is done. While pausing, the
 	// reader, its read cut short, says so on pauseAck and waits for
 	// pauseEnd: an upgrade in place pauses every session.
@@ -232,7 +234,7 @@ func (s *session) read() {
 // attach attaches a connection: it gets a snapshot of the session's
 // screen and scrollback at its size, then what the session prints, and
 // what it sends is typed.
-func (s *session) attach(conn net.Conn, cols, rows int) {
+func (s *session) attach(conn net.Conn, cols, rows, width, height int) {
 	a := &attached{conn: conn, out: make(chan []byte, 2048)}
 	s.mu.Lock()
 	if cols > 0 && rows > 0 {
@@ -257,7 +259,7 @@ func (s *session) attach(conn net.Conn, cols, rows int) {
 		return
 	}
 	if cols > 0 && rows > 0 {
-		s.resize(cols, rows)
+		s.resize(cols, rows, width, height)
 	}
 	buf := make([]byte, 32<<10)
 	for {
@@ -287,11 +289,13 @@ func (s *session) input(p []byte) {
 	}
 }
 
-// resize sets the size of the terminal and reports whether it changed.
-func (s *session) resize(cols, rows int) bool {
+// resize sets the size of the terminal, in cells and, when known, in
+// pixels, and reports whether the cells changed.
+func (s *session) resize(cols, rows, width, height int) bool {
 	s.mu.Lock()
 	changed := cols != s.cols || rows != s.rows
-	s.cols, s.rows = cols, rows
+	pixels := width != s.width || height != s.height
+	s.cols, s.rows, s.width, s.height = cols, rows, width, height
 	exited := s.exited
 	if changed {
 		s.vt.Resize(cols, rows)
@@ -304,8 +308,8 @@ func (s *session) resize(cols, rows int) bool {
 		}
 	}
 	s.mu.Unlock()
-	if changed && !exited {
-		s.p.resize(cols, rows)
+	if (changed || pixels) && !exited {
+		s.p.resize(cols, rows, width, height)
 	}
 	return changed
 }

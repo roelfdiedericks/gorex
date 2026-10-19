@@ -128,7 +128,9 @@ func (p *pty) close() error {
 	return nil
 }
 
-func (p *pty) resize(cols, rows int) error {
+// resize resizes the console in cells: a pseudo console has no size in
+// pixels to report.
+func (p *pty) resize(cols, rows, _, _ int) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.console == 0 {
