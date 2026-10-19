@@ -125,6 +125,9 @@ type CreateOptions struct {
 	// graphics protocol the session keeps, for the windows that attach to
 	// it: none when zero, as an older app sends.
 	ImageStorage int `json:"imageStorage,omitempty"`
+	// Identity is the terminal the session's programs are told they run
+	// in, by TERM_PROGRAM: "ghostty", or GoRex's own otherwise.
+	Identity string `json:"identity,omitempty"`
 }
 
 // SessionInfo describes a session and what runs in it now.

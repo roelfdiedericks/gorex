@@ -94,6 +94,10 @@ type Terminal struct {
 	OptionAsAlt      *bool `json:"optionAsAlt,omitempty" kind:"pc" label:"Option as Alt" os:"darwin" group:"Input and bell"`
 	// Bell is "none", "mark" (the pane asks for attention) or "sound".
 	Bell string `json:"bell,omitempty" kind:"pc" label:"Bell" group:"Input and bell"`
+	// Identity is the terminal programs are told they run in, by
+	// TERM_PROGRAM: "ghostty", whose terminal GoRex's is, so that they use
+	// what it draws (links, notifications, images), or "gorex".
+	Identity string `json:"identity,omitempty" kind:"look" label:"Programs see it as" group:"Identity"`
 }
 
 type Shell struct {
@@ -155,7 +159,7 @@ var builtin = Settings{
 	Appearance: Appearance{Theme: "GoRex", ThemeLight: "GoRex", Tint: "gorex", Transparent: on, WindowTitle: "host"},
 	Terminal: Terminal{
 		Font: "JetBrains Mono", Size: defaultFontSize, Weight: 400, LineHeight: 1, Ligatures: on, Thicken: off,
-		Cursor: "block", Blink: on, Scrollback: 10000, Images: 320, CopyOnSelect: off, OptionAsAlt: off, Bell: "mark",
+		Cursor: "block", Blink: on, Scrollback: 10000, Images: 320, CopyOnSelect: off, OptionAsAlt: off, Bell: "mark", Identity: "ghostty",
 		CtrlCCopies: onWindows, CtrlVPastes: onWindows, InsertKeys: on, RightClickPastes: onWindows,
 	},
 	Editor: Editor{
@@ -391,7 +395,7 @@ func applyAppearance(s *Settings) {
 
 // shellOptions returns what new sessions of the host run, by s.
 func shellOptions(s *Settings) rex.CreateOptions {
-	o := rex.CreateOptions{Scrollback: s.Terminal.Scrollback, ImageStorage: imageBytes(s)}
+	o := rex.CreateOptions{Scrollback: s.Terminal.Scrollback, ImageStorage: imageBytes(s), Identity: s.Terminal.Identity}
 	if cmd := strings.TrimSpace(s.Shell.Command); cmd != "" {
 		o.Command = append([]string{cmd}, strings.Fields(s.Shell.Args)...)
 		o.Login = is(s.Shell.Login)

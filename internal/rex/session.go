@@ -104,7 +104,7 @@ func newSession(id string, o CreateOptions) (*session, error) {
 	if dir == "" {
 		dir, _ = os.UserHomeDir()
 	}
-	env := sessionEnv(id, o.Env)
+	env := sessionEnv(id, o.Identity, o.Env)
 	p, err := startPTY(path, argv, dir, env, cols, rows)
 	if err != nil {
 		return nil, err
@@ -170,8 +170,9 @@ func (s *session) start(screen []byte) error {
 }
 
 // sessionEnv returns the environment of a session's shell: the server's,
-// without what other terminals set, and what terminal apps set.
-func sessionEnv(id string, extra []string) []string {
+// without what other terminals set, and what terminal apps set, with
+// TERM_PROGRAM by identity.
+func sessionEnv(id, identity string, extra []string) []string {
 	var env []string
 	hasLang := false
 	for _, kv := range os.Environ() {
@@ -189,17 +190,32 @@ func sessionEnv(id string, extra []string) []string {
 		}
 		env = append(env, kv)
 	}
+	program, version := termProgram(identity)
 	env = append(env,
 		"TERM=xterm-256color",
 		"COLORTERM=truecolor",
-		"TERM_PROGRAM=GoRex",
-		"TERM_PROGRAM_VERSION=0.1.0",
+		"TERM_PROGRAM="+program,
+		"TERM_PROGRAM_VERSION="+version,
 		"GOREX_SESSION="+id,
 	)
 	if !hasLang {
 		env = append(env, "LANG=en_US.UTF-8")
 	}
 	return append(env, extra...)
+}
+
+// ghosttyVersion is the release of Ghostty whose terminal GoRex's is: the
+// libghostty-vt MyGo loads, of Ghostty's commit befcdfd2.
+const ghosttyVersion = "1.3.2-dev"
+
+// termProgram returns the TERM_PROGRAM and TERM_PROGRAM_VERSION of an
+// identity: Ghostty's, so that programs use what its terminal draws, or
+// GoRex's own.
+func termProgram(identity string) (string, string) {
+	if identity == "ghostty" {
+		return "ghostty", ghosttyVersion
+	}
+	return "GoRex", "0.1.0"
 }
 
 func (s *session) read() {

@@ -444,6 +444,11 @@ func (a *App) settingControl(c *ui.Context, k *colors, scope string, f field) {
 		choices(c, &target, effv, []string{"block", "bar", "underline"}, []string{"Block", "Bar", "Underline"}, changed)
 	case "terminal.bell":
 		choices(c, &target, effv, []string{"none", "mark", "sound"}, []string{"None", "Mark the pane", "Sound"}, changed)
+	case "terminal.identity":
+		ui.Column(c).Gap(4).AlignItems(ui.End).Children(func() {
+			choices(c, &target, effv, []string{"ghostty", "gorex"}, []string{"Ghostty", "GoRex"}, changed)
+			ui.Text(c, "As TERM_PROGRAM, in sessions started after a change").FontSize(11).TextColor(k.textFaint)
+		})
 	case "shell.startIn":
 		choices(c, &target, effv, []string{"current", "home"}, []string{"The current pane's directory", "Home"}, changed)
 	case "general.startWith":
