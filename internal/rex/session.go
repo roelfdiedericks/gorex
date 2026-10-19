@@ -31,8 +31,9 @@ type session struct {
 	shell   string
 	created time.Time
 	p       *pty
-	// keep is how many bytes of scrollback the screen keeps.
-	keep int
+	// keep is how many bytes of scrollback the screen keeps, and images
+	// how many of the pixels of images.
+	keep, images int
 
 	mu sync.Mutex
 	// vt is the session's screen, kept by the terminal emulator of the
@@ -112,7 +113,7 @@ func newSession(id string, o CreateOptions) (*session, error) {
 	if o.Scrollback > 0 {
 		keep = o.Scrollback * scrollbackLine
 	}
-	s := &session{id: id, shell: name, created: time.Now(), p: p, keep: keep, cols: cols, rows: rows}
+	s := &session{id: id, shell: name, created: time.Now(), p: p, keep: keep, images: max(o.ImageStorage, 0), cols: cols, rows: rows}
 	if err := s.start(nil); err != nil {
 		p.hangup()
 		return nil, err
@@ -130,15 +131,16 @@ func (s *session) start(screen []byte) error {
 	// The emulator's Conn reads nothing, and what it would answer programs
 	// is dropped: the windows' terminals answer them.
 	pr, pw := io.Pipe()
-	vt, err := terminal.New(terminal.Options{Conn: discard{pr}, Scrollback: s.keep, OnBell: func() { s.bells.Add(1) }})
+	vt, err := terminal.New(terminal.Options{Conn: discard{pr}, Scrollback: s.keep, ImageStorageBytes: s.images, OnBell: func() { s.bells.Add(1) }})
 	if err != nil {
 		return err
 	}
-	vt.Resize(s.cols, s.rows)
+	s.vt = vt
+	s.resizeVT(s.cols, s.rows, s.width, s.height)
 	if len(screen) > 0 {
 		vt.Feed(screen)
 	}
-	s.vt, s.vtIn = vt, pw
+	s.vtIn = pw
 	go func() {
 		s.read()
 		close(s.readDone)
@@ -240,7 +242,7 @@ func (s *session) attach(conn net.Conn, cols, rows, width, height int) {
 	if cols > 0 && rows > 0 {
 		// The screen reflows to the window's size, which the program
 		// learns next.
-		s.vt.Resize(cols, rows)
+		s.resizeVT(cols, rows, width, height)
 	}
 	snap := s.vt.Snapshot()
 	if title := s.vt.Title(); title != "" {
@@ -297,8 +299,10 @@ func (s *session) resize(cols, rows, width, height int) bool {
 	pixels := width != s.width || height != s.height
 	s.cols, s.rows, s.width, s.height = cols, rows, width, height
 	exited := s.exited
+	if changed || pixels {
+		s.resizeVT(cols, rows, width, height)
+	}
 	if changed {
-		s.vt.Resize(cols, rows)
 		// Once the program drew its screen at the new size, the windows
 		// get it again.
 		if s.resync == nil {
@@ -312,6 +316,17 @@ func (s *session) resize(cols, rows, width, height int) bool {
 		s.p.resize(cols, rows, width, height)
 	}
 	return changed
+}
+
+// resizeVT sizes the session's screen as the window's, in pixels when it
+// is told them, which images are sized by. s.mu is held, or the session
+// is starting.
+func (s *session) resizeVT(cols, rows, width, height int) {
+	if width > 0 && height > 0 {
+		s.vt.ResizePixels(cols, rows, width, height)
+	} else {
+		s.vt.Resize(cols, rows)
+	}
 }
 
 // resyncDelay is how long after the last resize the screen of a

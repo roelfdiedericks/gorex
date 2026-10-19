@@ -79,7 +79,11 @@ type Terminal struct {
 	Blink  *bool  `json:"blink,omitempty" kind:"look" label:"Cursor blinks" group:"Cursor"`
 	// Scrollback is in lines, for the session's buffer on the server and
 	// the window's.
-	Scrollback   int   `json:"scrollback,omitempty" kind:"host" label:"Scrollback" group:"Buffer"`
+	Scrollback int `json:"scrollback,omitempty" kind:"host" label:"Scrollback" group:"Buffer"`
+	// Images is the memory, in MB, for the images programs show with the
+	// Kitty graphics protocol, in the session's buffer on the server and
+	// in the window's; -1 for none, which refuses them.
+	Images       int   `json:"images,omitempty" kind:"host" label:"Image memory" group:"Buffer"`
 	CopyOnSelect *bool `json:"copyOnSelect,omitempty" kind:"pc" label:"Copy on select" group:"Input and bell"`
 	// The copy and paste keys beside Ctrl+Shift+C and +V (⌘C and ⌘V on
 	// macOS): Windows' habits, on by default there.
@@ -151,7 +155,7 @@ var builtin = Settings{
 	Appearance: Appearance{Theme: "GoRex", ThemeLight: "GoRex", Tint: "gorex", Transparent: on, WindowTitle: "host"},
 	Terminal: Terminal{
 		Font: "JetBrains Mono", Size: defaultFontSize, Weight: 400, LineHeight: 1, Ligatures: on, Thicken: off,
-		Cursor: "block", Blink: on, Scrollback: 10000, CopyOnSelect: off, OptionAsAlt: off, Bell: "mark",
+		Cursor: "block", Blink: on, Scrollback: 10000, Images: 320, CopyOnSelect: off, OptionAsAlt: off, Bell: "mark",
 		CtrlCCopies: onWindows, CtrlVPastes: onWindows, InsertKeys: on, RightClickPastes: onWindows,
 	},
 	Editor: Editor{
@@ -387,7 +391,7 @@ func applyAppearance(s *Settings) {
 
 // shellOptions returns what new sessions of the host run, by s.
 func shellOptions(s *Settings) rex.CreateOptions {
-	o := rex.CreateOptions{Scrollback: s.Terminal.Scrollback}
+	o := rex.CreateOptions{Scrollback: s.Terminal.Scrollback, ImageStorage: imageBytes(s)}
 	if cmd := strings.TrimSpace(s.Shell.Command); cmd != "" {
 		o.Command = append([]string{cmd}, strings.Fields(s.Shell.Args)...)
 		o.Login = is(s.Shell.Login)
@@ -398,4 +402,10 @@ func shellOptions(s *Settings) rex.CreateOptions {
 		}
 	}
 	return o
+}
+
+// imageBytes is how many bytes of the pixels of images a terminal keeps,
+// by s: none when they are off.
+func imageBytes(s *Settings) int {
+	return max(s.Terminal.Images, 0) << 20
 }

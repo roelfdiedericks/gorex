@@ -357,8 +357,9 @@ func (a *App) attach(p *Pane, cols, rows int) {
 		CopyOnSelect: copyOnSelectOf(&a.eff),
 		Keybinds:     keybindsOf(&a.eff),
 		RightClick:   rightClickOf(&a.eff),
-		// Images of the Kitty graphics protocol, up to Ghostty's 320 MB.
-		ImageStorageBytes: 320 << 20,
+		// Images of the Kitty graphics protocol, in the memory the
+		// settings give them.
+		ImageStorageBytes: imageBytes(&a.eff),
 		OnZoom: func(z terminal.Zoom) bool {
 			update(func() {
 				if z.Reset {

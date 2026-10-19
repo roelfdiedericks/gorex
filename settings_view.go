@@ -478,6 +478,17 @@ func (a *App) settingControl(c *ui.Context, k *colors, scope string, f field) {
 		stepper(c, k, &target, effv, 0.8, 1.6, 0.05, changed)
 	case "terminal.scrollback":
 		stepper(c, k, &target, effv, 500, 200000, 500, changed)
+	case "terminal.images":
+		v := "Off"
+		if mb := effv.Int(); mb > 0 {
+			v = fmt.Sprintf("%d MB", mb)
+		}
+		if ui.Select(c, &v, []string{"Off", "64 MB", "128 MB", "320 MB", "1024 MB"}).Width(110).Changed() {
+			mb := int64(-1)
+			fmt.Sscanf(v, "%d MB", &mb)
+			target.SetInt(mb)
+			changed()
+		}
 	case "general.notifyAfter":
 		stepper(c, k, &target, effv, 1, 600, 1, changed)
 	case "general.reconnectAttempts":

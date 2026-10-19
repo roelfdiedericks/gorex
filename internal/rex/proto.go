@@ -121,6 +121,10 @@ type CreateOptions struct {
 	// above its screen, for the windows that attach to it: the server's
 	// default when zero.
 	Scrollback int `json:"scrollback,omitempty"`
+	// ImageStorage is how many bytes of the pixels of images of the Kitty
+	// graphics protocol the session keeps, for the windows that attach to
+	// it: none when zero, as an older app sends.
+	ImageStorage int `json:"imageStorage,omitempty"`
 }
 
 // SessionInfo describes a session and what runs in it now.

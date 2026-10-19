@@ -35,6 +35,7 @@ type sessionState struct {
 	PID        int       `json:"pid"`
 	FD         int       `json:"fd"` // the terminal's master; -1 once it ended
 	Keep       int       `json:"keep"`
+	Images     int       `json:"images,omitempty"`
 	Cols       int       `json:"cols"`
 	Rows       int       `json:"rows"`
 	Exited     bool      `json:"exited,omitempty"`
@@ -98,7 +99,7 @@ func (s *Server) upgrade(exe string) error {
 		ss.mu.Lock()
 		defer ss.mu.Unlock()
 		ses := sessionState{
-			ID: ss.id, Shell: ss.shell, Created: ss.created, PID: ss.p.pid(), FD: -1, Keep: ss.keep,
+			ID: ss.id, Shell: ss.shell, Created: ss.created, PID: ss.p.pid(), FD: -1, Keep: ss.keep, Images: ss.images,
 			Cols: ss.cols, Rows: ss.rows, Exited: ss.exited || !paused[i], Code: ss.code, Output: ss.output,
 			Bells: ss.bells.Load(), LastOutput: ss.lastOutput, LastInput: ss.lastInput,
 		}
@@ -244,7 +245,7 @@ func (s *Server) resume(st *upgradeState) {
 
 func resumeSession(st sessionState) (*session, error) {
 	s := &session{
-		id: st.ID, shell: st.Shell, created: st.Created, p: &pty{}, keep: st.Keep, cols: st.Cols, rows: st.Rows,
+		id: st.ID, shell: st.Shell, created: st.Created, p: &pty{}, keep: st.Keep, images: st.Images, cols: st.Cols, rows: st.Rows,
 		output: st.Output, lastOutput: st.LastOutput, lastInput: st.LastInput,
 	}
 	s.bells.Store(st.Bells)
