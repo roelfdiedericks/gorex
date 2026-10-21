@@ -15,9 +15,11 @@ terminal plugin (Ghostty's libghostty-vt). No webview, no cgo: one ~15 MB app.
 - **Persistent sessions.** Shells run in a session server, a background
   process of the same binary (`GoRex -server`). Quit GoRex and everything
   keeps running; open it again and every tab, split and pane comes back as
-  it was, programs still running. The server keeps each session's screen in
-  a headless libghostty-vt emulator and sends a snapshot on attach, so
-  full-screen programs (lazygit, vim, htop…) come back exactly.
+  it was, programs still running. Each session's terminal lives in the
+  server, a headless libghostty-vt emulator that answers its programs; the
+  window shows it through frames of the screen (MyGo's `terminal.Mirror`),
+  so full-screen programs and agents' interfaces (lazygit, vim, omp…) show
+  exactly what the server's terminal has, also after a resize or reattach.
 - **Program activity.** The server watches each terminal's foreground
   process (`tcgetpgrp`, `sysctl`, `proc_pidinfo`; on Windows, the shell's
   newest child, its command line and directory): headers and tabs name the

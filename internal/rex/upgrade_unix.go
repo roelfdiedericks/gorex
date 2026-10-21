@@ -35,9 +35,13 @@ type sessionState struct {
 	PID        int       `json:"pid"`
 	FD         int       `json:"fd"` // the terminal's master; -1 once it ended
 	Keep       int       `json:"keep"`
-	Images     int       `json:"images,omitempty"`
+	Images     int64     `json:"images,omitempty"`
 	Cols       int       `json:"cols"`
 	Rows       int       `json:"rows"`
+	CellWidth  int       `json:"cellWidth,omitempty"`
+	CellHeight int       `json:"cellHeight,omitempty"`
+	// Paste tells that a program takes paste events (mode 5522).
+	Paste      bool      `json:"paste,omitempty"`
 	Exited     bool      `json:"exited,omitempty"`
 	Code       int       `json:"code,omitempty"`
 	Output     uint64    `json:"output"`
@@ -45,7 +49,7 @@ type sessionState struct {
 	LastOutput time.Time `json:"lastOutput"`
 	LastInput  time.Time `json:"lastInput"`
 	// Screen is the title and the snapshot of the screen and scrollback,
-	// what a window attaching gets.
+	// which the new server's terminal starts from.
 	Screen []byte `json:"screen,omitempty"`
 }
 
@@ -100,7 +104,8 @@ func (s *Server) upgrade(exe string) error {
 		defer ss.mu.Unlock()
 		ses := sessionState{
 			ID: ss.id, Shell: ss.shell, Created: ss.created, PID: ss.p.pid(), FD: -1, Keep: ss.keep, Images: ss.images,
-			Cols: ss.cols, Rows: ss.rows, Exited: ss.exited || !paused[i], Code: ss.code, Output: ss.output,
+			Cols: ss.cols, Rows: ss.rows, CellWidth: ss.cellWidth, CellHeight: ss.cellHeight, Paste: ss.paste.on,
+			Exited: ss.exited || !paused[i], Code: ss.code, Output: ss.output,
 			Bells: ss.bells.Load(), LastOutput: ss.lastOutput, LastInput: ss.lastInput,
 		}
 		if !ses.Exited {
@@ -229,7 +234,7 @@ func (st *upgradeState) adopt() (*os.File, net.Listener, error) {
 // resume takes the sessions of the server this one replaced.
 func (s *Server) resume(st *upgradeState) {
 	for _, ses := range st.Sessions {
-		ss, err := resumeSession(ses)
+		ss, err := resumeSession(ses, s.events.send)
 		if err != nil {
 			log.Printf("rex: resuming session %s: %v", ses.ID, err)
 			continue
@@ -243,9 +248,10 @@ func (s *Server) resume(st *upgradeState) {
 	}
 }
 
-func resumeSession(st sessionState) (*session, error) {
+func resumeSession(st sessionState, emit func(Response)) (*session, error) {
 	s := &session{
-		id: st.ID, shell: st.Shell, created: st.Created, p: &pty{}, keep: st.Keep, images: st.Images, cols: st.Cols, rows: st.Rows,
+		id: st.ID, shell: st.Shell, created: st.Created, p: &pty{}, keep: st.Keep, images: st.Images, emit: emit,
+		cols: st.Cols, rows: st.Rows, cellWidth: st.CellWidth, cellHeight: st.CellHeight, paste: pasteTracker{on: st.Paste},
 		output: st.Output, lastOutput: st.LastOutput, lastInput: st.LastInput,
 	}
 	s.bells.Store(st.Bells)
@@ -253,7 +259,7 @@ func resumeSession(st sessionState) (*session, error) {
 		// An ended session keeps its exit code, as it did.
 		pr, pw := io.Pipe()
 		pw.Close()
-		vt, err := terminal.New(terminal.Options{Conn: discard{pr}, Scrollback: s.keep})
+		vt, err := terminal.New(terminal.Options{Conn: vtConn{pr, s.p}, Scrollback: s.keep})
 		if err != nil {
 			return nil, err
 		}

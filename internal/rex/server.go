@@ -181,7 +181,7 @@ func (s *Server) handle(conn net.Conn) {
 			b, _ := r.Peek(n)
 			ss.input(b)
 		}
-		ss.attach(conn, a.Cols, a.Rows, a.Width, a.Height)
+		ss.attach(conn, a)
 		return
 	}
 	s.control(conn, r, first)
@@ -285,7 +285,7 @@ func (s *Server) do(req Request) (any, error) {
 			o = *req.Create
 		}
 		id := newID()
-		ss, err := newSession(id, o)
+		ss, err := newSession(id, o, s.events.send)
 		if err != nil {
 			return nil, err
 		}
@@ -319,7 +319,23 @@ func (s *Server) do(req Request) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		ss.resize(req.Cols, req.Rows, req.Width, req.Height)
+		ss.resize(req.Cols, req.Rows, req.CellWidth, req.CellHeight)
+		return nil, nil
+	case "theme":
+		ss, err := s.session(req.SID)
+		if err != nil {
+			return nil, err
+		}
+		if req.Theme != nil {
+			ss.vt.UseTheme(req.Theme)
+		}
+		return nil, nil
+	case "clear":
+		ss, err := s.session(req.SID)
+		if err != nil {
+			return nil, err
+		}
+		ss.clear()
 		return nil, nil
 	case "get":
 		return s.get(req.Key)

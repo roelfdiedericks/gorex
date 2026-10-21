@@ -71,7 +71,7 @@ func TestBridge(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := c.Stream(info.ID, 80, 24)
-	s.Resize(80, 24)
+	s.ResizePixels(80, 24, 0, 0)
 	s.Write([]byte(typed))
 	var out bytes.Buffer
 	buf := make([]byte, 4096)

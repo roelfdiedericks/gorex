@@ -14,13 +14,5 @@ func (a *App) claimSize(p *Pane) {
 	if p.stream == nil || p.closed || p.info.ID == "" || p.info.Exited {
 		return
 	}
-	cols, rows := p.stream.Size()
-	if cols <= 0 || rows <= 0 || p.info.Cols == cols && p.info.Rows == rows {
-		return
-	}
-	// The server says the new size with the next list; until then, the
-	// pane does not ask again.
-	p.info.Cols, p.info.Rows = cols, rows
-	s := p.stream
-	go s.Resend()
+	go p.stream.Claim()
 }

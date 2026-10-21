@@ -5,7 +5,7 @@ go 1.27.1
 require (
 	github.com/alecthomas/chroma/v2 v2.27.0
 	github.com/ebitengine/purego v0.11.1
-	github.com/egoist/mygo v0.5.6-0.20261019035537-3d5c0df8105d
+	github.com/egoist/mygo v0.6.3-0.20261021150203-80afe0af6f9d
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/hashicorp/yamux v0.1.2
 	github.com/microcosm-cc/bluemonday v1.0.27

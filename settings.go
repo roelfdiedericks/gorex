@@ -398,7 +398,7 @@ func applyAppearance(s *Settings) {
 
 // shellOptions returns what new sessions of the host run, by s.
 func shellOptions(s *Settings) rex.CreateOptions {
-	o := rex.CreateOptions{Scrollback: s.Terminal.Scrollback, ImageStorage: imageBytes(s), Identity: s.Terminal.Identity}
+	o := rex.CreateOptions{Scrollback: s.Terminal.Scrollback, ImageLimit: imageLimit(s), Identity: s.Terminal.Identity}
 	if cmd := strings.TrimSpace(s.Shell.Command); cmd != "" {
 		o.Command = append([]string{cmd}, strings.Fields(s.Shell.Args)...)
 		o.Login = is(s.Shell.Login)
@@ -411,8 +411,11 @@ func shellOptions(s *Settings) rex.CreateOptions {
 	return o
 }
 
-// imageBytes is how many bytes of the pixels of images a terminal keeps,
-// by s: none when they are off.
-func imageBytes(s *Settings) int {
-	return max(s.Terminal.Images, 0) << 20
+// imageLimit is the most bytes the images of a terminal take, by s, as
+// terminal.Options.ImageLimit: none when they are off.
+func imageLimit(s *Settings) int64 {
+	if s.Terminal.Images < 0 {
+		return -1
+	}
+	return int64(s.Terminal.Images) << 20
 }

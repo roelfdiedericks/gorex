@@ -2,6 +2,7 @@ package rex
 
 import (
 	"bufio"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/egoist/mygo/plugins/terminal"
 )
 
 // Client is a control connection to the server.
@@ -25,8 +28,9 @@ type Client struct {
 	err     error
 	closed  chan struct{}
 	// Events are what the server tells on its own: watched directories
-	// that changed, sessions that changed. The channel is buffered;
-	// events a slow reader leaves are dropped, and a reader drains it.
+	// that changed, sessions that changed, bells and notifications. The
+	// channel is buffered; events a slow reader leaves are dropped, and a
+	// reader drains it.
 	Events chan Event
 }
 
@@ -171,7 +175,7 @@ func (c *Client) read() {
 		}
 		if res.ID == 0 {
 			select {
-			case c.Events <- Event{Event: res.Event, Path: res.Path}:
+			case c.Events <- Event{Event: res.Event, Path: res.Path, Data: res.Data}:
 			default:
 			}
 			continue
@@ -245,10 +249,10 @@ func (c *Client) Create(o CreateOptions) (s SessionInfo, err error) {
 
 func (c *Client) Kill(sid string) error { return c.call(Request{Op: "kill", SID: sid}, nil) }
 
-// Resize tells the session the size of its screen in cells, and in
-// pixels when width and height are not zero.
-func (c *Client) Resize(sid string, cols, rows, width, height int) error {
-	return c.call(Request{Op: "resize", SID: sid, Cols: cols, Rows: rows, Width: width, Height: height}, nil)
+// Resize tells the session the size of its screen in cells, and of a cell
+// in pixels when cellWidth and cellHeight are not zero.
+func (c *Client) Resize(sid string, cols, rows, cellWidth, cellHeight int) error {
+	return c.call(Request{Op: "resize", SID: sid, Cols: cols, Rows: rows, CellWidth: cellWidth, CellHeight: cellHeight}, nil)
 }
 
 // Get returns a document the app keeps with the server, nil for none.
@@ -307,9 +311,12 @@ func (c *Client) Shutdown() error { return c.call(Request{Op: "shutdown"}, nil) 
 
 func (c *Client) Close() error { return c.conn.Close() }
 
-// Stream is a session attached to, for a terminal's Conn: it attaches
-// once it knows the size of the screen, from the first Resize, or after
-// a moment at the size it had last.
+// Stream is a session attached to, for the Conn of a terminal that sets
+// ResizeByConn: the server's frames are the terminal's output, and the
+// session's size, which the server tells before the frames drawn at it,
+// goes to OnSize, for the terminal to take. It attaches once it knows the
+// size the terminal's view fits, from the first ResizePixels, or after a
+// moment at the size it had last.
 type Stream struct {
 	c        *Client
 	sid      string
@@ -317,24 +324,36 @@ type Stream struct {
 	mu       sync.Mutex
 	cond     *sync.Cond
 	conn     net.Conn
+	r        *bufio.Reader
 	err      error
 	closed   bool
-	// cols and rows are the terminal's size, and width and height the
-	// same in pixels, zero when unknown; the sent ones are the size the
-	// server was told last.
-	cols, rows            int
-	width, height         int
-	sentCols, sentRows    int
-	sentWidth, sentHeight int
+	// fit is the size the terminal's view fits and theme its colors;
+	// sent and sentTheme are what the server was told last.
+	fit, sent        fit
+	theme, sentTheme *terminal.Theme
+	// cols and rows are the session's size, as the server told it last,
+	// zero before; onSize takes it.
+	cols, rows int
+	onSize     func(cols, rows int)
+	// left is what is left to read of the frame being read, by the
+	// terminal's reading goroutine alone.
+	left int
 
-	// OnData, when set, is called with the size of what the session
-	// prints, from the reading goroutine.
+	// OnData, when set, is called with the size of the frames read, from
+	// the reading goroutine.
 	OnData func(n int)
 }
 
+// fit is a size a terminal's view fits: cells, and a cell in pixels,
+// zero when unknown.
+type fit struct{ cols, rows, cellWidth, cellHeight int }
+
+// errFraming is a stream's error for what the server never sends.
+var errFraming = errors.New("rex: bad frame")
+
 // Stream returns a stream of the session sid, which attaches lazily.
 func (c *Client) Stream(sid string, cols, rows int) *Stream {
-	s := &Stream{c: c, sid: sid, cols: cols, rows: rows}
+	s := &Stream{c: c, sid: sid, fit: fit{cols: cols, rows: rows}}
 	s.cond = sync.NewCond(&s.mu)
 	time.AfterFunc(400*time.Millisecond, func() {
 		s.attach()
@@ -352,11 +371,11 @@ func (s *Stream) attach() {
 		s.mu.Unlock()
 		return
 	}
-	cols, rows, width, height := s.cols, s.rows, s.width, s.height
+	f, theme := s.fit, s.theme
 	s.mu.Unlock()
 	conn, err := s.c.dial()
 	if err == nil {
-		b, _ := json.Marshal(Attach{Op: "attach", SID: s.sid, Cols: cols, Rows: rows, Width: width, Height: height})
+		b, _ := json.Marshal(Attach{Op: "attach", SID: s.sid, Cols: f.cols, Rows: f.rows, CellWidth: f.cellWidth, CellHeight: f.cellHeight, Theme: theme})
 		if _, err = conn.Write(append(b, '\n')); err == nil {
 			err = readOK(conn)
 		}
@@ -375,23 +394,32 @@ func (s *Stream) attach() {
 	if err != nil {
 		s.err = err
 	} else {
-		s.conn, s.sentCols, s.sentRows, s.sentWidth, s.sentHeight = conn, cols, rows, width, height
+		s.conn, s.r, s.sent, s.sentTheme = conn, bufio.NewReaderSize(conn, 64<<10), f, theme
 	}
 	s.cond.Broadcast()
 }
 
-// sync tells the server the terminal's size, once attached, when it was
-// told another.
+// sync tells the server the terminal's size and colors, once attached,
+// when it was told others.
 func (s *Stream) sync() error {
 	s.mu.Lock()
-	if s.conn == nil || s.cols == s.sentCols && s.rows == s.sentRows && s.width == s.sentWidth && s.height == s.sentHeight {
+	if s.conn == nil {
 		s.mu.Unlock()
 		return nil
 	}
-	cols, rows, width, height := s.cols, s.rows, s.width, s.height
-	s.sentCols, s.sentRows, s.sentWidth, s.sentHeight = cols, rows, width, height
+	f, theme := s.fit, s.theme
+	resize, retheme := f != s.sent, theme != s.sentTheme
+	s.sent, s.sentTheme = f, theme
 	s.mu.Unlock()
-	return s.c.Resize(s.sid, cols, rows, width, height)
+	if retheme {
+		if err := s.c.call(Request{Op: "theme", SID: s.sid, Theme: theme}, nil); err != nil {
+			return err
+		}
+	}
+	if resize {
+		return s.c.Resize(s.sid, f.cols, f.rows, f.cellWidth, f.cellHeight)
+	}
+	return nil
 }
 
 // readOK reads the server's answer to an attach, a byte at a time so as
@@ -424,24 +452,56 @@ func readOK(conn net.Conn) error {
 	return nil
 }
 
-func (s *Stream) wait() (net.Conn, error) {
+func (s *Stream) wait() (net.Conn, *bufio.Reader, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for s.conn == nil && s.err == nil && !s.closed {
 		s.cond.Wait()
 	}
 	if s.closed {
-		return nil, io.EOF
+		return nil, nil, io.EOF
 	}
-	return s.conn, s.err
+	return s.conn, s.r, s.err
 }
 
+// Read reads the frames, and gives OnSize the session's size where the
+// server tells it.
 func (s *Stream) Read(p []byte) (int, error) {
-	conn, err := s.wait()
+	_, r, err := s.wait()
 	if err != nil {
 		return 0, err
 	}
-	n, err := conn.Read(p)
+	for s.left == 0 {
+		var h [5]byte
+		if _, err := io.ReadFull(r, h[:]); err != nil {
+			return 0, err
+		}
+		n := int(binary.BigEndian.Uint32(h[1:]))
+		switch h[0] {
+		case msgFrame:
+			s.left = n
+		case msgSize:
+			var b [4]byte
+			if n != len(b) {
+				return 0, errFraming
+			}
+			if _, err := io.ReadFull(r, b[:]); err != nil {
+				return 0, err
+			}
+			cols, rows := int(binary.BigEndian.Uint16(b[:2])), int(binary.BigEndian.Uint16(b[2:]))
+			s.mu.Lock()
+			s.cols, s.rows = cols, rows
+			onSize := s.onSize
+			s.mu.Unlock()
+			if onSize != nil {
+				onSize(cols, rows)
+			}
+		default:
+			return 0, errFraming
+		}
+	}
+	n, err := r.Read(p[:min(len(p), s.left)])
+	s.left -= n
 	if n > 0 && s.OnData != nil {
 		s.OnData(n)
 	}
@@ -449,46 +509,66 @@ func (s *Stream) Read(p []byte) (int, error) {
 }
 
 func (s *Stream) Write(p []byte) (int, error) {
-	conn, err := s.wait()
+	conn, _, err := s.wait()
 	if err != nil {
 		return 0, err
 	}
 	return conn.Write(p)
 }
 
-// Resize tells the session the size of the screen, attaching first.
-func (s *Stream) Resize(cols, rows int) error {
+// OnSize has the terminal take the session's size, where the server
+// tells it, and now when it told one already: the terminal's Resize.
+func (s *Stream) OnSize(f func(cols, rows int)) {
 	s.mu.Lock()
-	s.cols, s.rows = cols, rows
+	s.onSize = f
+	cols, rows := s.cols, s.rows
+	s.mu.Unlock()
+	if cols > 0 && rows > 0 {
+		f(cols, rows)
+	}
+}
+
+// ResizePixels tells the session the size the terminal's view fits, in
+// cells and its cells in pixels, attaching first: the server's terminal
+// answers programs in them. The view tells it (Options.ResizeByConn).
+func (s *Stream) ResizePixels(cols, rows, cellWidth, cellHeight int) error {
+	s.mu.Lock()
+	s.fit = fit{cols, rows, cellWidth, cellHeight}
 	s.mu.Unlock()
 	s.attach()
 	return s.sync()
 }
 
-// ResizePixels tells the session the size of the screen in cells and in
-// pixels, which its pseudo-terminal reports to programs that size images
-// with it, attaching first. A terminal tells a Conn with it in place of
-// Resize.
-func (s *Stream) ResizePixels(cols, rows, width, height int) error {
+// UseTheme tells the session the terminal's colors, which the server's
+// terminal answers programs that ask with, once attached.
+func (s *Stream) UseTheme(theme *terminal.Theme) error {
 	s.mu.Lock()
-	s.cols, s.rows, s.width, s.height = cols, rows, width, height
+	s.theme = theme
 	s.mu.Unlock()
-	s.attach()
 	return s.sync()
 }
 
-// Resend tells the session the size the stream was last given again, as
-// the window in use does when another window gave the session its own.
-func (s *Stream) Resend() error {
+// Clear has the server clear the session's screen, as the user asked in
+// the terminal (Options.OnClear).
+func (s *Stream) Clear() error {
+	return s.c.call(Request{Op: "clear", SID: s.sid}, nil)
+}
+
+// Claim gives the session the size the terminal's view fits again, when
+// the session has another, as the window in use does when another window
+// gave the session its own.
+func (s *Stream) Claim() error {
 	s.mu.Lock()
-	if s.conn == nil || s.cols <= 0 || s.rows <= 0 {
+	f := s.fit
+	if s.conn == nil || f.cols <= 0 || f.rows <= 0 || f.cols == s.cols && f.rows == s.rows {
 		s.mu.Unlock()
 		return nil
 	}
-	cols, rows, width, height := s.cols, s.rows, s.width, s.height
-	s.sentCols, s.sentRows, s.sentWidth, s.sentHeight = cols, rows, width, height
+	// The server says the size next; until then, the stream does not
+	// ask again.
+	s.cols, s.rows, s.sent = f.cols, f.rows, f
 	s.mu.Unlock()
-	return s.c.Resize(s.sid, cols, rows, width, height)
+	return s.c.Resize(s.sid, f.cols, f.rows, f.cellWidth, f.cellHeight)
 }
 
 // Close detaches; the session goes on.
@@ -502,11 +582,4 @@ func (s *Stream) Close() error {
 		return conn.Close()
 	}
 	return nil
-}
-
-// Size returns the size the session was last given.
-func (s *Stream) Size() (cols, rows int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.cols, s.rows
 }

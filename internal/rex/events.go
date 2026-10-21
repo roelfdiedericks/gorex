@@ -62,14 +62,16 @@ func newEvents() *events {
 }
 
 // broadcast sends an event to every control connection.
-func (e *events) broadcast(event, path string) {
+func (e *events) broadcast(event, path string) { e.send(Response{Event: event, Path: path}) }
+
+// send sends every control connection res, an event.
+func (e *events) send(res Response) {
 	e.mu.Lock()
 	conns := make([]*control, 0, len(e.conns))
 	for c := range e.conns {
 		conns = append(conns, c)
 	}
 	e.mu.Unlock()
-	res := Response{Event: event, Path: path}
 	for _, c := range conns {
 		c.reply(res)
 	}

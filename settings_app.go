@@ -28,7 +28,7 @@ func (a *App) setHostSettings(b []byte) {
 
 // applySettings makes the effective settings those of the app and the
 // panes. What a terminal is made with and can't change later makes the
-// panes' terminals anew, which replays their screens.
+// panes' terminals anew, which show their screens again.
 func (a *App) applySettings() {
 	a.eff = effective(&a.defaults, &a.host)
 	a.defEff = effective(&a.defaults, &Settings{})
@@ -73,7 +73,7 @@ func (a *App) applySettings() {
 }
 
 // reattach makes a pane's terminal anew, attached to the same session,
-// which replays its screen.
+// whose first frame shows its screen again.
 func (a *App) reattach(p *Pane) {
 	cols, rows := 0, 0
 	if p.term != nil {

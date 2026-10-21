@@ -3,7 +3,8 @@
 package rex
 
 import (
-	"bytes"
+	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
@@ -32,13 +33,16 @@ type session struct {
 	created time.Time
 	p       *pty
 	// keep is how many bytes of scrollback the screen keeps, and images
-	// how many of the pixels of images.
-	keep, images int
+	// the most bytes its images take (terminal.Options.ImageLimit).
+	keep   int
+	images int64
+	// emit sends the server's control connections an event.
+	emit func(Response)
 
 	mu sync.Mutex
-	// vt is the session's screen, kept by the terminal emulator of the
-	// app's terminals without a view: a window attaching gets a snapshot
-	// of it at its size, as the session shows it now.
+	// vt is the session's terminal, which the program writes to and which
+	// answers it, kept by the terminal emulator of the app's terminals
+	// without a view: windows show it through frames of a Mirror each.
 	vt         *terminal.Terminal
 	vtIn       *io.PipeWriter
 	output     uint64
@@ -46,15 +50,17 @@ type session struct {
 	clients    map[*attached]struct{}
 	lastOutput time.Time
 	lastInput  time.Time
-	resync     *time.Timer
-	// status is what the session's programs say they are doing.
+	// status is what the session's programs say they are doing, and
+	// paste what they do with paste events.
 	status     statusTracker
+	paste      pasteTracker
 	exited     bool
 	code       int
 	cols, rows int
 	done       chan struct{}
-	// width and height are the screen's size in pixels, zero when unknown.
-	width, height int
+	// cellWidth and cellHeight are the size of a window's cells in pixels,
+	// zero when unknown.
+	cellWidth, cellHeight int
 	// readDone is closed when the reader is done. While pausing, the
 	// reader, its read cut short, says so on pauseAck and waits for
 	// pauseEnd: an upgrade in place pauses every session.
@@ -63,37 +69,34 @@ type session struct {
 	pauseAck, pauseEnd chan struct{}
 }
 
-// attached is a connection attached to a session, whose output a
-// goroutine writes so that a slow client never holds up the others.
+// attached is a connection attached to a session, whose frames a
+// goroutine writes (session.serve), so that a slow window never holds up
+// the others: it frames all that changed when it gets to it.
 type attached struct {
 	conn net.Conn
-	out  chan []byte
+	m    *terminal.Mirror
+	// wake asks for a frame; done ends the writer, after a last one.
+	wake chan struct{}
+	done chan struct{}
 	once sync.Once
+	// cols and rows are the size the window was told last, paste the
+	// paste events' mode, and reads the paste reads it is to get;
+	// session.mu guards them.
+	cols, rows int
+	paste      bool
+	reads      []string
 }
 
-func (a *attached) send(p []byte) bool {
+func (a *attached) poke() {
 	select {
-	case a.out <- p:
-		return true
+	case a.wake <- struct{}{}:
 	default:
-		return false // too far behind: drop it, it attaches again
 	}
 }
 
-func (a *attached) finish() { a.once.Do(func() { close(a.out) }) }
+func (a *attached) finish() { a.once.Do(func() { close(a.done) }) }
 
-func (a *attached) writer() {
-	for p := range a.out {
-		if _, err := a.conn.Write(p); err != nil {
-			break
-		}
-	}
-	a.conn.Close()
-	for range a.out {
-	}
-}
-
-func newSession(id string, o CreateOptions) (*session, error) {
+func newSession(id string, o CreateOptions, emit func(Response)) (*session, error) {
 	path, argv, name, err := shellCommand(o.Command, o.Login)
 	if err != nil {
 		return nil, err
@@ -115,7 +118,7 @@ func newSession(id string, o CreateOptions) (*session, error) {
 	if o.Scrollback > 0 {
 		keep = o.Scrollback * scrollbackLine
 	}
-	s := &session{id: id, shell: name, created: time.Now(), p: p, keep: keep, images: max(o.ImageStorage, 0), cols: cols, rows: rows}
+	s := &session{id: id, shell: name, created: time.Now(), p: p, keep: keep, images: o.ImageLimit, cols: cols, rows: rows, emit: emit}
 	if err := s.start(nil); err != nil {
 		p.hangup()
 		return nil, err
@@ -123,22 +126,35 @@ func newSession(id string, o CreateOptions) (*session, error) {
 	return s, nil
 }
 
-// start runs the session: its screen, first fed screen when the session
+// start runs the session: its terminal, first fed screen when the session
 // is resumed from the server this one replaced, and the goroutines that
 // read what it prints and wait for its end.
 func (s *session) start(screen []byte) error {
 	s.clients = map[*attached]struct{}{}
 	s.done, s.readDone = make(chan struct{}), make(chan struct{})
 	s.pauseAck, s.pauseEnd = make(chan struct{}), make(chan struct{})
-	// The emulator's Conn reads nothing, and what it would answer programs
-	// is dropped: the windows' terminals answer them.
 	pr, pw := io.Pipe()
-	vt, err := terminal.New(terminal.Options{Conn: discard{pr}, Scrollback: s.keep, ImageStorageBytes: s.images, OnBell: func() { s.bells.Add(1) }})
+	vt, err := terminal.New(terminal.Options{
+		Conn:       vtConn{pr, s.p},
+		Scrollback: s.keep,
+		ImageLimit: s.images,
+		// Programs' reads of the clipboard go on to a window, which
+		// answers them as it would its own program's.
+		ClipboardRead: terminal.ClipboardForward,
+		OnBell: func() {
+			s.bells.Add(1)
+			go s.emit(Response{Event: "bell", Path: s.id})
+		},
+		OnNotify: func(title, body string) {
+			data, _ := json.Marshal(Notice{Title: title, Body: body})
+			go s.emit(Response{Event: "notify", Path: s.id, Data: data})
+		},
+	})
 	if err != nil {
 		return err
 	}
 	s.vt = vt
-	s.resizeVT(s.cols, s.rows, s.width, s.height)
+	vt.ResizePixels(s.cols, s.rows, s.cellWidth, s.cellHeight)
 	if len(screen) > 0 {
 		vt.Feed(screen)
 	}
@@ -225,20 +241,19 @@ func (s *session) read() {
 	for {
 		n, err := s.p.read(buf)
 		if n > 0 {
-			data := append([]byte(nil), buf[:n]...)
 			s.mu.Lock()
-			s.vt.Feed(data)
-			s.status.feed(data)
+			s.vt.Feed(buf[:n])
+			s.status.feed(buf[:n])
+			s.paste.feed(buf[:n])
+			for a := range s.clients {
+				a.reads = append(a.reads, s.paste.reads...)
+			}
+			s.paste.reads = nil
 			query := s.status.query
 			s.status.query = false
 			s.output += uint64(n)
 			s.lastOutput = time.Now()
-			for a := range s.clients {
-				if !a.send(data) {
-					a.finish()
-					delete(s.clients, a)
-				}
-			}
+			s.wake()
 			s.mu.Unlock()
 			if query {
 				// The program asks whether the terminal speaks the
@@ -259,22 +274,23 @@ func (s *session) read() {
 	}
 }
 
-// attach attaches a connection: it gets a snapshot of the session's
-// screen and scrollback at its size, then what the session prints, and
-// what it sends is typed.
-func (s *session) attach(conn net.Conn, cols, rows, width, height int) {
-	a := &attached{conn: conn, out: make(chan []byte, 2048)}
+// wake has every window's writer frame the screen; s.mu is held.
+func (s *session) wake() {
+	for a := range s.clients {
+		a.poke()
+	}
+}
+
+// attach attaches a connection: the session takes its size and colors,
+// it gets frames of the session's screen, and what it sends is typed.
+func (s *session) attach(conn net.Conn, at Attach) {
+	m, err := s.vt.NewMirror()
+	if err != nil {
+		conn.Close()
+		return
+	}
+	a := &attached{conn: conn, m: m, wake: make(chan struct{}, 1), done: make(chan struct{})}
 	s.mu.Lock()
-	if cols > 0 && rows > 0 {
-		// The screen reflows to the window's size, which the program
-		// learns next.
-		s.resizeVT(cols, rows, width, height)
-	}
-	snap := s.vt.Snapshot()
-	if title := s.vt.Title(); title != "" {
-		snap = append([]byte("\x1b]2;"+title+"\x07"), snap...)
-	}
-	a.out <- snap
 	exited := s.exited
 	if exited {
 		a.finish()
@@ -282,13 +298,16 @@ func (s *session) attach(conn net.Conn, cols, rows, width, height int) {
 		s.clients[a] = struct{}{}
 	}
 	s.mu.Unlock()
-	go a.writer()
-	if exited {
-		return
+	if !exited {
+		if at.Theme != nil {
+			s.vt.UseTheme(at.Theme)
+		}
+		if at.Cols > 0 && at.Rows > 0 {
+			s.resize(at.Cols, at.Rows, at.CellWidth, at.CellHeight)
+		}
 	}
-	if cols > 0 && rows > 0 {
-		s.resize(cols, rows, width, height)
-	}
+	a.poke()
+	go s.serve(a)
 	buf := make([]byte, 32<<10)
 	for {
 		n, err := conn.Read(buf)
@@ -300,11 +319,81 @@ func (s *session) attach(conn net.Conn, cols, rows, width, height int) {
 		}
 	}
 	s.mu.Lock()
-	if _, ok := s.clients[a]; ok {
-		delete(s.clients, a)
-		a.finish()
-	}
+	delete(s.clients, a)
 	s.mu.Unlock()
+	a.finish()
+}
+
+// frameRetry is how soon a frame a synchronized update held back is
+// tried again.
+const frameRetry = 20 * time.Millisecond
+
+// serve writes a window its frames, as the session's screen changes, until
+// the window detaches or the session ends, with a last frame then.
+func (s *session) serve(a *attached) {
+	defer func() {
+		a.m.Close()
+		a.conn.Close()
+	}()
+	var size [9]byte
+	for {
+		bufs, due := s.frame(a, &size)
+		if len(bufs) > 0 {
+			if _, err := bufs.WriteTo(a.conn); err != nil {
+				return
+			}
+		}
+		var retry <-chan time.Time
+		if due {
+			retry = time.After(frameRetry)
+		}
+		select {
+		case <-a.wake:
+		case <-retry:
+		case <-a.done:
+			if bufs, _ := s.frame(a, &size); len(bufs) > 0 {
+				bufs.WriteTo(a.conn)
+			}
+			return
+		}
+	}
+}
+
+// frame returns what brings a window to the session's screen: the
+// session's size first, when the window was told another, then a frame,
+// then the paste events' mode and reads; due reports a frame a
+// synchronized update holds back. size is where the size message is put.
+func (s *session) frame(a *attached, size *[9]byte) (bufs net.Buffers, due bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if a.cols != s.cols || a.rows != s.rows {
+		a.cols, a.rows = s.cols, s.rows
+		size[0] = msgSize
+		binary.BigEndian.PutUint32(size[1:], 4)
+		binary.BigEndian.PutUint16(size[5:], uint16(s.cols))
+		binary.BigEndian.PutUint16(size[7:], uint16(s.rows))
+		bufs = append(bufs, size[:])
+	}
+	f, due := a.m.Frame()
+	if a.paste != s.paste.on {
+		a.paste = s.paste.on
+		if a.paste {
+			f = append(f, "\x1b[?5522h"...)
+		} else {
+			f = append(f, "\x1b[?5522l"...)
+		}
+	}
+	for _, r := range a.reads {
+		f = append(f, r...)
+	}
+	a.reads = nil
+	if len(f) > 0 {
+		var h [5]byte
+		h[0] = msgFrame
+		binary.BigEndian.PutUint32(h[1:], uint32(len(f)))
+		bufs = append(bufs, h[:], f)
+	}
+	return bufs, due
 }
 
 func (s *session) input(p []byte) {
@@ -317,71 +406,33 @@ func (s *session) input(p []byte) {
 	}
 }
 
-// resize sets the size of the terminal, in cells and, when known, in
-// pixels, and reports whether the cells changed.
-func (s *session) resize(cols, rows, width, height int) bool {
+// resize sets the size of the terminal, in cells, and of its cells in
+// pixels, which a zero size leaves as they were.
+func (s *session) resize(cols, rows, cellWidth, cellHeight int) {
 	s.mu.Lock()
-	changed := cols != s.cols || rows != s.rows
-	pixels := width != s.width || height != s.height
-	s.cols, s.rows, s.width, s.height = cols, rows, width, height
-	exited := s.exited
-	if changed || pixels {
-		s.resizeVT(cols, rows, width, height)
+	if cellWidth <= 0 || cellHeight <= 0 {
+		cellWidth, cellHeight = s.cellWidth, s.cellHeight
 	}
+	changed := cols != s.cols || rows != s.rows || cellWidth != s.cellWidth || cellHeight != s.cellHeight
+	s.cols, s.rows, s.cellWidth, s.cellHeight = cols, rows, cellWidth, cellHeight
+	exited := s.exited
 	if changed {
-		// Once the program drew its screen at the new size, the windows
-		// get it again.
-		if s.resync == nil {
-			s.resync = time.AfterFunc(resyncDelay, s.resyncScreen)
-		} else {
-			s.resync.Reset(resyncDelay)
-		}
+		s.vt.ResizePixels(cols, rows, cellWidth, cellHeight)
+		s.wake()
 	}
 	s.mu.Unlock()
-	if (changed || pixels) && !exited {
-		s.p.resize(cols, rows, width, height)
-	}
-	return changed
-}
-
-// resizeVT sizes the session's screen as the window's, in pixels when it
-// is told them, which images are sized by. s.mu is held, or the session
-// is starting.
-func (s *session) resizeVT(cols, rows, width, height int) {
-	if width > 0 && height > 0 {
-		s.vt.ResizePixels(cols, rows, width, height)
-	} else {
-		s.vt.Resize(cols, rows)
+	if changed && !exited {
+		s.p.resize(cols, rows, cols*cellWidth, rows*cellHeight)
 	}
 }
 
-// resyncDelay is how long after the last resize the screen of a
-// full-screen program is sent again.
-const resyncDelay = 150 * time.Millisecond
-
-// resyncScreen sends the windows the screen of a full-screen program as
-// the session has it. A window resizes its terminal as it draws, and the
-// session as the request reaches it, while the program's output is on its
-// way: what the program drew for one size may land in a screen of
-// another, which full-screen programs, redrawing only what changed, do
-// not mend. Shells' scrollback reflows alike in both and needs nothing.
-func (s *session) resyncScreen() {
+// clear clears the screen as the user asked in a window, and has the
+// windows show it.
+func (s *session) clear() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.exited || len(s.clients) == 0 {
-		return
-	}
-	snap := s.vt.Snapshot()
-	if !bytes.Contains(snap, []byte("\x1b[?1049h")) {
-		return
-	}
-	// Clear the alternate screen the window shows, then draw it anew.
-	msg := append([]byte("\x1b[?1049h\x1b[H\x1b[2J"), snap...)
-	for a := range s.clients {
-		if !a.send(msg) {
-			a.finish()
-			delete(s.clients, a)
-		}
+	if !s.exited && s.vt.ClearScreen() {
+		s.wake()
 	}
 }
 
@@ -437,10 +488,18 @@ func (s *session) info() SessionInfo {
 	return in
 }
 
-// discard is the Conn of a session's emulator: it reads from a pipe that
-// closes with the session, and drops what it writes.
-type discard struct{ r *io.PipeReader }
+// vtConn is the Conn of a session's terminal: it reads from a pipe that
+// closes with the session, which feeds the terminal what the program
+// prints itself, and writes the terminal's answers to the program's
+// questions to the pseudo-terminal.
+type vtConn struct {
+	r *io.PipeReader
+	p *pty
+}
 
-func (d discard) Read(p []byte) (int, error)  { return d.r.Read(p) }
-func (d discard) Write(p []byte) (int, error) { return len(p), nil }
-func (d discard) Close() error                { return d.r.Close() }
+func (c vtConn) Read(p []byte) (int, error) { return c.r.Read(p) }
+func (c vtConn) Write(p []byte) (int, error) {
+	c.p.write(p)
+	return len(p), nil
+}
+func (c vtConn) Close() error { return c.r.Close() }

@@ -358,7 +358,10 @@ func (a *App) attach(p *Pane, cols, rows int) {
 	// session's.
 	stream := p.stream
 	term, err := terminal.New(terminal.Options{
-		Conn:         p.stream,
+		Conn: p.stream,
+		// The server's terminal lays out the program's output; this one
+		// shows its frames, at the size the server says.
+		ResizeByConn: true,
 		Font:         termFont,
 		Theme:        light,
 		DarkTheme:    dark,
@@ -372,7 +375,7 @@ func (a *App) attach(p *Pane, cols, rows int) {
 		RightClick:   rightClickOf(&a.eff),
 		// Images of the Kitty graphics protocol, in the memory the
 		// settings give them.
-		ImageStorageBytes: imageBytes(&a.eff),
+		ImageLimit: imageLimit(&a.eff),
 		OnZoom: func(z terminal.Zoom) bool {
 			update(func() {
 				if z.Reset {
@@ -394,14 +397,10 @@ func (a *App) attach(p *Pane, cols, rows int) {
 		OnTitle: func(title string) {
 			update(func() { p.title = title })
 		},
-		OnBell: func() {
-			update(func() { a.ring(p) })
-		},
-		OnNotify: func(title, body string) {
-			if title == "" {
-				title = "GoRex"
-			}
-			mygo.NewNotification(mygo.NotificationOptions{Title: title, Body: body}).Show()
+		OnClear: func(terminal.Clear) bool {
+			// The server's terminal clears, and its next frame shows it.
+			go stream.Clear()
+			return true
 		},
 		OnExit: func(int) {
 			// The stream also ends when the connection to the server
@@ -423,9 +422,10 @@ func (a *App) attach(p *Pane, cols, rows int) {
 		a.err = err.Error()
 		return
 	}
-	// Until a view shows it, the terminal has the session's size, so that
-	// attaching changes nothing in the session.
+	// Until the server tells the session's size, the terminal has the
+	// size the session had, which the server's next frames are drawn at.
 	term.Resize(cols, rows)
+	stream.OnSize(term.Resize)
 	p.term = term
 }
 
@@ -1185,6 +1185,48 @@ func (a *App) poll(win *mygo.Window, client *rex.Client) {
 						a.dirChanged(ev.Path)
 					}
 				})
+			case "bell":
+				win.Update(func() {
+					if a.win == win && a.client == client {
+						a.sessionBell(ev.Path)
+					}
+				})
+			case "notify":
+				var n rex.Notice
+				json.Unmarshal(ev.Data, &n)
+				win.Update(func() {
+					if a.win == win && a.client == client {
+						a.sessionNotice(ev.Path, n)
+					}
+				})
+			}
+		}
+	}
+}
+
+// sessionBell takes the bell a session's program rang, in the panes of
+// this window that show it.
+func (a *App) sessionBell(sid string) {
+	for _, t := range a.tabs {
+		for _, p := range t.panes() {
+			if p.SID == sid && !p.closed {
+				a.ring(p)
+			}
+		}
+	}
+}
+
+// sessionNotice shows the desktop notification a session's program sent,
+// when a pane of this window shows the session.
+func (a *App) sessionNotice(sid string, n rex.Notice) {
+	for _, t := range a.tabs {
+		for _, p := range t.panes() {
+			if p.SID == sid && !p.closed {
+				if n.Title == "" {
+					n.Title = "GoRex"
+				}
+				mygo.NewNotification(mygo.NotificationOptions{Title: n.Title, Body: n.Body}).Show()
+				return
 			}
 		}
 	}

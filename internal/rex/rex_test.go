@@ -51,7 +51,7 @@ func TestServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := c.Stream(info.ID, 80, 24)
-	s.Resize(100, 30)
+	s.ResizePixels(100, 30, 0, 0)
 	s.Write([]byte(typed))
 	var out bytes.Buffer
 	buf := make([]byte, 4096)
@@ -80,9 +80,9 @@ func TestServer(t *testing.T) {
 		t.Errorf("dir %q", in.Dir)
 	}
 	s.Close()
-	// Attaching again replays what it printed.
+	// Attaching again, the first frame shows what it printed.
 	s2 := c.Stream(info.ID, 100, 30)
-	s2.Resize(100, 30)
+	s2.ResizePixels(100, 30, 0, 0)
 	n, _ := s2.Read(buf)
 	if !strings.Contains(string(buf[:n]), "hello") {
 		t.Errorf("replay %q", buf[:n])

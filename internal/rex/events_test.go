@@ -130,7 +130,7 @@ func TestSessionEvents(t *testing.T) {
 		typed, program = "ping -n 3 127.0.0.1 >nul\r", "PING"
 	}
 	s := c.Stream(info.ID, 80, 24)
-	s.Resize(80, 24)
+	s.ResizePixels(80, 24, 0, 0)
 	s.Write([]byte(typed))
 	told := false
 	deadline := time.Now().Add(4 * time.Second)
