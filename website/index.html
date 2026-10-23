@@ -32,15 +32,20 @@
   p { margin: 0 0 12px; }
   a { color: var(--accent); }
   code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 0.92em; }
-  .download {
-    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
-    background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px;
+  .download { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .tabs { display: flex; border-bottom: 1px solid var(--border); }
+  .tabs button {
+    background: none; border: 0; border-bottom: 2px solid transparent; color: var(--muted);
+    font: inherit; padding: 10px 18px; cursor: pointer;
   }
-  .download a.button {
+  .tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+  .platform { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 18px; }
+  .platform a.button {
     background: var(--accent); color: #0b0d11; text-decoration: none; font-weight: 600;
     border-radius: 8px; padding: 10px 18px;
   }
-  .download .note { color: var(--muted); font-size: 0.9rem; margin: 0; }
+  .platform .command { flex: 1 1 100%; background: #0b0d11; border-radius: 8px; padding: 12px 14px; overflow-x: auto; white-space: nowrap; }
+  .platform .note { color: var(--muted); font-size: 0.9rem; margin: 0; }
   .shot { width: 100%; border-radius: 10px; border: 1px solid var(--border); margin-top: 32px; }
   ul.features { padding-left: 20px; margin: 0; }
   ul.features li { margin-bottom: 6px; }
@@ -53,10 +58,12 @@
   <p class="tagline">A terminal of tabs and split panes whose sessions stay: quit it, open it again, and everything is where you left it.</p>
 
   <div class="download">
-    <a class="button" id="download" href="download/GoRex-Setup-amd64.exe">Download for Windows</a>
-    <p class="note">Version <code id="version">unknown</code>, Windows 10 and 11 (x64).
-      Installs for you alone, puts <code>gorex</code> on your PATH, and updates itself.
-      The installer is not signed: Windows SmartScreen asks you to confirm it (More info, Run anyway).</p>
+    <div class="tabs" role="tablist">
+      <button role="tab" data-os="windows" aria-selected="true">Windows</button>
+      <button role="tab" data-os="macos" aria-selected="false">macOS</button>
+      <button role="tab" data-os="linux" aria-selected="false">Linux</button>
+    </div>
+    <div class="platform" id="platform"></div>
   </div>
 
   <img class="shot" src="screenshot.png" alt="GoRex with split panes">
@@ -78,10 +85,41 @@
   <footer>gorex.goclaw.org · <a href="https://github.com/roelfdiedericks/gorex">source</a></footer>
 </main>
 <script>
-  fetch("download/VERSION", { cache: "no-store" })
-    .then(response => response.ok ? response.text() : Promise.reject())
-    .then(text => { document.getElementById("version").textContent = text.trim(); })
-    .catch(() => {});
+  const platforms = {
+    windows: {
+      manifest: "update-windows-amd64.json",
+      html: `<a class="button" href="download/GoRex-Setup-amd64.exe">Download for Windows</a>
+        <p class="note">Version <code class="version">…</code>, Windows 10 and 11 (x64). Installs for you alone, puts
+        <code>gorex</code> on your PATH, and updates itself. The installer is not signed: Windows SmartScreen asks you to
+        confirm it (More info, Run anyway).</p>`
+    },
+    macos: {
+      manifest: "update-darwin-arm64.json",
+      html: `<a class="button" href="download/GoRex-arm64.dmg">Download for macOS</a>
+        <p class="note">Version <code class="version">…</code>, Apple silicon, macOS 13 or later. Drag GoRex to
+        Applications; it updates itself. It is not notarized: the first time, right-click GoRex and choose Open, or run
+        <code>xattr -dr com.apple.quarantine /Applications/GoRex.app</code>.</p>`
+    },
+    linux: {
+      manifest: "update-linux-amd64.json",
+      html: `<div class="command"><code>curl -fsSL https://gorex.goclaw.org/updates/install.sh | sh</code></div>
+        <p class="note">Version <code class="version">…</code>, x86-64 with GTK 3. Installs for you alone in
+        <code>~/.local</code>, where it updates itself. Or the <a href="download/gorex-amd64.deb">Debian package</a>,
+        which apt updates.</p>`
+    }
+  };
+  const tabs = document.querySelectorAll(".tabs button");
+  const body = document.getElementById("platform");
+  function select(os) {
+    tabs.forEach(tab => tab.setAttribute("aria-selected", String(tab.dataset.os === os)));
+    body.innerHTML = platforms[os].html;
+    fetch("updates/" + platforms[os].manifest, { cache: "no-store" })
+      .then(response => response.ok ? response.json() : Promise.reject())
+      .then(m => { body.querySelector(".version").textContent = m.version; })
+      .catch(() => { body.querySelector(".version").textContent = "not published yet"; });
+  }
+  tabs.forEach(tab => tab.addEventListener("click", () => select(tab.dataset.os)));
+  select(/Windows/i.test(navigator.userAgent) ? "windows" : /Macintosh|Mac OS X/i.test(navigator.userAgent) ? "macos" : "linux");
 </script>
 </body>
 </html>
