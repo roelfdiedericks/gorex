@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GoRex: a terminal of tabs, panes and sessions that stay</title>
+<link rel="icon" type="image/png" href="icon.png">
+<link rel="apple-touch-icon" href="icon.png">
+<meta name="description" content="GoRex is a native terminal of tabs and split panes whose sessions outlive the app, on this machine or on your servers over ssh.">
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --border: #262b36;
+    --text: #e6e8ee;
+    --muted: #9aa3b2;
+    --accent: #7c9cff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 820px; margin: 0 auto; padding: 64px 24px 48px; }
+  .brand { display: flex; align-items: center; gap: 16px; margin-bottom: 8px; }
+  .brand img { width: 64px; height: 64px; border-radius: 14px; }
+  h1 { font-size: 2.6rem; margin: 0; letter-spacing: -0.02em; }
+  h2 { font-size: 1.15rem; margin: 40px 0 12px; }
+  .tagline { color: var(--muted); font-size: 1.15rem; margin: 0 0 32px; }
+  p { margin: 0 0 12px; }
+  a { color: var(--accent); }
+  code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 0.92em; }
+  .download {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px;
+  }
+  .download a.button {
+    background: var(--accent); color: #0b0d11; text-decoration: none; font-weight: 600;
+    border-radius: 8px; padding: 10px 18px;
+  }
+  .download .note { color: var(--muted); font-size: 0.9rem; margin: 0; }
+  .shot { width: 100%; border-radius: 10px; border: 1px solid var(--border); margin-top: 32px; }
+  ul.features { padding-left: 20px; margin: 0; }
+  ul.features li { margin-bottom: 6px; }
+  footer { color: var(--muted); font-size: 0.85rem; margin-top: 48px; border-top: 1px solid var(--border); padding-top: 16px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand"><img src="icon.png" alt=""><h1>GoRex</h1></div>
+  <p class="tagline">A terminal of tabs and split panes whose sessions stay: quit it, open it again, and everything is where you left it.</p>
+
+  <div class="download">
+    <a class="button" id="download" href="download/GoRex-Setup-amd64.exe">Download for Windows</a>
+    <p class="note">Version <code id="version">unknown</code>, Windows 10 and 11 (x64).
+      Installs for you alone, puts <code>gorex</code> on your PATH, and updates itself.
+      The installer is not signed: Windows SmartScreen asks you to confirm it (More info, Run anyway).</p>
+  </div>
+
+  <img class="shot" src="screenshot.png" alt="GoRex with split panes">
+
+  <h2>What it does</h2>
+  <ul class="features">
+    <li><strong>Sessions that stay</strong>: shells run in a session server of their own, so quitting GoRex leaves them running, and every tab and pane comes back.</li>
+    <li><strong>Your servers too</strong>: <code>gorex ssh user@host</code> opens a window on sessions that live on that host. GoRex copies its server there over ssh and reconnects when the link drops.</li>
+    <li><strong>Tabs and split panes</strong>, with each pane's program, directory and status in its header.</li>
+    <li><strong>An editor</strong> with a file tree, the changes git sees, and a Markdown preview.</li>
+    <li><strong>Built for coding agents</strong>: images (Kitty graphics), pasting images into programs that take them, and what agents report they are doing.</li>
+    <li><strong>Native</strong>: Go and Ghostty's terminal emulator, no web view.</li>
+  </ul>
+
+  <h2>Updates</h2>
+  <p>GoRex checks for a new version after it starts and once a day, and offers to install it: Check for Updates… in the command
+  palette asks now. What changed in each version is in the <a href="https://github.com/roelfdiedericks/gorex/blob/master/CHANGELOG.md">changelog</a>.</p>
+
+  <footer>gorex.goclaw.org · <a href="https://github.com/roelfdiedericks/gorex">source</a></footer>
+</main>
+<script>
+  fetch("download/VERSION", { cache: "no-store" })
+    .then(response => response.ok ? response.text() : Promise.reject())
+    .then(text => { document.getElementById("version").textContent = text.trim(); })
+    .catch(() => {});
+</script>
+</body>
+</html>

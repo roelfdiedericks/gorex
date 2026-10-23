@@ -6,5 +6,9 @@
   "out": "build",
   "buildCommand": "go run ./tools/remotepayload",
   "macos": { "minimumSystemVersion": "13.0" },
-  "windows": { "installerScript": "packaging/installer.nsh" }
+  "windows": { "installerScript": "packaging/installer.nsh" },
+  "updates": {
+    "publicKey": "k0nGfiPSO3FceiKHuSf/++V0Htnw6nVPEZd3rmyHbww=",
+    "url": "https://gorex.goclaw.org/updates"
+  }
 }

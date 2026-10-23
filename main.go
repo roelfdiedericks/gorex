@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/plugins/updater/native"
 	"github.com/egoist/mygo/ui"
 
 	"gorex/internal/remote"
@@ -80,6 +81,10 @@ func main() {
 			}
 		}
 	}
+	// Updates from gorex.goclaw.org (mygo.json's updates): checked in the
+	// background after launch and daily, and from the palette. Builds
+	// that cannot update themselves, as dev builds, never check.
+	mygo.Use(native.Plugin)
 	mygo.App.SetMenu(a.menu())
 	mygo.App.WhenReady(a.open)
 	mygo.App.OnActivate(func(hasVisibleWindows bool) {

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/plugins/updater"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -55,6 +56,7 @@ var (
 	cmdReconnect   = command{Title: "Reconnect", Run: func(a *App) { a.switchTo(a.bind, true) }}
 	cmdConnLog     = command{Title: "Connection Log…", Run: func(a *App) { a.logOpen = true }}
 	cmdSettings    = command{Title: "Settings…", Accel: "CmdOrCtrl+,", Keys: "⌘,", Other: shortcut{ui.Ctrl, ui.KeyComma}, Run: func(a *App) { a.openSettings() }}
+	cmdUpdates     = command{Title: "Check for Updates…", Run: func(*App) { updater.CheckForUpdates() }}
 	cmdBigger      = command{Title: "Bigger Text", Accel: "CmdOrCtrl+=", Keys: "⌘+", Other: shortcut{ui.Ctrl, ui.KeyEqual}, Run: func(a *App) { a.stepFontSize(1) }}
 	cmdSmaller     = command{Title: "Smaller Text", Accel: "CmdOrCtrl+-", Keys: "⌘−", Other: shortcut{ui.Ctrl, ui.KeyMinus}, Run: func(a *App) { a.stepFontSize(-1) }}
 	cmdDefaultSize = command{Title: "Default Size", Accel: "CmdOrCtrl+0", Keys: "⌘0", Other: shortcut{ui.Ctrl, ui.Key0}, Run: func(a *App) { a.defaultFontSize() }}
@@ -80,7 +82,7 @@ var paletteCommands = []*command{
 	&cmdFocusLeft, &cmdFocusRight, &cmdFocusUp, &cmdFocusDown,
 	&cmdGrowLeft, &cmdGrowRight, &cmdGrowUp, &cmdGrowDown,
 	&cmdBigger, &cmdSmaller, &cmdDefaultSize, &cmdLight, &cmdDark, &cmdSystem,
-	&cmdClearScroll, &cmdRestart, &cmdReconnect, &cmdConnLog, &cmdSettings, &cmdEndAll,
+	&cmdClearScroll, &cmdRestart, &cmdReconnect, &cmdConnLog, &cmdSettings, &cmdUpdates, &cmdEndAll,
 }
 
 // commands are all of them.

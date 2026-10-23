@@ -5,3 +5,9 @@ mygo_windows_*.syso
 /resources/remote/
 /resources/windows-amd64/conpty.dll
 /resources/windows-amd64/x64/
+/website/download/
+/website/updates/
+/website/icon.png
+/website/screenshot.png
+/go.work
+/go.work.sum
