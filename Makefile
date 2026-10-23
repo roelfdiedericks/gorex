@@ -55,7 +55,7 @@ SITE_URL       := https://gorex.goclaw.org
 SITE_BUILD     := build/site
 SITE_HOST      ?= root@gorex.goclaw.org
 SITE_DIR       ?= /var/www/gorex.goclaw.org/web/
-SITE_OWNER     ?=
+SITE_OWNER     ?= web7:client1
 UPDATE_KEY     ?= $(subst \,/,$(APPDATA))/mygo/update-keys/mygo-update.key
 RSYNC          ?= rsync
 ifeq ($(GOOS),windows)
