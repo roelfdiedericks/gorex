@@ -1,7 +1,7 @@
 #!/bin/sh
 # website.sh builds and publishes gorex.goclaw.org: the Makefile's
 # website target runs "website.sh build", website-sync "website.sh sync",
-# with the settings below in the environment.
+# with the settings below as NAME=value arguments.
 #
 #   NAME, VERSION     the app's, from mygo.json
 #   SITE_URL          https://gorex.goclaw.org
@@ -134,8 +134,16 @@ sync() {
 	echo "website: published to $SITE_URL"
 }
 
-case ${1:-} in
+cmd=${1:-}
+[ $# -gt 0 ] && shift
+for a in "$@"; do
+	case $a in
+	[A-Z]*=*) export "$a" ;;
+	*) die "not a setting: $a" ;;
+	esac
+done
+case $cmd in
 build) build ;;
 sync) sync ;;
-*) die "usage: website.sh build|sync" ;;
+*) die "usage: website.sh build|sync [NAME=value]..." ;;
 esac

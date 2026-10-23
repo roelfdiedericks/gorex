@@ -69,9 +69,11 @@ else
 SSH         ?= ssh -o BatchMode=yes -o ConnectTimeout=10
 RSYNC_SSH   ?= ssh -o BatchMode=yes -o ConnectTimeout=10
 endif
-SITE_ENV = NAME="$(NAME)" VERSION="$(VERSION)" SITE_URL="$(SITE_URL)" SITE_PLATFORMS="$(SITE_PLATFORMS)" \
-	SITE_BUILD="$(SITE_BUILD)" UPDATE_KEY="$(UPDATE_KEY)" MAC_HOST="$(MAC_HOST)" MAC_DIR="$(MAC_DIR)" SSH="$(SSH)" \
-	SITE_HOST="$(SITE_HOST)" SITE_DIR="$(SITE_DIR)" SITE_OWNER="$(SITE_OWNER)" RSYNC="$(RSYNC)" RSYNC_SSH="$(RSYNC_SSH)"
+# tools/website.sh takes them as NAME=value arguments: in make's Windows
+# port, the programs a recipe runs get no variables but its own.
+SITE_VARS := NAME VERSION SITE_URL SITE_PLATFORMS SITE_BUILD UPDATE_KEY MAC_HOST MAC_DIR SSH \
+	SITE_HOST SITE_DIR SITE_OWNER RSYNC RSYNC_SSH
+SITE_ARGS = $(foreach v,$(SITE_VARS),'$(v)=$($(v))')
 
 # The resources of this platform, and those of every platform but the
 # servers, which dev builds itself.
@@ -136,11 +138,11 @@ version:
 # platform whose published version is older (darwin on the Mac); see
 # tools/website.sh. website-sync publishes it; publish does both.
 website: version $(CONPTY)
-	$(call run,$(SITE_ENV) sh tools/website.sh build)
+	$(call run,sh tools/website.sh build $(SITE_ARGS))
 	$(total)
 
 website-sync:
-	$(call run,$(SITE_ENV) sh tools/website.sh sync)
+	$(call run,sh tools/website.sh sync $(SITE_ARGS))
 	$(total)
 
 publish: website
