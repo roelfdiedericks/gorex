@@ -1,7 +1,9 @@
 #!/bin/sh
 # website.sh builds and publishes gorex.goclaw.org: the Makefile's
 # website target runs "website.sh build", website-sync "website.sh sync",
-# with the settings below as NAME=value arguments.
+# with the settings below as NAME=value arguments. The Makefile runs it
+# in its recipe's shell (". tools/website.sh" after "set -- build ..."),
+# as on Windows a shell started from there gets no environment.
 #
 #   NAME, VERSION     the app's, from mygo.json
 #   SITE_URL          https://gorex.goclaw.org
