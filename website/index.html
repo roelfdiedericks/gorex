@@ -75,7 +75,7 @@
     <li><strong>Tabs and split panes</strong>, with each pane's program, directory and status in its header.</li>
     <li><strong>An editor</strong> with a file tree, the changes git sees, and a Markdown preview.</li>
     <li><strong>Built for coding agents</strong>: images (Kitty graphics), pasting images into programs that take them, and what agents report they are doing.</li>
-    <li><strong>Native</strong>: Go and Ghostty's terminal emulator, no web view.</li>
+    <li><strong>Native</strong>: Go and Ghostty's terminal emulator; the Markdown and file previews use the system's web view.</li>
   </ul>
 
   <h2>Updates</h2>
@@ -103,7 +103,7 @@
     linux: {
       manifest: "update-linux-amd64.json",
       html: `<div class="command"><code>curl -fsSL https://gorex.goclaw.org/updates/install.sh | sh</code></div>
-        <p class="note">Version <code class="version">…</code>, x86-64 with GTK 3. Installs for you alone in
+        <p class="note">Version <code class="version">…</code>, x86-64 with GTK 3, and WebKitGTK 4.1 for the previews. Installs for you alone in
         <code>~/.local</code>, where it updates itself. Or the <a href="download/gorex-amd64.deb">Debian package</a>,
         which apt updates.</p>`
     }
