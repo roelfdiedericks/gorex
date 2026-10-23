@@ -69,9 +69,9 @@ else
 SSH         ?= ssh -o BatchMode=yes -o ConnectTimeout=10
 RSYNC_SSH   ?= ssh -o BatchMode=yes -o ConnectTimeout=10
 endif
-# tools/website.sh takes them as NAME=value arguments, and runs in the
-# recipe's shell: in make's Windows port, a shell that shell starts gets
-# none of the environment, which go needs.
+# tools/website.sh takes them as NAME=value arguments, and runs in a
+# subshell of the recipe's shell: in make's Windows port, a shell that
+# shell starts gets none of the environment, which go needs.
 SITE_VARS := NAME VERSION SITE_URL SITE_PLATFORMS SITE_BUILD UPDATE_KEY MAC_HOST MAC_DIR SSH \
 	SITE_HOST SITE_DIR SITE_OWNER RSYNC RSYNC_SSH
 SITE_ARGS = $(foreach v,$(SITE_VARS),'$(v)=$($(v))')
@@ -139,11 +139,11 @@ version:
 # platform whose published version is older (darwin on the Mac); see
 # tools/website.sh. website-sync publishes it; publish does both.
 website: version $(CONPTY)
-	$(call run,set -- build $(SITE_ARGS); . ./tools/website.sh)
+	$(call run,(set -- build $(SITE_ARGS); . ./tools/website.sh))
 	$(total)
 
 website-sync:
-	$(call run,set -- sync $(SITE_ARGS); . ./tools/website.sh)
+	$(call run,(set -- sync $(SITE_ARGS); . ./tools/website.sh))
 	$(total)
 
 publish: website
