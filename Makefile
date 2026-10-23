@@ -44,7 +44,7 @@ CONPTY := resources/windows-amd64/conpty.dll resources/windows-amd64/x64/OpenCon
 CL_VERSION := $(shell sed -n 's/^## \([0-9][^ ]*\).*/\1/p' CHANGELOG.md | head -n 1)
 
 # The site, gorex.goclaw.org: the platforms it carries, where they are
-# built (darwin on MAC_HOST, in its checkout MAC_DIR), and where it is
+# built (darwin and linux on MAC_HOST, in its checkout MAC_DIR), and where it is
 # published. SITE_OWNER is the ISPConfig site's user and group.
 # UPDATE_KEY is the secret key of mygo keygen, which signs updates; the
 # Mac has its own copy, in its mygo configuration directory.
@@ -136,7 +136,7 @@ version:
 	@[ "$(CL_VERSION)" = "$(VERSION)" ] || { echo "[make] version: CHANGELOG.md is at $(CL_VERSION), mygo.json at $(VERSION): make them the same"; exit 1; }
 
 # website builds what gorex.goclaw.org serves into website/, for each
-# platform whose published version is older (darwin on the Mac); see
+# platform whose published version is older (darwin and linux on the Mac); see
 # tools/website.sh. website-sync publishes it; publish does both.
 website: version $(CONPTY)
 	$(call run,(set -- build $(SITE_ARGS); . ./tools/website.sh))

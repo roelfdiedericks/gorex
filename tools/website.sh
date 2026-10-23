@@ -7,11 +7,11 @@
 #
 #   NAME, VERSION     the app's, from mygo.json
 #   SITE_URL          https://gorex.goclaw.org
-#   SITE_PLATFORMS    GOOS/GOARCH, comma separated: darwin ones build on
-#                     MAC_HOST, the others here
+#   SITE_PLATFORMS    GOOS/GOARCH, comma separated: darwin and linux ones
+#                     build on MAC_HOST, the others here
 #   SITE_BUILD        where the builds go, relative to the checkout
 #   UPDATE_KEY        the secret key of mygo keygen, which signs updates
-#   MAC_HOST, MAC_DIR the Mac that builds darwin, and its checkout, whose
+#   MAC_HOST, MAC_DIR the Mac that builds darwin and linux, and its checkout, whose
 #                     update key is in its mygo configuration directory
 #   SSH               ssh, for the Mac
 #   SITE_HOST, SITE_DIR, SITE_OWNER, RSYNC, RSYNC_SSH   where sync uploads
@@ -62,8 +62,11 @@ build() {
 		elif [ "$code" != 404 ]; then
 			die "$manifest: HTTP $code"
 		fi
+		# The Mac builds darwin, which only it can sign, and Linux, whose
+		# archives mygo build makes without their files' modes on Windows,
+		# so that gorex would not be executable.
 		case $p in
-		darwin/*) mac="$mac,$p" ;;
+		darwin/* | linux/*) mac="$mac,$p" ;;
 		*) here="$here,$p" ;;
 		esac
 	done
@@ -83,7 +86,7 @@ build() {
 		for p in $(echo "$mac" | tr , ' '); do
 			t=$(echo "$p" | tr / -)
 			mkdir -p "$SITE_BUILD/$t"
-			$SSH "$MAC_HOST" "cd $MAC_DIR/$SITE_BUILD/$t && tar -cf - *.dmg *.tar.gz update-*.json \$(ls *.delta 2>/dev/null)" | tar -xf - -C "$SITE_BUILD/$t"
+			$SSH "$MAC_HOST" "cd $MAC_DIR/$SITE_BUILD/$t && tar -cf - \$(ls *.dmg *.deb *.tar.gz update-*.json install.sh *.delta 2>/dev/null)" | tar -xf - -C "$SITE_BUILD/$t"
 		done
 	fi
 	stage
