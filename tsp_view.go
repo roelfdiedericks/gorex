@@ -74,6 +74,15 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 	if sf.Closed {
 		box.Height(pl.Rect.H).Clip()
 	}
+	// The wheel over the surface scrolls the terminal, as over its rows.
+	term, at := p.term, pl.Rect
+	box.HandleInput(func(ev ui.InputEvent) bool {
+		if ev.Kind != ui.InputScroll {
+			return false
+		}
+		ev.X, ev.Y = ev.X+at.X, ev.Y+at.Y
+		return term.Scroll(ev)
+	})
 	box.Children(func() {
 		if sf.Root != nil {
 			a.tspNode(c, k, p, sf, sf.Root)
