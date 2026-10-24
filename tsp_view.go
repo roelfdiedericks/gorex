@@ -253,7 +253,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 			track := ui.Box(c).Height(6).Radius(3).Background(k.track).FillWidth().Clip()
 			track.Children(func() {
 				if has {
-					ui.Box(c).WidthPercent(float32(max(0, min(1, value))*100)).Height(6).Background(k.busy)
+					ui.Box(c).WidthPercent(float32(max(0, min(1, value)) * 100)).Height(6).Background(k.busy)
 				} else {
 					activityDot(c, k.busy, 6)
 				}
@@ -430,7 +430,7 @@ func (a *App) tspTable(c *ui.Context, k *colors, key *ui.Context, n *rex.TSPNode
 				value, _ := v["value"].(float64)
 				track := ui.Box(c).Height(6).Radius(3).Background(k.track).Width(80).Clip()
 				track.Children(func() {
-					ui.Box(c).WidthPercent(float32(max(0, min(1, value))*100)).Height(6).Background(k.busy)
+					ui.Box(c).WidthPercent(float32(max(0, min(1, value)) * 100)).Height(6).Background(k.busy)
 				})
 			default:
 				t := a.tspRich(c, k, v, 12, head)
