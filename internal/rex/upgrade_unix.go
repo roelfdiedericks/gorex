@@ -41,7 +41,7 @@ type sessionState struct {
 	CellWidth  int       `json:"cellWidth,omitempty"`
 	CellHeight int       `json:"cellHeight,omitempty"`
 	// Paste tells that a program takes paste events (mode 5522).
-	Paste      bool      `json:"paste,omitempty"`
+	Paste bool `json:"paste,omitempty"`
 	// TSP tells that the session answers the Tern Surface Protocol.
 	TSP        bool      `json:"tsp,omitempty"`
 	Exited     bool      `json:"exited,omitempty"`
@@ -254,7 +254,7 @@ func resumeSession(st sessionState, emit func(Response)) (*session, error) {
 	s := &session{
 		id: st.ID, shell: st.Shell, created: st.Created, p: &pty{}, keep: st.Keep, images: st.Images, emit: emit,
 		cols: st.Cols, rows: st.Rows, cellWidth: st.CellWidth, cellHeight: st.CellHeight, paste: pasteTracker{on: st.Paste},
-		tsp: tspTracker{on: st.TSP, cols: st.Cols, cellW: st.CellWidth, cellH: st.CellHeight},
+		tsp:    tspTracker{on: st.TSP, cols: st.Cols, cellW: st.CellWidth, cellH: st.CellHeight},
 		output: st.Output, lastOutput: st.LastOutput, lastInput: st.LastInput,
 	}
 	s.bells.Store(st.Bells)
