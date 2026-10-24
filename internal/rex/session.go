@@ -54,6 +54,8 @@ type session struct {
 	// paste what they do with paste events.
 	status     statusTracker
 	paste      pasteTracker
+	// tsp is what they show through the Tern Surface Protocol.
+	tsp tspTracker
 	exited     bool
 	code       int
 	cols, rows int
@@ -85,6 +87,8 @@ type attached struct {
 	cols, rows int
 	paste      bool
 	reads      []string
+	// surfaced tells that the window was sent the surfaces.
+	surfaced bool
 }
 
 func (a *attached) poke() {
@@ -119,6 +123,7 @@ func newSession(id string, o CreateOptions, emit func(Response)) (*session, erro
 		keep = o.Scrollback * scrollbackLine
 	}
 	s := &session{id: id, shell: name, created: time.Now(), p: p, keep: keep, images: o.ImageLimit, cols: cols, rows: rows, emit: emit}
+	s.tsp.on, s.tsp.cols = o.TSP, cols
 	if err := s.start(nil); err != nil {
 		p.hangup()
 		return nil, err
@@ -215,6 +220,9 @@ func sessionEnv(id, identity string, extra []string) []string {
 		"TERM_PROGRAM="+program,
 		"TERM_PROGRAM_VERSION="+version,
 		"GOREX_SESSION="+id,
+		// omp never tries TSP: GoRex draws only screen surfaces so far,
+		// and omp's UI is an inline one. The Tern SDK reads TERN_TSP.
+		"PI_TUI_NATIVE=0",
 	)
 	if !hasLang {
 		env = append(env, "LANG=en_US.UTF-8")
@@ -242,9 +250,23 @@ func (s *session) read() {
 		n, err := s.p.read(buf)
 		if n > 0 {
 			s.mu.Lock()
-			s.vt.Feed(buf[:n])
-			s.status.feed(buf[:n])
-			s.paste.feed(buf[:n])
+			// TSP messages are the server's: taken out before the
+			// terminal sees the output, and answered first, so that the
+			// hello reply comes before the terminal's DA1 answer.
+			out := s.tsp.feed(buf[:n])
+			replies := s.tsp.replies
+			s.tsp.replies = nil
+			if s.tsp.changed {
+				s.wake()
+			}
+			s.mu.Unlock()
+			for _, r := range replies {
+				s.p.write(r)
+			}
+			s.mu.Lock()
+			s.vt.Feed(out)
+			s.status.feed(out)
+			s.paste.feed(out)
 			for a := range s.clients {
 				a.reads = append(a.reads, s.paste.reads...)
 			}
@@ -301,6 +323,9 @@ func (s *session) attach(conn net.Conn, at Attach) {
 	if !exited {
 		if at.Theme != nil {
 			s.vt.UseTheme(at.Theme)
+			s.mu.Lock()
+			s.tsp.dark = darkTheme(at.Theme)
+			s.mu.Unlock()
 		}
 		if at.Cols > 0 && at.Rows > 0 {
 			s.resize(at.Cols, at.Rows, at.CellWidth, at.CellHeight)
@@ -361,8 +386,9 @@ func (s *session) serve(a *attached) {
 
 // frame returns what brings a window to the session's screen: the
 // session's size first, when the window was told another, then a frame,
-// then the paste events' mode and reads; due reports a frame a
-// synchronized update holds back. size is where the size message is put.
+// then the paste events' mode and reads, then the surfaces when they
+// changed; due reports a frame a synchronized update holds back. size is
+// where the size message is put.
 func (s *session) frame(a *attached, size *[9]byte) (bufs net.Buffers, due bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -387,6 +413,15 @@ func (s *session) frame(a *attached, size *[9]byte) (bufs net.Buffers, due bool)
 		f = append(f, r...)
 	}
 	a.reads = nil
+	if t := &s.tsp; t.changed || !a.surfaced {
+		t.changed, a.surfaced = false, true
+		if b, err := json.Marshal(t.list()); err == nil {
+			var h [5]byte
+			h[0] = msgSurface
+			binary.BigEndian.PutUint32(h[1:], uint32(len(b)))
+			bufs = append(bufs, h[:], b)
+		}
+	}
 	if len(f) > 0 {
 		var h [5]byte
 		h[0] = msgFrame
@@ -415,6 +450,7 @@ func (s *session) resize(cols, rows, cellWidth, cellHeight int) {
 	}
 	changed := cols != s.cols || rows != s.rows || cellWidth != s.cellWidth || cellHeight != s.cellHeight
 	s.cols, s.rows, s.cellWidth, s.cellHeight = cols, rows, cellWidth, cellHeight
+	s.tsp.cols, s.tsp.cellW, s.tsp.cellH = cols, cellWidth, cellHeight
 	exited := s.exited
 	if changed {
 		s.vt.ResizePixels(cols, rows, cellWidth, cellHeight)

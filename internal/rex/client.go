@@ -335,6 +335,8 @@ type Stream struct {
 	// zero before; onSize takes it.
 	cols, rows int
 	onSize     func(cols, rows int)
+	// onSurfaces takes the session's surfaces (OnSurfaces).
+	onSurfaces func([]Surface)
 	// left is what is left to read of the frame being read, by the
 	// terminal's reading goroutine alone.
 	left int
@@ -496,6 +498,24 @@ func (s *Stream) Read(p []byte) (int, error) {
 			if onSize != nil {
 				onSize(cols, rows)
 			}
+		case msgSurface:
+			if n > 64<<20 {
+				return 0, errFraming
+			}
+			b := make([]byte, n)
+			if _, err := io.ReadFull(r, b); err != nil {
+				return 0, err
+			}
+			var surfaces []Surface
+			if err := json.Unmarshal(b, &surfaces); err != nil {
+				return 0, errFraming
+			}
+			s.mu.Lock()
+			onSurfaces := s.onSurfaces
+			s.mu.Unlock()
+			if onSurfaces != nil {
+				onSurfaces(surfaces)
+			}
 		default:
 			return 0, errFraming
 		}
@@ -526,6 +546,25 @@ func (s *Stream) OnSize(f func(cols, rows int)) {
 	if cols > 0 && rows > 0 {
 		f(cols, rows)
 	}
+}
+
+// OnSurfaces has f take the session's surfaces of the Tern Surface
+// Protocol, as the server sends them: all of them, whenever one changed,
+// from the reading goroutine.
+func (s *Stream) OnSurfaces(f func([]Surface)) {
+	s.mu.Lock()
+	s.onSurfaces = f
+	s.mu.Unlock()
+}
+
+// TSPEvent sends the session's program an event of a surface: what the
+// user did on it in the terminal.
+func (s *Stream) TSPEvent(ev any) error {
+	b, err := json.Marshal(ev)
+	if err != nil {
+		return err
+	}
+	return s.c.call(Request{Op: "tspEvent", SID: s.sid, Event: b}, nil)
 }
 
 // ResizePixels tells the session the size the terminal's view fits, in

@@ -101,6 +101,10 @@ type Terminal struct {
 	// StatusNotify notifies when a program says it waits on the user, has
 	// finished or failed (OSC 7501), out of sight.
 	StatusNotify *bool `json:"statusNotify,omitempty" kind:"look" label:"Notify when a program needs you, finishes or fails" group:"Program status"`
+	// TSP has the host's sessions answer programs that speak the Tern
+	// Surface Protocol, whose screen surfaces the window then draws over
+	// the terminal. Experimental: see TSP.md.
+	TSP *bool `json:"tsp,omitempty" kind:"host" label:"Tern Surface Protocol (experimental)" group:"Programs"`
 }
 
 type Shell struct {
@@ -398,7 +402,7 @@ func applyAppearance(s *Settings) {
 
 // shellOptions returns what new sessions of the host run, by s.
 func shellOptions(s *Settings) rex.CreateOptions {
-	o := rex.CreateOptions{Scrollback: s.Terminal.Scrollback, ImageLimit: imageLimit(s), Identity: s.Terminal.Identity}
+	o := rex.CreateOptions{Scrollback: s.Terminal.Scrollback, ImageLimit: imageLimit(s), Identity: s.Terminal.Identity, TSP: is(s.Terminal.TSP)}
 	if cmd := strings.TrimSpace(s.Shell.Command); cmd != "" {
 		o.Command = append([]string{cmd}, strings.Fields(s.Shell.Args)...)
 		o.Login = is(s.Shell.Login)

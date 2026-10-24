@@ -355,6 +355,16 @@ func (a *App) paneCard(c *ui.Context, k *colors, t *Tab, p *Pane) ui.Element {
 				a.claimSize(p)
 			}
 			p.drawn = a.frame
+			if sf := screenSurface(p); sf != nil {
+				// A screen surface draws over the terminal while the
+				// program shows it. The terminal stays under it with
+				// the focus, so that keys still reach the program: a
+				// click on the surface never takes it.
+				if t.Focus == p && a.tab() == t {
+					tv.Focus()
+				}
+				a.surfaceBody(c, k, t, p, sf)
+			}
 		})
 	})
 	p.bounds = card.Bounds()

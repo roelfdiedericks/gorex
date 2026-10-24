@@ -21,7 +21,7 @@ import (
 )
 
 // ProtocolVersion changes whenever the wire protocol does.
-const ProtocolVersion = 5
+const ProtocolVersion = 6
 
 // BridgeReady starts the line a bridge prints before it multiplexes its
 // standard input and output; the rest of the line is its executable.
@@ -44,6 +44,9 @@ type Request struct {
 	// Theme is the window's colors, for theme: the session's terminal
 	// answers programs that ask the colors with them.
 	Theme *terminal.Theme `json:"theme,omitempty"`
+	// Event is a TSP event of a window, for tspEvent: what the user did
+	// on a surface, which the session's program gets.
+	Event json.RawMessage `json:"event,omitempty"`
 	// Key names a document of the app's, for get and set, which keeps
 	// Value; the server stores it and does not read it.
 	Key   string          `json:"key,omitempty"`
@@ -145,6 +148,9 @@ type CreateOptions struct {
 	// Identity is the terminal the session's programs are told they run
 	// in, by TERM_PROGRAM: "ghostty", or GoRex's own otherwise.
 	Identity string `json:"identity,omitempty"`
+	// TSP has the session answer programs that speak the Tern Surface
+	// Protocol, whose surfaces the windows then draw.
+	TSP bool `json:"tsp,omitempty"`
 }
 
 // SessionInfo describes a session and what runs in it now.
@@ -230,6 +236,10 @@ const (
 	// big-endian), which the window's terminal takes before the frames
 	// that follow.
 	msgSize = 'S'
+	// msgSurface is the session's surfaces of the Tern Surface Protocol,
+	// as JSON ([]Surface), whenever one changed and when the window
+	// attaches.
+	msgSurface = 'T'
 )
 
 // Dir returns the directory of the server's socket, log and state.

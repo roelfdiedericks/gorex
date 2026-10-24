@@ -330,6 +330,22 @@ func (s *Server) do(req Request) (any, error) {
 			ss.vt.UseTheme(req.Theme)
 		}
 		return nil, nil
+	case "tspEvent":
+		ss, err := s.session(req.SID)
+		if err != nil {
+			return nil, err
+		}
+		ss.mu.Lock()
+		b, err := ss.tsp.event(req.Event)
+		exited := ss.exited
+		ss.mu.Unlock()
+		if err != nil {
+			return nil, err
+		}
+		if !exited {
+			ss.p.write(b)
+		}
+		return nil, nil
 	case "clear":
 		ss, err := s.session(req.SID)
 		if err != nil {

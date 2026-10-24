@@ -72,6 +72,10 @@ type Pane struct {
 	Node   *Node
 	term   *terminal.Terminal
 	stream *rex.Stream
+	// surfaces are the session's surfaces of the Tern Surface Protocol,
+	// as the server last sent them; the first screen one draws over the
+	// terminal.
+	surfaces []rex.Surface
 	// files is a browser pane's tree, and edit an editor pane's file.
 	files *browserState
 	edit  *editorState
@@ -426,6 +430,14 @@ func (a *App) attach(p *Pane, cols, rows int) {
 	// size the session had, which the server's next frames are drawn at.
 	term.Resize(cols, rows)
 	stream.OnSize(term.Resize)
+	stream.OnSurfaces(func(sfs []rex.Surface) {
+		update(func() {
+			if p.stream == stream {
+				p.surfaces = sfs
+				a.changed()
+			}
+		})
+	})
 	p.term = term
 }
 

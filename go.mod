@@ -9,6 +9,7 @@ require (
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/hashicorp/yamux v0.1.2
 	github.com/microcosm-cc/bluemonday v1.0.27
+	github.com/stencil-hq/tern-sdk/go/tern v0.1.0
 	github.com/yuin/goldmark v1.8.6
 	github.com/yuin/goldmark-highlighting/v2 v2.0.0-20230729083705-37449abec8cc
 	golang.org/x/image v0.46.0
@@ -21,6 +22,7 @@ require (
 	github.com/go-text/typesetting v0.3.5 // indirect
 	github.com/gorilla/css v1.0.1 // indirect
 	golang.org/x/net v0.59.0 // indirect
+	golang.org/x/term v0.46.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 )
 
