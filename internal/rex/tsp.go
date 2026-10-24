@@ -38,6 +38,15 @@ type Surface struct {
 	Mode  string   `json:"mode"`
 	Title string   `json:"title,omitempty"`
 	Root  *TSPNode `json:"root,omitempty"`
+	// Image is the id of the anchor an inline surface has in the
+	// terminal (terminal.Options.AppImages), whose placement is where
+	// the window draws it, and Rows how many rows it takes there; 0 for a
+	// screen surface, drawn over the whole pane.
+	Image uint32 `json:"image,omitempty"`
+	Rows  int    `json:"rows,omitempty"`
+	// Closed tells a surface kept after its program closed it: drawn as
+	// it was, taking no events.
+	Closed bool `json:"closed,omitempty"`
 }
 
 // TSPNode is a node of a surface's document: the kind, the props and the
@@ -65,10 +74,14 @@ type tspTracker struct {
 	// replies are what the program is to be told, in order: the hello
 	// reply, acks. The reader writes them to the pty.
 	replies [][]byte
-	// kept is the text of surfaces closed with keep, for the terminal to
-	// show where their program's output was; feed puts it in the output
-	// in the message's place.
-	kept []byte
+	// inject is what the terminal is to be fed in the message's place:
+	// anchors, kept text; feed puts it in the output there. Anything
+	// else the tracker feeds the terminal goes the same way (resize).
+	inject []byte
+	// kept are the surfaces closed with keep, drawn where they were,
+	// oldest first; nextImage is the last anchor's image id.
+	kept      []*Surface
+	nextImage uint32
 	// changed tells that a surface changed since the windows were told.
 	changed bool
 	// hello is the hello reply's terminal facts the session knows: its
@@ -103,9 +116,9 @@ func (t *tspTracker) feed(p []byte) []byte {
 			t.inEscaped = false
 			if b == '\\' {
 				t.end()
-				if len(t.kept) > 0 {
-					out = append(out, t.kept...)
-					t.kept = nil
+				if len(t.inject) > 0 {
+					out = append(out, t.inject...)
+					t.inject = nil
 				}
 				continue
 			}
@@ -235,10 +248,22 @@ func (t *tspTracker) message(verb string, body []byte) {
 		if t.surfaces == nil {
 			t.surfaces, t.nodes, t.parent = map[string]*Surface{}, map[string]map[string]*TSPNode{}, map[string]map[string]string{}
 		}
-		if _, ok := t.surfaces[o.ID]; !ok {
+		if old := t.surfaces[o.ID]; old != nil && old.Image != 0 {
+			t.inject = append(t.inject, deleteAnchor(old.Image)...)
+		} else if old == nil {
 			t.order = append(t.order, o.ID)
 		}
-		t.surfaces[o.ID] = &Surface{ID: o.ID, Mode: o.Mode, Title: o.Title}
+		sf := &Surface{ID: o.ID, Mode: o.Mode, Title: o.Title}
+		if o.Mode == "inline" {
+			// An anchor of one row, until a window measures the surface.
+			t.nextImage++
+			if t.nextImage < TSPImageFirst || t.nextImage > TSPImageLast {
+				t.nextImage = TSPImageFirst
+			}
+			sf.Image, sf.Rows = t.nextImage, 1
+			t.inject = append(t.inject, anchor(sf.Image, t.cols, 1)...)
+		}
+		t.surfaces[o.ID] = sf
 		t.nodes[o.ID], t.parent[o.ID] = map[string]*TSPNode{}, map[string]string{}
 		t.changed = true
 	case "f":
@@ -267,29 +292,141 @@ func (t *tspTracker) message(verb string, body []byte) {
 		if json.Unmarshal(body, &x) != nil {
 			return
 		}
-		if sf, ok := t.surfaces[x.ID]; ok {
-			if x.Keep {
-				// The last view stays, as text the terminal keeps in
-				// its scrollback, where the program's output was.
-				var b strings.Builder
-				for _, l := range plain(sf.Root) {
-					b.WriteString(l)
-					b.WriteString("\r\n")
-				}
-				t.kept = append(t.kept, b.String()...)
-			}
-			delete(t.surfaces, x.ID)
-			delete(t.nodes, x.ID)
-			delete(t.parent, x.ID)
-			for i, id := range t.order {
-				if id == x.ID {
-					t.order = append(t.order[:i], t.order[i+1:]...)
-					break
-				}
-			}
-			t.changed = true
+		sf, ok := t.surfaces[x.ID]
+		if !ok {
+			return
 		}
+		delete(t.surfaces, x.ID)
+		delete(t.nodes, x.ID)
+		delete(t.parent, x.ID)
+		for i, id := range t.order {
+			if id == x.ID {
+				t.order = append(t.order[:i], t.order[i+1:]...)
+				break
+			}
+		}
+		switch {
+		case x.Keep && sf.Image != 0:
+			// The last view stays where it is, drawn as it was, in the
+			// rows the anchor keeps; the oldest kept goes when there are
+			// many.
+			sf.Closed = true
+			t.kept = append(t.kept, sf)
+			if len(t.kept) > tspMaxKept {
+				t.inject = append(t.inject, deleteAnchor(t.kept[0].Image)...)
+				t.kept = t.kept[1:]
+			}
+		case x.Keep:
+			// A screen surface has no rows of its own: its last view
+			// stays as text, where the program's output was.
+			var b strings.Builder
+			for _, l := range plain(sf.Root) {
+				b.WriteString(l)
+				b.WriteString("\r\n")
+			}
+			t.inject = append(t.inject, b.String()...)
+		case sf.Image != 0:
+			t.inject = append(t.inject, deleteAnchor(sf.Image)...)
+		}
+		t.changed = true
 	}
+}
+
+// Anchors: an inline surface takes rows of the terminal, as the output
+// it stands among does, and scrolls with them. The server places an
+// image of its own there (terminal.Options.AppImages: TSPImageFirst to
+// TSPImageLast, for the windows' terminals too), over the surface's
+// columns and rows, which the terminal tracks through scrolling, reflow
+// and its Mirror, and which the windows draw the surface at. The
+// placement moves the cursor below it, as output would. The program, in
+// raw mode, prints nothing while its surface is live, so the cursor
+// stays there, and re-placing the anchor as the windows measure the
+// surface's height keeps the rows under it. tspMaxKept caps the
+// surfaces kept after their close.
+const (
+	TSPImageFirst = 0x7fff0000
+	TSPImageLast  = 0x7fffffff
+	tspMaxKept    = 64
+)
+
+// anchor returns what places the anchor of an image over cols×rows cells
+// at the cursor's row, from its first column, transmitting the image's
+// pixel first.
+func anchor(image uint32, cols, rows int) string {
+	return fmt.Sprintf("\r\x1b_Ga=t,f=32,s=1,v=1,i=%d,q=2;AAAAAA==\x1b\\\x1b_Ga=p,i=%d,p=1,c=%d,r=%d,q=2\x1b\\", image, image, max(cols, 1), max(rows, 1))
+}
+
+// deleteAnchor returns what deletes an anchor's image, and so its
+// placement; its rows stay, blank.
+func deleteAnchor(image uint32) string {
+	return fmt.Sprintf("\x1b_Ga=d,d=I,i=%d,q=2\x1b\\", image)
+}
+
+// resize takes the rows a window measured a live surface to need: the
+// anchor is placed again over them, and the cursor, at the anchor's
+// bottom, moves with it. It reports whether anything changed.
+func (t *tspTracker) resize(sf string, rows int) bool {
+	s := t.surfaces[sf]
+	if s == nil || s.Image == 0 || rows <= 0 || rows == s.Rows {
+		return false
+	}
+	// Back up to the anchor's top, place it anew, which puts the cursor
+	// under its new bottom.
+	t.inject = append(t.inject, fmt.Sprintf("\x1b[%dA\r", s.Rows)...)
+	t.inject = append(t.inject, fmt.Sprintf("\x1b_Ga=p,i=%d,p=1,c=%d,r=%d,q=2\x1b\\", s.Image, max(t.cols, 1), rows)...)
+	s.Rows = rows
+	t.changed = true
+	return true
+}
+
+// rewidth places the live surfaces' anchors anew over the terminal's
+// width, after it changed: a placement keeps its columns through a
+// reflow. The cursor is at the last-opened surface's bottom; the others'
+// anchors are placed from where they are, by their rows above it, which
+// holds while the surfaces are stacked as opened.
+func (t *tspTracker) rewidth() {
+	up := 0
+	for i := len(t.order) - 1; i >= 0; i-- {
+		s := t.surfaces[t.order[i]]
+		if s.Image == 0 {
+			continue
+		}
+		up += s.Rows
+		t.inject = append(t.inject, fmt.Sprintf("\x1b7\x1b[%dA\r\x1b_Ga=p,i=%d,p=1,c=%d,r=%d,q=2\x1b\\\x1b8", up, s.Image, max(t.cols, 1), s.Rows)...)
+	}
+}
+
+// live returns the open surfaces, in the order opened, for a server
+// upgrade to carry.
+func (t *tspTracker) live() []*Surface {
+	out := make([]*Surface, 0, len(t.order))
+	for _, id := range t.order {
+		out = append(out, t.surfaces[id])
+	}
+	return out
+}
+
+// restore takes the surfaces an upgrade carried, indexing their nodes.
+func (t *tspTracker) restore(sfs []*Surface) {
+	t.surfaces, t.nodes, t.parent = map[string]*Surface{}, map[string]map[string]*TSPNode{}, map[string]map[string]string{}
+	t.order = t.order[:0]
+	for _, sf := range sfs {
+		t.surfaces[sf.ID] = sf
+		t.order = append(t.order, sf.ID)
+		nodes, parent := map[string]*TSPNode{}, map[string]string{}
+		var index func(n *TSPNode, p string)
+		index = func(n *TSPNode, p string) {
+			nodes[n.ID], parent[n.ID] = n, p
+			for _, c := range n.Children {
+				index(c, n.ID)
+			}
+		}
+		if sf.Root != nil {
+			index(sf.Root, "")
+		}
+		t.nodes[sf.ID], t.parent[sf.ID] = nodes, parent
+	}
+	t.changed = true
 }
 
 // apply applies a frame op to a surface's document.
@@ -492,9 +629,11 @@ func (t *tspTracker) helloReply() []byte {
 	return append(append([]byte("\x1b_tsp;r;"), b...), "\x1b\\"...)
 }
 
-// list returns the surfaces, in the order opened.
+// list returns the surfaces the windows draw: the kept ones, oldest
+// first, then the open ones in the order opened.
 func (t *tspTracker) list() []*Surface {
-	out := make([]*Surface, 0, len(t.order))
+	out := make([]*Surface, 0, len(t.kept)+len(t.order))
+	out = append(out, t.kept...)
 	for _, id := range t.order {
 		out = append(out, t.surfaces[id])
 	}

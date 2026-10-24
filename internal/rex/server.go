@@ -346,6 +346,13 @@ func (s *Server) do(req Request) (any, error) {
 			ss.p.write(b)
 		}
 		return nil, nil
+	case "tspSize":
+		ss, err := s.session(req.SID)
+		if err != nil {
+			return nil, err
+		}
+		ss.tspSize(req.Surface, req.Rows)
+		return nil, nil
 	case "clear":
 		ss, err := s.session(req.SID)
 		if err != nil {

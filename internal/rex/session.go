@@ -50,12 +50,12 @@ type session struct {
 	clients    map[*attached]struct{}
 	lastOutput time.Time
 	lastInput  time.Time
-	// status is what the session's programs say they are doing, and
-	// paste what they do with paste events.
+	// status is what the session's programs say they are doing, paste
+	// what they do with paste events, and tsp what they show through
+	// the Tern Surface Protocol.
 	status     statusTracker
 	paste      pasteTracker
-	// tsp is what they show through the Tern Surface Protocol.
-	tsp tspTracker
+	tsp        tspTracker
 	exited     bool
 	code       int
 	cols, rows int
@@ -146,6 +146,8 @@ func (s *session) start(screen []byte) error {
 		// Programs' reads of the clipboard go on to a window, which
 		// answers them as it would its own program's.
 		ClipboardRead: terminal.ClipboardForward,
+		// The anchors of programs' surfaces (tsp.go).
+		AppImages: struct{ First, Last uint32 }{TSPImageFirst, TSPImageLast},
 		OnBell: func() {
 			s.bells.Add(1)
 			go s.emit(Response{Event: "bell", Path: s.id})
@@ -450,10 +452,19 @@ func (s *session) resize(cols, rows, cellWidth, cellHeight int) {
 	}
 	changed := cols != s.cols || rows != s.rows || cellWidth != s.cellWidth || cellHeight != s.cellHeight
 	s.cols, s.rows, s.cellWidth, s.cellHeight = cols, rows, cellWidth, cellHeight
-	s.tsp.cols, s.tsp.cellW, s.tsp.cellH = cols, cellWidth, cellHeight
+	s.tsp.cellW, s.tsp.cellH = cellWidth, cellHeight
 	exited := s.exited
 	if changed {
 		s.vt.ResizePixels(cols, rows, cellWidth, cellHeight)
+		// A live surface's anchor spans the width: placed anew over it.
+		if cols != s.tsp.cols {
+			s.tsp.cols = cols
+			s.tsp.rewidth()
+			if len(s.tsp.inject) > 0 {
+				s.vt.Feed(s.tsp.inject)
+				s.tsp.inject = nil
+			}
+		}
 		s.wake()
 	}
 	s.mu.Unlock()
@@ -470,6 +481,19 @@ func (s *session) clear() {
 	if !s.exited && s.vt.ClearScreen() {
 		s.wake()
 	}
+}
+
+// tspSize takes the rows a window measured a live surface to need, and
+// feeds the terminal what moves the surface's anchor over them.
+func (s *session) tspSize(sf string, rows int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.exited || !s.tsp.resize(sf, rows) {
+		return
+	}
+	s.vt.Feed(s.tsp.inject)
+	s.tsp.inject = nil
+	s.wake()
 }
 
 // kill hangs up the session and waits a little for it to end.

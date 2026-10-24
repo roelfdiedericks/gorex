@@ -334,37 +334,45 @@ func (a *App) paneCard(c *ui.Context, k *colors, t *Tab, p *Pane) ui.Element {
 			if p.term == nil {
 				return
 			}
-			tv := terminal.View(c, p.term).Fill()
-			if a.focusReq == p && a.tab() == t {
-				tv.Focus()
-				a.focusReq = nil
-			}
-			if tv.Focused() && t.Focus != p {
-				t.setFocus(p)
-				a.changed()
-			}
-			if tv.Focused() {
-				p.attention = false
-				if a.focusedWin {
-					p.statusSeen = statusKey(p.info.Status)
+			// The terminal's view and the surfaces its programs draw
+			// over it (tsp_view.go) share a box, so that a surface's
+			// place is relative to the view, and cut to it.
+			host := ui.Box(c).Grow(1).MinHeight(0).Clip()
+			host.Children(func() {
+				tv := terminal.View(c, p.term).Fill()
+				if a.focusReq == p && a.tab() == t {
+					tv.Focus()
+					a.focusReq = nil
 				}
-			}
-			// A pane that starts showing in the window in use, or as the
-			// window gets the focus, gives its session its size again.
-			if a.focusedWin && (a.gainedFocus || p.drawn+1 != a.frame) {
-				a.claimSize(p)
-			}
-			p.drawn = a.frame
-			if sf := screenSurface(p); sf != nil {
-				// A screen surface draws over the terminal while the
-				// program shows it. The terminal stays under it with
-				// the focus, so that keys still reach the program: a
-				// click on the surface never takes it.
+				if tv.Focused() && t.Focus != p {
+					t.setFocus(p)
+					a.changed()
+				}
+				if tv.Focused() {
+					p.attention = false
+					if a.focusedWin {
+						p.statusSeen = statusKey(p.info.Status)
+					}
+				}
+				// A pane that starts showing in the window in use, or as
+				// the window gets the focus, gives its session its size
+				// again.
+				if a.focusedWin && (a.gainedFocus || p.drawn+1 != a.frame) {
+					a.claimSize(p)
+				}
+				p.drawn = a.frame
+				if len(p.surfaces) == 0 {
+					return
+				}
+				// A surface draws over the terminal while the program
+				// shows it. The terminal stays under it with the focus,
+				// so that keys still reach the program: a click on the
+				// surface never takes it.
+				a.surfaces(c, k, t, p)
 				if t.Focus == p && a.tab() == t {
 					tv.Focus()
 				}
-				a.surfaceBody(c, k, t, p, sf)
-			}
+			})
 		})
 	})
 	p.bounds = card.Bounds()

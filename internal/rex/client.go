@@ -567,6 +567,12 @@ func (s *Stream) TSPEvent(ev any) error {
 	return s.c.call(Request{Op: "tspEvent", SID: s.sid, Event: b}, nil)
 }
 
+// TSPSize tells the session the rows a surface of its program's needs,
+// as the window laid it out: its anchor in the terminal takes them.
+func (s *Stream) TSPSize(sf string, rows int) error {
+	return s.c.call(Request{Op: "tspSize", SID: s.sid, Surface: sf, Rows: rows}, nil)
+}
+
 // ResizePixels tells the session the size the terminal's view fits, in
 // cells and its cells in pixels, attaching first: the server's terminal
 // answers programs in them. The view tells it (Options.ResizeByConn).

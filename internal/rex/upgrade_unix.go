@@ -42,14 +42,18 @@ type sessionState struct {
 	CellHeight int       `json:"cellHeight,omitempty"`
 	// Paste tells that a program takes paste events (mode 5522).
 	Paste bool `json:"paste,omitempty"`
-	// TSP tells that the session answers the Tern Surface Protocol.
-	TSP        bool      `json:"tsp,omitempty"`
-	Exited     bool      `json:"exited,omitempty"`
-	Code       int       `json:"code,omitempty"`
-	Output     uint64    `json:"output"`
-	Bells      int64     `json:"bells,omitempty"`
-	LastOutput time.Time `json:"lastOutput"`
-	LastInput  time.Time `json:"lastInput"`
+	// TSP tells that the session answers the Tern Surface Protocol;
+	// Surfaces are its program's live surfaces, with their documents,
+	// and NextImage the last anchor's image id.
+	TSP        bool       `json:"tsp,omitempty"`
+	Surfaces   []*Surface `json:"surfaces,omitempty"`
+	NextImage  uint32     `json:"nextImage,omitempty"`
+	Exited     bool       `json:"exited,omitempty"`
+	Code       int        `json:"code,omitempty"`
+	Output     uint64     `json:"output"`
+	Bells      int64      `json:"bells,omitempty"`
+	LastOutput time.Time  `json:"lastOutput"`
+	LastInput  time.Time  `json:"lastInput"`
 	// Screen is the title and the snapshot of the screen and scrollback,
 	// which the new server's terminal starts from.
 	Screen []byte `json:"screen,omitempty"`
@@ -107,6 +111,7 @@ func (s *Server) upgrade(exe string) error {
 		ses := sessionState{
 			ID: ss.id, Shell: ss.shell, Created: ss.created, PID: ss.p.pid(), FD: -1, Keep: ss.keep, Images: ss.images,
 			Cols: ss.cols, Rows: ss.rows, CellWidth: ss.cellWidth, CellHeight: ss.cellHeight, Paste: ss.paste.on, TSP: ss.tsp.on,
+			Surfaces: ss.tsp.live(), NextImage: ss.tsp.nextImage,
 			Exited: ss.exited || !paused[i], Code: ss.code, Output: ss.output,
 			Bells: ss.bells.Load(), LastOutput: ss.lastOutput, LastInput: ss.lastInput,
 		}
@@ -254,7 +259,7 @@ func resumeSession(st sessionState, emit func(Response)) (*session, error) {
 	s := &session{
 		id: st.ID, shell: st.Shell, created: st.Created, p: &pty{}, keep: st.Keep, images: st.Images, emit: emit,
 		cols: st.Cols, rows: st.Rows, cellWidth: st.CellWidth, cellHeight: st.CellHeight, paste: pasteTracker{on: st.Paste},
-		tsp:    tspTracker{on: st.TSP, cols: st.Cols, cellW: st.CellWidth, cellH: st.CellHeight},
+		tsp:    tspTracker{on: st.TSP, cols: st.Cols, cellW: st.CellWidth, cellH: st.CellHeight, nextImage: st.NextImage},
 		output: st.Output, lastOutput: st.LastOutput, lastInput: st.LastInput,
 	}
 	s.bells.Store(st.Bells)
@@ -284,6 +289,17 @@ func resumeSession(st sessionState, emit func(Response)) (*session, error) {
 	if err := s.start(st.Screen); err != nil {
 		s.p.hangup()
 		return nil, err
+	}
+	// The screen carries no anchors: the live surfaces' are placed
+	// anew, from the cursor at the last's bottom (rewidth). The kept
+	// surfaces, whose rows may be in the scrollback, are gone.
+	if len(st.Surfaces) > 0 {
+		s.mu.Lock()
+		s.tsp.restore(st.Surfaces)
+		s.tsp.rewidth()
+		s.vt.Feed(s.tsp.inject)
+		s.tsp.inject = nil
+		s.mu.Unlock()
 	}
 	return s, nil
 }

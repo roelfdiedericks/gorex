@@ -73,9 +73,11 @@ type Pane struct {
 	term   *terminal.Terminal
 	stream *rex.Stream
 	// surfaces are the session's surfaces of the Tern Surface Protocol,
-	// as the server last sent them; the first screen one draws over the
-	// terminal.
-	surfaces []rex.Surface
+	// as the server last sent them, drawn over the terminal
+	// (tsp_view.go); surfaceRows are the rows the window last told the
+	// server each live inline one needs.
+	surfaces    []rex.Surface
+	surfaceRows map[string]int
 	// files is a browser pane's tree, and edit an editor pane's file.
 	files *browserState
 	edit  *editorState
@@ -366,6 +368,9 @@ func (a *App) attach(p *Pane, cols, rows int) {
 		// The server's terminal lays out the program's output; this one
 		// shows its frames, at the size the server says.
 		ResizeByConn: true,
+		// The anchors of programs' surfaces, which the server places and
+		// its Mirror carries here (tsp_view.go).
+		AppImages:    struct{ First, Last uint32 }{rex.TSPImageFirst, rex.TSPImageLast},
 		Font:         termFont,
 		Theme:        light,
 		DarkTheme:    dark,
@@ -432,10 +437,24 @@ func (a *App) attach(p *Pane, cols, rows int) {
 	stream.OnSize(term.Resize)
 	stream.OnSurfaces(func(sfs []rex.Surface) {
 		update(func() {
-			if p.stream == stream {
-				p.surfaces = sfs
-				a.changed()
+			if p.stream != stream {
+				return
 			}
+			p.surfaces = sfs
+			// The rows told for a surface stand until the server's
+			// anchor has them, or the surface is gone.
+			for id, rows := range p.surfaceRows {
+				live := false
+				for i := range sfs {
+					if sfs[i].ID == id && !sfs[i].Closed && sfs[i].Rows != rows {
+						live = true
+					}
+				}
+				if !live {
+					delete(p.surfaceRows, id)
+				}
+			}
+			a.changed()
 		})
 	})
 	p.term = term

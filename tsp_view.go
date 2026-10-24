@@ -2,35 +2,53 @@ package main
 
 import (
 	"fmt"
+	"math"
 
+	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
 
 	"gorex/internal/rex"
 )
 
-// A screen surface of the Tern Surface Protocol (TSP.md) draws over the
-// pane's terminal while it is open: the program's tree of nodes, laid out
-// in MyGo's UI. The kinds drawn are those the server's hello reply names
+// A surface of the Tern Surface Protocol (TSP.md) draws over the pane's
+// terminal: the program's tree of nodes, laid out in MyGo's UI. A
+// screen surface fills the pane while it is open. An inline surface
+// draws at the rows its anchor takes in the terminal (internal/rex
+// tsp.go), which scroll with the output: as tall as its content, which
+// the window measures and tells the server, whose anchor then takes
+// that many rows; closed with keep, it stays drawn there, in the rows it
+// had. The kinds drawn are those the server's hello reply names
 // (internal/rex tspKinds); a node of another kind draws nothing, as the
 // program was told, and falls back itself. A click on a node that has a
 // click action goes to the program as an action event.
 
-// screenSurface returns the pane's surface to draw over the terminal,
-// nil for none: a screen surface, or an inline one, which for now draws
-// over the whole pane too rather than from its row (TSP.md, Later).
-func screenSurface(p *Pane) *rex.Surface {
+// surfaces draws the pane's surfaces over its terminal, in the box the
+// terminal's view fills.
+func (a *App) surfaces(c *ui.Context, k *colors, t *Tab, p *Pane) {
+	var placements []terminal.AppPlacement
 	for i := range p.surfaces {
-		if m := p.surfaces[i].Mode; m == "screen" || m == "inline" {
-			return &p.surfaces[i]
+		sf := &p.surfaces[i]
+		switch {
+		case sf.Mode == "screen":
+			a.screenSurface(c, k, t, p, sf)
+		case sf.Image != 0:
+			if placements == nil {
+				placements = p.term.AppPlacements()
+			}
+			for _, pl := range placements {
+				if pl.Image == sf.Image {
+					a.inlineSurface(c, k, t, p, sf, pl)
+					break
+				}
+			}
 		}
 	}
-	return nil
 }
 
-// surfaceBody draws a screen surface over a pane's terminal, filling the
-// body it is in.
-func (a *App) surfaceBody(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface) {
+// screenSurface draws a screen surface over a pane's terminal, filling
+// the box it is in.
+func (a *App) screenSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface) {
 	s := ui.Scroll(c.Key("tsp-"+sf.ID)).Absolute().Fill().Background(k.bgBottom).Padding(12, 16)
 	s.Children(func() {
 		if sf.Root != nil {
@@ -40,6 +58,45 @@ func (a *App) surfaceBody(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Sur
 	if s.Pressed() && t.Focus != p {
 		t.setFocus(p)
 		a.changed()
+	}
+}
+
+// inlineSurface draws an inline surface at its anchor's rows. Live, it
+// is as tall as its content, and its height in rows, as the last frame
+// laid it out, goes to the server when it differs from the anchor's;
+// kept, it is cut to the anchor's rows. Scrolled out of the viewport it
+// draws nothing.
+func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, pl terminal.AppPlacement) {
+	if !pl.Visible && pl.Row+pl.Rows <= 0 {
+		return
+	}
+	box := ui.Box(c.Key("tsp-"+sf.ID)).Absolute().Left(pl.Rect.X).Top(pl.Rect.Y).Width(pl.Rect.W).Background(k.bgBottom).Padding(4, 8)
+	if sf.Closed {
+		box.Height(pl.Rect.H).Clip()
+	}
+	box.Children(func() {
+		if sf.Root != nil {
+			a.tspNode(c, k, p, sf, sf.Root)
+		}
+	})
+	if box.Pressed() && t.Focus != p {
+		t.setFocus(p)
+		a.changed()
+	}
+	if sf.Closed || pl.Rows <= 0 {
+		return
+	}
+	cell := pl.Rect.H / float32(pl.Rows)
+	if h := box.Bounds().H; h > 0 && cell > 0 {
+		rows := int(math.Ceil(float64(h/cell - 0.01)))
+		if rows > 0 && rows != sf.Rows && rows != p.surfaceRows[sf.ID] {
+			if p.surfaceRows == nil {
+				p.surfaceRows = map[string]int{}
+			}
+			p.surfaceRows[sf.ID] = rows
+			stream, id := p.stream, sf.ID
+			go stream.TSPSize(id, rows)
+		}
 	}
 }
 

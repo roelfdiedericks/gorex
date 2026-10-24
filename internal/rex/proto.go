@@ -45,8 +45,10 @@ type Request struct {
 	// answers programs that ask the colors with them.
 	Theme *terminal.Theme `json:"theme,omitempty"`
 	// Event is a TSP event of a window, for tspEvent: what the user did
-	// on a surface, which the session's program gets.
-	Event json.RawMessage `json:"event,omitempty"`
+	// on a surface, which the session's program gets. Surface names a
+	// surface for tspSize, which Rows measures.
+	Event   json.RawMessage `json:"event,omitempty"`
+	Surface string          `json:"surface,omitempty"`
 	// Key names a document of the app's, for get and set, which keeps
 	// Value; the server stores it and does not read it.
 	Key   string          `json:"key,omitempty"`

@@ -119,7 +119,7 @@ func TestTSPTracker(t *testing.T) {
 	}
 	tr.feed([]byte(tspClose))
 	if len(tr.surfaces) != 0 || len(tr.list()) != 0 || len(tr.kept) != 0 {
-		t.Errorf("after close: %v, kept %q", tr.surfaces, tr.kept)
+		t.Errorf("after close: %v, kept %v", tr.surfaces, tr.kept)
 	}
 
 	// Off, nothing is taken out or answered.
@@ -129,20 +129,55 @@ func TestTSPTracker(t *testing.T) {
 	}
 
 	// A chunked body is reassembled; a flow surface is not kept, an
-	// inline one is.
-	ch := tspTracker{on: true}
+	// inline one is, and gets an anchor in the output, one row, over
+	// the terminal's width.
+	ch := tspTracker{on: true, cols: 50}
 	body := `{"id":"s2","mode":"screen"}`
 	ch.feed([]byte("\x1b_tsp;o;c=a;m=1;" + body[:10] + "\x1b\\" + "\x1b_tsp;o;c=a;" + body[10:] + "\x1b\\"))
-	if ch.surfaces["s2"] == nil {
-		t.Error("a chunked open was not read")
+	if ch.surfaces["s2"] == nil || ch.surfaces["s2"].Image != 0 {
+		t.Errorf("a chunked screen open: %+v", ch.surfaces["s2"])
 	}
-	ch.feed([]byte("\x1b_tsp;o;{\"id\":\"s3\",\"mode\":\"flow\"}\x1b\\\x1b_tsp;o;{\"id\":\"s4\",\"mode\":\"inline\"}\x1b\\"))
-	if ch.surfaces["s3"] != nil || ch.surfaces["s4"] == nil {
-		t.Errorf("flow kept %v, inline kept %v", ch.surfaces["s3"] != nil, ch.surfaces["s4"] != nil)
+	out = string(ch.feed([]byte("\x1b_tsp;o;{\"id\":\"s3\",\"mode\":\"flow\"}\x1b\\\x1b_tsp;o;{\"id\":\"s4\",\"mode\":\"inline\"}\x1b\\")))
+	s4 := ch.surfaces["s4"]
+	if ch.surfaces["s3"] != nil || s4 == nil || s4.Image != TSPImageFirst || s4.Rows != 1 {
+		t.Fatalf("flow kept %v, inline %+v", ch.surfaces["s3"] != nil, s4)
+	}
+	if out != anchor(TSPImageFirst, 50, 1) {
+		t.Errorf("anchor: %q", out)
+	}
+	// A window measured it at 6 rows: the anchor is placed anew, from
+	// its top, over them.
+	if !ch.resize("s4", 6) || s4.Rows != 6 || string(ch.inject) != "\x1b[1A\r\x1b_Ga=p,i=2147418112,p=1,c=50,r=6,q=2\x1b\\" {
+		t.Errorf("resize: rows %d inject %q", s4.Rows, ch.inject)
+	}
+	ch.inject = nil
+	if ch.resize("s4", 6) || ch.resize("s2", 3) || ch.resize("s9", 3) {
+		t.Error("a resize to the same rows, of a screen surface or of none went through")
+	}
+	// Narrower: the anchor is placed again over the new width, from
+	// where it is, the cursor kept.
+	ch.cols = 40
+	ch.rewidth()
+	if string(ch.inject) != "\x1b7\x1b[6A\r\x1b_Ga=p,i=2147418112,p=1,c=40,r=6,q=2\x1b\\\x1b8" {
+		t.Errorf("rewidth: %q", ch.inject)
+	}
+	ch.inject = nil
+	// Closed with keep, it stays, drawn as it was, among the kept, and
+	// in the list before the open ones; closed without, its anchor goes.
+	ch.feed([]byte("\x1b_tsp;x;{\"id\":\"s4\",\"keep\":true}\x1b\\"))
+	if len(ch.kept) != 1 || !ch.kept[0].Closed || ch.kept[0].Image != TSPImageFirst || len(ch.list()) != 2 || ch.list()[0] != ch.kept[0] {
+		t.Errorf("kept: %+v list %v", ch.kept, ch.list())
+	}
+	ch.feed([]byte("\x1b_tsp;o;{\"id\":\"s5\",\"mode\":\"inline\"}\x1b\\"))
+	if out := string(ch.feed([]byte("\x1b_tsp;x;{\"id\":\"s5\"}\x1b\\"))); out != deleteAnchor(TSPImageFirst+1) {
+		t.Errorf("close without keep: %q", out)
+	}
+	if _, err := ch.event(json.RawMessage(`{"ev":"action","sf":"s4","id":"x","act":"click"}`)); err == nil {
+		t.Error("an event of a kept surface went through")
 	}
 
-	// Closed with keep, the last view goes to the terminal as text, in
-	// the close's place in the output.
+	// A screen surface closed with keep leaves its last view as text,
+	// in the close's place in the output.
 	kp := tspTracker{on: true}
 	kp.feed([]byte(tspOpen + tspFrame1))
 	out = string(kp.feed([]byte("before\x1b_tsp;x;{\"id\":\"s1\",\"keep\":true}\x1b\\after")))
@@ -154,8 +189,8 @@ func TestTSPTracker(t *testing.T) {
 	if out != want {
 		t.Errorf("kept text:\n%q\nwant\n%q", out, want)
 	}
-	if len(kp.surfaces) != 0 {
-		t.Error("the surface stayed after a close with keep")
+	if len(kp.surfaces) != 0 || len(kp.kept) != 0 {
+		t.Error("the screen surface stayed after a close with keep")
 	}
 }
 
