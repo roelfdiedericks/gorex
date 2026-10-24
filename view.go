@@ -361,17 +361,25 @@ func (a *App) paneCard(c *ui.Context, k *colors, t *Tab, p *Pane) ui.Element {
 					a.claimSize(p)
 				}
 				p.drawn = a.frame
+				live := 0
+				for i := range p.surfaces {
+					if !p.surfaces[i].Closed {
+						live++
+					}
+				}
+				// A surface draws over the terminal while the program
+				// shows it. As one appears, the terminal takes the
+				// focus, so that keys reach the program; after that the
+				// focus goes where the user clicks, as selecting text in
+				// a surface takes it (tsp_view.go).
+				if live > p.surfacesLive && t.Focus == p && a.tab() == t {
+					tv.Focus()
+				}
+				p.surfacesLive = live
 				if len(p.surfaces) == 0 {
 					return
 				}
-				// A surface draws over the terminal while the program
-				// shows it. The terminal stays under it with the focus,
-				// so that keys still reach the program: a click on the
-				// surface never takes it.
 				a.surfaces(c, k, t, p)
-				if t.Focus == p && a.tab() == t {
-					tv.Focus()
-				}
 			})
 		})
 	})

@@ -78,6 +78,9 @@ type Pane struct {
 	// server each live inline one needs.
 	surfaces    []rex.Surface
 	surfaceRows map[string]int
+	// surfacesLive is how many of them were open at the last frame: one
+	// more gives the terminal the focus.
+	surfacesLive int
 	// files is a browser pane's tree, and edit an editor pane's file.
 	files *browserState
 	edit  *editorState
