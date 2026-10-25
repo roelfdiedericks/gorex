@@ -129,8 +129,8 @@ func TestTSPTracker(t *testing.T) {
 	}
 
 	// A chunked body is reassembled; a flow surface is not kept, an
-	// inline one is, and gets an anchor in the output, one row, over
-	// the terminal's width.
+	// inline one is, and gets an anchor in the output, in the first cell
+	// of its row, and one row.
 	ch := tspTracker{on: true, cols: 50}
 	body := `{"id":"s2","mode":"screen"}`
 	ch.feed([]byte("\x1b_tsp;o;c=a;m=1;" + body[:10] + "\x1b\\" + "\x1b_tsp;o;c=a;" + body[10:] + "\x1b\\"))
@@ -142,24 +142,26 @@ func TestTSPTracker(t *testing.T) {
 	if ch.surfaces["s3"] != nil || s4 == nil || s4.Image != TSPImageFirst || s4.Rows != 1 {
 		t.Fatalf("flow kept %v, inline %+v", ch.surfaces["s3"] != nil, s4)
 	}
-	if out != anchor(TSPImageFirst, 50, 1) {
+	if out != anchor(TSPImageFirst)+"\r\n" {
 		t.Errorf("anchor: %q", out)
 	}
-	// A window measured it at 6 rows: the anchor is placed anew, from
-	// its top, over them.
-	if !ch.resize("s4", 6) || s4.Rows != 6 || string(ch.inject) != "\x1b[1A\r\x1b_Ga=p,i=2147418112,p=1,c=50,r=6,q=2\x1b\\" {
+	// A window measured it at 6 rows: five more blank lines; measured
+	// at 4 after, the lines stay.
+	if !ch.resize("s4", 6) || s4.Rows != 6 || string(ch.inject) != "\r\n\r\n\r\n\r\n\r\n" {
 		t.Errorf("resize: rows %d inject %q", s4.Rows, ch.inject)
 	}
 	ch.inject = nil
-	if ch.resize("s4", 6) || ch.resize("s2", 3) || ch.resize("s9", 3) {
+	if !ch.resize("s4", 4) || s4.Rows != 4 || len(ch.inject) != 0 {
+		t.Errorf("resize to fewer: rows %d inject %q", s4.Rows, ch.inject)
+	}
+	if ch.resize("s4", 4) || ch.resize("s2", 3) || ch.resize("s9", 3) {
 		t.Error("a resize to the same rows, of a screen surface or of none went through")
 	}
-	// Narrower: the anchor is placed again over the new width, from
-	// where it is, the cursor kept.
-	ch.cols = 40
-	ch.rewidth()
-	if string(ch.inject) != "\x1b7\x1b[6A\r\x1b_Ga=p,i=2147418112,p=1,c=40,r=6,q=2\x1b\\\x1b8" {
-		t.Errorf("rewidth: %q", ch.inject)
+	// After an upgrade, the anchors are placed again from the cursor,
+	// under the last surface's rows.
+	ch.reanchor()
+	if string(ch.inject) != "\x1b7\x1b[4A"+anchor(TSPImageFirst)+"\x1b8" {
+		t.Errorf("reanchor: %q", ch.inject)
 	}
 	ch.inject = nil
 	// Closed with keep, it stays, drawn as it was, among the kept, and

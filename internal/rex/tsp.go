@@ -255,13 +255,14 @@ func (t *tspTracker) message(verb string, body []byte) {
 		}
 		sf := &Surface{ID: o.ID, Mode: o.Mode, Title: o.Title}
 		if o.Mode == "inline" {
-			// An anchor of one row, until a window measures the surface.
+			// An anchor, and one row, until a window measures the
+			// surface.
 			t.nextImage++
 			if t.nextImage < TSPImageFirst || t.nextImage > TSPImageLast {
 				t.nextImage = TSPImageFirst
 			}
 			sf.Image, sf.Rows = t.nextImage, 1
-			t.inject = append(t.inject, anchor(sf.Image, t.cols, 1)...)
+			t.inject = append(t.inject, (anchor(sf.Image) + "\r\n")...)
 		}
 		t.surfaces[o.ID] = sf
 		t.nodes[o.ID], t.parent[o.ID] = map[string]*TSPNode{}, map[string]string{}
@@ -334,26 +335,26 @@ func (t *tspTracker) message(verb string, body []byte) {
 
 // Anchors: an inline surface takes rows of the terminal, as the output
 // it stands among does, and scrolls with them. The server places an
-// image of its own there (terminal.Options.AppImages: TSPImageFirst to
-// TSPImageLast, for the windows' terminals too), over the surface's
-// columns and rows, which the terminal tracks through scrolling, reflow
-// and its Mirror, and which the windows draw the surface at. The
-// placement moves the cursor below it, as output would. The program, in
-// raw mode, prints nothing while its surface is live, so the cursor
-// stays there, and re-placing the anchor as the windows measure the
-// surface's height keeps the rows under it. tspMaxKept caps the
-// surfaces kept after their close.
+// image of its own in the first cell of the surface's first row
+// (terminal.Options.AppImages: TSPImageFirst to TSPImageLast, for the
+// windows' terminals too), which the terminal tracks through scrolling,
+// reflow and its Mirror, and which the windows draw the surface from,
+// over the terminal's width and the rows the surface has. The rows are
+// blank lines the server feeds its terminal after the anchor, as output
+// would be, more as the windows measure the surface taller: the program,
+// in raw mode, prints nothing while its surface is live, so the cursor
+// stays under them. tspMaxKept caps the surfaces kept after their close.
 const (
 	TSPImageFirst = 0x7fff0000
 	TSPImageLast  = 0x7fffffff
 	tspMaxKept    = 64
 )
 
-// anchor returns what places the anchor of an image over cols×rows cells
-// at the cursor's row, from its first column, transmitting the image's
-// pixel first.
-func anchor(image uint32, cols, rows int) string {
-	return fmt.Sprintf("\r\x1b_Ga=t,f=32,s=1,v=1,i=%d,q=2;AAAAAA==\x1b\\\x1b_Ga=p,i=%d,p=1,c=%d,r=%d,q=2\x1b\\", image, image, max(cols, 1), max(rows, 1))
+// anchor returns what places the anchor of an image in the first cell of
+// the cursor's row, transmitting the image's pixel first, and leaves the
+// cursor there.
+func anchor(image uint32) string {
+	return fmt.Sprintf("\r\x1b_Ga=t,f=32,s=1,v=1,i=%d,q=2;AAAAAA==\x1b\\\x1b_Ga=p,i=%d,p=1,c=1,r=1,C=1,q=2\x1b\\", image, image)
 }
 
 // deleteAnchor returns what deletes an anchor's image, and so its
@@ -363,28 +364,27 @@ func deleteAnchor(image uint32) string {
 }
 
 // resize takes the rows a window measured a live surface to need: the
-// anchor is placed again over them, and the cursor, at the anchor's
-// bottom, moves with it. It reports whether anything changed.
+// surface takes them, with blank lines fed after its rows for the
+// more, where the cursor is, under the last surface opened; fewer rows
+// leave the lines there. It reports whether anything changed.
 func (t *tspTracker) resize(sf string, rows int) bool {
 	s := t.surfaces[sf]
 	if s == nil || s.Image == 0 || rows <= 0 || rows == s.Rows {
 		return false
 	}
-	// Back up to the anchor's top, place it anew, which puts the cursor
-	// under its new bottom.
-	t.inject = append(t.inject, fmt.Sprintf("\x1b[%dA\r", s.Rows)...)
-	t.inject = append(t.inject, fmt.Sprintf("\x1b_Ga=p,i=%d,p=1,c=%d,r=%d,q=2\x1b\\", s.Image, max(t.cols, 1), rows)...)
+	if rows > s.Rows && len(t.order) > 0 && t.order[len(t.order)-1] == sf {
+		t.inject = append(t.inject, strings.Repeat("\r\n", rows-s.Rows)...)
+	}
 	s.Rows = rows
 	t.changed = true
 	return true
 }
 
-// rewidth places the live surfaces' anchors anew over the terminal's
-// width, after it changed: a placement keeps its columns through a
-// reflow. The cursor is at the last-opened surface's bottom; the others'
-// anchors are placed from where they are, by their rows above it, which
-// holds while the surfaces are stacked as opened.
-func (t *tspTracker) rewidth() {
+// reanchor places the live surfaces' anchors again, after a server
+// upgrade whose screen carried none: the cursor is under the last
+// surface opened, and each anchor is that many rows above it, as far as
+// the screen's top, which an anchor in the scrollback is placed at.
+func (t *tspTracker) reanchor() {
 	up := 0
 	for i := len(t.order) - 1; i >= 0; i-- {
 		s := t.surfaces[t.order[i]]
@@ -392,7 +392,7 @@ func (t *tspTracker) rewidth() {
 			continue
 		}
 		up += s.Rows
-		t.inject = append(t.inject, fmt.Sprintf("\x1b7\x1b[%dA\r\x1b_Ga=p,i=%d,p=1,c=%d,r=%d,q=2\x1b\\\x1b8", up, s.Image, max(t.cols, 1), s.Rows)...)
+		t.inject = append(t.inject, fmt.Sprintf("\x1b7\x1b[%dA%s\x1b8", up, anchor(s.Image))...)
 	}
 }
 

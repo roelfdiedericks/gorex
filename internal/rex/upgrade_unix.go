@@ -291,12 +291,12 @@ func resumeSession(st sessionState, emit func(Response)) (*session, error) {
 		return nil, err
 	}
 	// The screen carries no anchors: the live surfaces' are placed
-	// anew, from the cursor at the last's bottom (rewidth). The kept
+	// anew, from the cursor under the last (reanchor). The kept
 	// surfaces, whose rows may be in the scrollback, are gone.
 	if len(st.Surfaces) > 0 {
 		s.mu.Lock()
 		s.tsp.restore(st.Surfaces)
-		s.tsp.rewidth()
+		s.tsp.reanchor()
 		s.vt.Feed(s.tsp.inject)
 		s.tsp.inject = nil
 		s.mu.Unlock()

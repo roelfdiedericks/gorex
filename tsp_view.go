@@ -57,18 +57,21 @@ func (a *App) screenSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 	}
 }
 
-// inlineSurface draws an inline surface at its anchor's rows. Live, it
-// is as tall as its content, and its height in rows, as the last frame
-// laid it out, goes to the server when it differs from the anchor's;
-// kept, it is cut to the anchor's rows. Scrolled out of the viewport it
-// draws nothing.
+// inlineSurface draws an inline surface from its anchor's row, over the
+// terminal's width. Live, it is as tall as its content, and its height
+// in rows, as the last frame laid it out, goes to the server when it
+// differs from the rows the surface has; kept, it is cut to those rows.
+// Scrolled out of the viewport it draws nothing.
 func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, pl terminal.AppPlacement) {
-	if !pl.Visible && pl.Row+pl.Rows <= 0 {
+	_, screenRows := p.term.Size()
+	rows := max(sf.Rows, p.surfaceRows[sf.ID], 1)
+	if pl.Row >= screenRows || pl.Row+rows <= 0 {
 		return
 	}
-	box := ui.Box(c.Key("tsp-"+sf.ID)).Absolute().Left(pl.Rect.X).Top(pl.Rect.Y).Width(pl.Rect.W).Background(k.bgBottom).Padding(4, 8)
+	cell := pl.Rect.H / float32(max(pl.Rows, 1))
+	box := ui.Box(c.Key(fmt.Sprintf("tsp-%d", sf.Image))).Absolute().Left(pl.Rect.X).Top(pl.Rect.Y).Right(0).Background(k.bgBottom).Padding(4, 8)
 	if sf.Closed {
-		box.Height(pl.Rect.H).Clip()
+		box.Height(cell * float32(sf.Rows)).Clip()
 	}
 	// The wheel over the surface scrolls the terminal, as over its rows.
 	term, at := p.term, pl.Rect
@@ -83,11 +86,10 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 	if box.Pressed() {
 		a.surfacePressed(t, p)
 	}
-	if sf.Closed || pl.Rows <= 0 {
+	if sf.Closed || cell <= 0 {
 		return
 	}
-	cell := pl.Rect.H / float32(pl.Rows)
-	if h := box.Bounds().H; h > 0 && cell > 0 {
+	if h := box.Bounds().H; h > 0 {
 		rows := int(math.Ceil(float64(h/cell - 0.01)))
 		if rows > 0 && rows != sf.Rows && rows != p.surfaceRows[sf.ID] {
 			if p.surfaceRows == nil {
@@ -104,7 +106,8 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 // as one selection across the nodes, which copies as lines; a press on
 // it takes the focus, as selecting text does anywhere, and a press on
 // the surface's edge, or on a control of the program's, gives it back
-// to the terminal (surfacePressed).
+// to the terminal (surfacePressed), as Escape does, which the program
+// gets too: the key most programs end a surface with.
 func (a *App) surfaceContent(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface) {
 	content := ui.Box(c).FillWidth().Selectable()
 	content.Children(func() {
@@ -112,6 +115,12 @@ func (a *App) surfaceContent(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.
 			a.tspNode(c, k, t, p, sf, sf.Root)
 		}
 	})
+	if content.Shortcut(0, ui.KeyEscape) {
+		a.surfacePressed(t, p)
+		if !sf.Closed {
+			p.term.Send([]byte{0x1b})
+		}
+	}
 }
 
 // surfacePressed takes a press on a surface's edge, or on a control of
@@ -300,9 +309,10 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 	if title, _ := n.Props["title"].(string); title != "" {
 		el.Tooltip(title)
 	}
-	// A click action, where the node has one: the program gets it, and
-	// the keys after it.
-	if actions, ok := n.Props["actions"].(map[string]any); ok {
+	// A click action, where the node has one, of a live surface: the
+	// program gets it, and the keys after it. Each program's surfaces
+	// have ids of its own, so the kept ones are keyed by their anchors.
+	if actions, ok := n.Props["actions"].(map[string]any); ok && !sf.Closed {
 		if act, ok := actions["click"].(string); ok && act != "" {
 			if el.Clicked() {
 				a.surfacePressed(t, p)

@@ -452,19 +452,10 @@ func (s *session) resize(cols, rows, cellWidth, cellHeight int) {
 	}
 	changed := cols != s.cols || rows != s.rows || cellWidth != s.cellWidth || cellHeight != s.cellHeight
 	s.cols, s.rows, s.cellWidth, s.cellHeight = cols, rows, cellWidth, cellHeight
-	s.tsp.cellW, s.tsp.cellH = cellWidth, cellHeight
+	s.tsp.cols, s.tsp.cellW, s.tsp.cellH = cols, cellWidth, cellHeight
 	exited := s.exited
 	if changed {
 		s.vt.ResizePixels(cols, rows, cellWidth, cellHeight)
-		// A live surface's anchor spans the width: placed anew over it.
-		if cols != s.tsp.cols {
-			s.tsp.cols = cols
-			s.tsp.rewidth()
-			if len(s.tsp.inject) > 0 {
-				s.vt.Feed(s.tsp.inject)
-				s.tsp.inject = nil
-			}
-		}
 		s.wake()
 	}
 	s.mu.Unlock()
