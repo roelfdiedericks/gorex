@@ -746,8 +746,10 @@ func (t *tspTracker) helloReply() []byte {
 	r := map[string]any{
 		"r": "hello", "v": 1, "term": "gorex", "ver": "0.1.0",
 		// dock: a surface's dock region stays at the bottom of the pane;
-		// blobs: images come as blobs, which the session keeps.
-		"kinds": tspKinds, "features": []string{"dock", "blobs"},
+		// blobs: images come as blobs, which the session keeps; edit,
+		// undo, send: the windows edit the program's fields natively,
+		// telling it what changed.
+		"kinds": tspKinds, "features": []string{"dock", "blobs", "edit", "undo", "send"},
 		"apc": tspAPC, "credits": tspCredits,
 		"cols": t.cols, "cell": map[string]int{"w": t.cellW, "h": t.cellH},
 		"dark": t.dark, "reduceMotion": false,

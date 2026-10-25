@@ -386,27 +386,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		}
 		el = item
 	case "input":
-		// A program's one-line field, which it edits itself.
-		text, _ := n.Props["text"].(string)
-		prompt, _ := n.Props["prompt"].(string)
-		placeholder, _ := n.Props["placeholder"].(string)
-		cursor, _ := n.Props["cursor"].(float64)
-		in := ui.Row(key).FillWidth().AlignItems(ui.Center).Gap(0).Padding(4, 8).Radius(4).Background(k.bgLow)
-		in.Children(func() {
-			if prompt != "" {
-				ui.Text(c, prompt).FontSize(13).TextColor(k.textMuted)
-			}
-			if text == "" {
-				ui.Box(c).Width(2).Height(16).Background(k.text)
-				ui.Text(c, placeholder).FontSize(13).TextColor(k.textFaint)
-				return
-			}
-			at := utf16Offset(text, int(cursor))
-			ui.Text(c, edgeSpaces(text[:at], false)).FontSize(13).TextColor(k.text)
-			ui.Box(c).Width(2).Height(16).Background(k.text)
-			ui.Text(c, edgeSpaces(text[at:], true)).FontSize(13).TextColor(k.text)
-		})
-		el = in
+		el = a.tspField(c, key, k, t, p, sf, n, false)
 	case "overlay":
 		// Drawn over the surface, after it (surfaceOverlays).
 		if !sf.Closed {
@@ -604,24 +584,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		name, _ := n.Props["name"].(string)
 		el = a.tspIcon(c.Key(n.ID), k, name)
 	case "editor":
-		// A program's text field, which it edits itself from the keys the
-		// terminal gives it: drawn as it says, with its caret.
-		text, _ := n.Props["text"].(string)
-		placeholder, _ := n.Props["placeholder"].(string)
-		cursor, _ := n.Props["cursor"].(float64)
-		ed := ui.Row(key).FillWidth().AlignItems(ui.Center).Gap(0).Padding(2, 0)
-		ed.Children(func() {
-			if text == "" {
-				ui.Box(c).Width(2).Height(16).Background(k.text)
-				ui.Text(c, placeholder).FontSize(13).TextColor(k.textFaint)
-				return
-			}
-			at := utf16Offset(text, int(cursor))
-			ui.Text(c, edgeSpaces(text[:at], false)).FontSize(13).TextColor(k.text)
-			ui.Box(c).Width(2).Height(16).Background(k.text)
-			ui.Text(c, edgeSpaces(text[at:], true)).FontSize(13).TextColor(k.text)
-		})
-		el = ed
+		el = a.tspField(c, key, k, t, p, sf, n, true)
 	case "meter":
 		value, has := n.Props["value"].(float64)
 		marks, _ := n.Props["marks"].([]any)
@@ -1002,22 +965,6 @@ func (a *App) tspStatus(c *ui.Context, k *colors, status string) {
 	})
 }
 
-// utf16Offset returns the byte offset in s of the UTF-16 unit at, the
-// end past them.
-func utf16Offset(s string, at int) int {
-	units := 0
-	for i, r := range s {
-		if units >= at {
-			return i
-		}
-		units++
-		if r > 0xffff {
-			units++
-		}
-	}
-	return len(s)
-}
-
 // tspTreeNodes draws a tree's nodes, indented by depth.
 func (a *App) tspTreeNodes(c *ui.Context, k *colors, nodes []any, depth int) {
 	for i, nd := range nodes {
@@ -1250,16 +1197,4 @@ func (a *App) surfaceZoom(c *ui.Context, k *colors, t *Tab, p *Pane) {
 		a.tspZoom, a.tspZoomPane = nil, nil
 		a.surfacePressed(t, p)
 	}
-}
-
-// edgeSpaces keeps the spaces at a field's caret, which layout would
-// drop at the end of a line (leading, at its start), so that the caret
-// moves when a space is typed: they become no-break spaces.
-func edgeSpaces(s string, leading bool) string {
-	if leading {
-		t := strings.TrimLeft(s, " ")
-		return strings.Repeat("\u00a0", len(s)-len(t)) + t
-	}
-	t := strings.TrimRight(s, " ")
-	return t + strings.Repeat("\u00a0", len(s)-len(t))
 }

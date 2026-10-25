@@ -90,6 +90,9 @@ type Pane struct {
 	// dockH is how tall each live surface's pinned dock was drawn (by
 	// anchor), the space the surface keeps for it.
 	dockH map[uint32]float32
+	// fields are the programs' text fields the pane draws natively, by
+	// anchor and node id (tsp_field.go).
+	fields map[string]*tspField
 	// files is a browser pane's tree, and edit an editor pane's file.
 	files *browserState
 	edit  *editorState
