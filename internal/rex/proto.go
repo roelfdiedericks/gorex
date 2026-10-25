@@ -21,7 +21,7 @@ import (
 )
 
 // ProtocolVersion changes whenever the wire protocol does.
-const ProtocolVersion = 6
+const ProtocolVersion = 7
 
 // BridgeReady starts the line a bridge prints before it multiplexes its
 // standard input and output; the rest of the line is its executable.
@@ -242,6 +242,10 @@ const (
 	// as JSON ([]Surface), whenever one changed and when the window
 	// attaches.
 	msgSurface = 'T'
+	// msgBlob is a blob of a program's, an image its surfaces show, once
+	// for each window: its id (64 hex digits), the length of its mime
+	// type (a byte), the mime type and its bytes.
+	msgBlob = 'B'
 )
 
 // Dir returns the directory of the server's socket, log and state.

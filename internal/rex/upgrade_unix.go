@@ -44,10 +44,12 @@ type sessionState struct {
 	Paste bool `json:"paste,omitempty"`
 	// TSP tells that the session answers the Tern Surface Protocol;
 	// Surfaces are its program's live surfaces, with their documents,
-	// and NextImage the last anchor's image id.
+	// NextImage the last anchor's image id and Blobs the program's
+	// blobs, oldest first, which it sent once and does not again.
 	TSP        bool       `json:"tsp,omitempty"`
 	Surfaces   []*Surface `json:"surfaces,omitempty"`
 	NextImage  uint32     `json:"nextImage,omitempty"`
+	Blobs      []*TSPBlob `json:"blobs,omitempty"`
 	Exited     bool       `json:"exited,omitempty"`
 	Code       int        `json:"code,omitempty"`
 	Output     uint64     `json:"output"`
@@ -111,7 +113,7 @@ func (s *Server) upgrade(exe string) error {
 		ses := sessionState{
 			ID: ss.id, Shell: ss.shell, Created: ss.created, PID: ss.p.pid(), FD: -1, Keep: ss.keep, Images: ss.images,
 			Cols: ss.cols, Rows: ss.rows, CellWidth: ss.cellWidth, CellHeight: ss.cellHeight, Paste: ss.paste.on, TSP: ss.tsp.on,
-			Surfaces: ss.tsp.live(), NextImage: ss.tsp.nextImage,
+			Surfaces: ss.tsp.live(), NextImage: ss.tsp.nextImage, Blobs: ss.tsp.blobList(),
 			Exited: ss.exited || !paused[i], Code: ss.code, Output: ss.output,
 			Bells: ss.bells.Load(), LastOutput: ss.lastOutput, LastInput: ss.lastInput,
 		}
@@ -293,13 +295,18 @@ func resumeSession(st sessionState, emit func(Response)) (*session, error) {
 	// The screen carries no anchors: the live surfaces' are placed
 	// anew, from the cursor under the last (reanchor). The kept
 	// surfaces, whose rows may be in the scrollback, are gone.
-	if len(st.Surfaces) > 0 {
+	if len(st.Surfaces) > 0 || len(st.Blobs) > 0 {
 		s.mu.Lock()
-		s.tsp.restore(st.Surfaces)
-		s.tsp.reanchor()
-		s.vt.Feed(s.tsp.inject)
-		s.tsp.inject = nil
-		s.tspPad()
+		for _, b := range st.Blobs {
+			s.tsp.addBlob(b.Mime, b.Data)
+		}
+		if len(st.Surfaces) > 0 {
+			s.tsp.restore(st.Surfaces)
+			s.tsp.reanchor()
+			s.vt.Feed(s.tsp.inject)
+			s.tsp.inject = nil
+			s.tspPad()
+		}
 		s.mu.Unlock()
 	}
 	return s, nil

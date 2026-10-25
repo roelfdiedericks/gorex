@@ -337,6 +337,8 @@ type Stream struct {
 	onSize     func(cols, rows int)
 	// onSurfaces takes the session's surfaces (OnSurfaces).
 	onSurfaces func([]Surface)
+	// onBlob takes the programs' blobs (OnBlob).
+	onBlob func(id, mime string, data []byte)
 	// left is what is left to read of the frame being read, by the
 	// terminal's reading goroutine alone.
 	left int
@@ -516,6 +518,24 @@ func (s *Stream) Read(p []byte) (int, error) {
 			if onSurfaces != nil {
 				onSurfaces(surfaces)
 			}
+		case msgBlob:
+			if n < 65 || n > 32<<20 {
+				return 0, errFraming
+			}
+			b := make([]byte, n)
+			if _, err := io.ReadFull(r, b); err != nil {
+				return 0, err
+			}
+			ml := int(b[64])
+			if 65+ml > n {
+				return 0, errFraming
+			}
+			s.mu.Lock()
+			onBlob := s.onBlob
+			s.mu.Unlock()
+			if onBlob != nil {
+				onBlob(string(b[:64]), string(b[65:65+ml]), b[65+ml:])
+			}
 		default:
 			return 0, errFraming
 		}
@@ -554,6 +574,14 @@ func (s *Stream) OnSize(f func(cols, rows int)) {
 func (s *Stream) OnSurfaces(f func([]Surface)) {
 	s.mu.Lock()
 	s.onSurfaces = f
+	s.mu.Unlock()
+}
+
+// OnBlob gives f the blobs of the session's programs, images their
+// surfaces show by id, each once.
+func (s *Stream) OnBlob(f func(id, mime string, data []byte)) {
+	s.mu.Lock()
+	s.onBlob = f
 	s.mu.Unlock()
 }
 

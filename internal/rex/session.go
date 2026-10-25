@@ -88,8 +88,10 @@ type attached struct {
 	cols, rows int
 	paste      bool
 	reads      []string
-	// surfaced tells that the window was sent the surfaces.
+	// surfaced tells that the window was sent the surfaces, and blobs
+	// the blobs it was sent, by id.
 	surfaced bool
+	blobs    map[string]bool
 }
 
 func (a *attached) poke() {
@@ -425,6 +427,24 @@ func (s *session) frame(a *attached, size *[9]byte) (bufs net.Buffers, due bool)
 		f = append(f, r...)
 	}
 	a.reads = nil
+	// The blobs the window lacks, before the surfaces that show them.
+	for _, id := range s.tsp.blobOrder {
+		if a.blobs[id] {
+			continue
+		}
+		if a.blobs == nil {
+			a.blobs = map[string]bool{}
+		}
+		a.blobs[id] = true
+		b := s.tsp.blobs[id]
+		head := make([]byte, 5, 5+64+1+len(b.Mime))
+		head[0] = msgBlob
+		binary.BigEndian.PutUint32(head[1:], uint32(64+1+len(b.Mime)+len(b.Data)))
+		head = append(head, b.ID...)
+		head = append(head, byte(len(b.Mime)))
+		head = append(head, b.Mime...)
+		bufs = append(bufs, head, b.Data)
+	}
 	if t := &s.tsp; t.changed || !a.surfaced {
 		t.changed, a.surfaced = false, true
 		if b, err := json.Marshal(t.list()); err == nil {

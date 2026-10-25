@@ -1,6 +1,9 @@
 package rex
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -204,6 +207,32 @@ func TestTSPTracker(t *testing.T) {
 	}
 	if len(kp.surfaces) != 0 || len(kp.kept) != 0 {
 		t.Error("the screen surface stayed after a close with keep")
+	}
+}
+
+// A blob, chunked with its mime type in the first chunk only, is kept
+// by the SHA-256 of its bytes; the blobs query says which are held;
+// past the cap the oldest go.
+func TestTSPBlobs(t *testing.T) {
+	tr := tspTracker{on: true}
+	data := []byte("\x89PNG fake image bytes")
+	b64 := base64.StdEncoding.EncodeToString(data)
+	sum := sha256.Sum256(data)
+	id := hex.EncodeToString(sum[:])
+	tr.feed([]byte("\x1b_tsp;b;mime=image/png;c=k;m=1;" + b64[:10] + "\x1b\\" + "\x1b_tsp;b;c=k;" + b64[10:] + "\x1b\\"))
+	if b := tr.blobs[id]; b == nil || b.Mime != "image/png" || string(b.Data) != string(data) || len(tr.blobOrder) != 1 {
+		t.Fatalf("blob: %+v order %v", b, tr.blobOrder)
+	}
+	tr.feed([]byte("\x1b_tsp;q;{\"q\":\"blobs\",\"ids\":[\"" + id + "\",\"feed\"]}\x1b\\"))
+	if len(tr.replies) != 1 || string(tr.replies[0]) != "\x1b_tsp;r;{\"have\":[\""+id+"\"],\"r\":\"blobs\"}\x1b\\" {
+		t.Errorf("blobs reply: %q", tr.replies)
+	}
+	big := make([]byte, tspMaxBlobs/2+1)
+	tr.addBlob("", big)
+	big2 := append([]byte{1}, big[1:]...)
+	tr.addBlob("", big2)
+	if tr.blobs[id] != nil || len(tr.blobOrder) != 1 || tr.blobBytes != len(big2) {
+		t.Errorf("after the cap: %d blobs, %d bytes, the first kept %v", len(tr.blobOrder), tr.blobBytes, tr.blobs[id] != nil)
 	}
 }
 

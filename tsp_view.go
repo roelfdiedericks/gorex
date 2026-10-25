@@ -26,6 +26,10 @@ import (
 // program was told, and falls back itself. A click on a node that has a
 // click action goes to the program as an action event.
 
+// tspFont is the font of surfaces: the system's, and the icons of the
+// Nerd Fonts, which programs put in their text, where it lacks them.
+const tspFont = "system-ui, " + symbolsFont
+
 // surfaces draws the pane's surfaces over its terminal, in the box the
 // terminal's view fills.
 func (a *App) surfaces(c *ui.Context, k *colors, t *Tab, p *Pane) {
@@ -47,12 +51,13 @@ func (a *App) surfaces(c *ui.Context, k *colors, t *Tab, p *Pane) {
 			}
 		}
 	}
+	a.surfaceZoom(c, k, t, p)
 }
 
 // screenSurface draws a screen surface over a pane's terminal, filling
 // the box it is in.
 func (a *App) screenSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface) {
-	s := ui.Scroll(c.Key("tsp-"+sf.ID)).Absolute().Fill().Background(k.bgBottom).Padding(12, 16)
+	s := ui.Scroll(c.Key("tsp-"+sf.ID)).Absolute().Fill().Background(k.bgBottom).Padding(12, 16).Font(tspFont)
 	s.Children(func() { a.surfaceContent(c, k, t, p, sf, false) })
 	if s.Pressed() {
 		a.surfacePressed(t, p)
@@ -71,7 +76,7 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 		return
 	}
 	cell := pl.Rect.H / float32(max(pl.Rows, 1))
-	box := ui.Box(c.Key(fmt.Sprintf("tsp-%d", sf.Image))).Absolute().Left(pl.Rect.X).Top(pl.Rect.Y).Right(0).Background(k.bgBottom).Padding(4, 8)
+	box := ui.Box(c.Key(fmt.Sprintf("tsp-%d", sf.Image))).Absolute().Left(pl.Rect.X).Top(pl.Rect.Y).Right(0).Background(k.bgBottom).Padding(4, 8).Font(tspFont)
 	if sf.Closed {
 		box.Height(cell * float32(sf.Rows)).Clip()
 	}
@@ -117,7 +122,7 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 // it would be.
 func (a *App) surfaceDock(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, dock *rex.TSPNode, x float32) {
 	pinned := ui.Column(c.Key(fmt.Sprintf("tsp-dock-%d", sf.Image))).Absolute().Left(x).Right(0).Bottom(0).
-		Background(k.bgBottom).Padding(4, 8).Gap(8)
+		Background(k.bgBottom).Padding(4, 8).Gap(8).Font(tspFont)
 	term := p.term
 	pinned.HandleInput(func(ev ui.InputEvent) bool {
 		if ev.Kind != ui.InputScroll {
@@ -663,6 +668,22 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		if alt == "" {
 			alt = builtin
 		}
+		blob, _ := n.Props["blob"].(string)
+		if bm := a.tspImages[blob]; bm != nil {
+			// The program's image as a thumbnail, its natural size
+			// fitted in 160×96; a click shows it whole.
+			bw, bh := bm.Size()
+			w, h := float64(bw), float64(bh)
+			if s := min(1, 160/w, 96/h); s < 1 {
+				w, h = w*s, h*s
+			}
+			img := ui.Image(key, bm).Size(float32(w), float32(h)).Radius(4).Tooltip(alt)
+			if img.Clicked() {
+				a.tspZoom, a.tspZoomAlt, a.tspZoomPane = bm, alt, p
+			}
+			el = img
+			break
+		}
 		img := ui.Box(key).Radius(6).Background(k.hover).Padding(6, 12)
 		img.Children(func() {
 			ui.Text(c, alt).FontSize(16).Bold().TextColor(k.text)
@@ -1116,7 +1137,7 @@ func (a *App) surfaceOverlays(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex
 			width = 60
 		}
 		panel := ui.Scroll(c.Key("tsp-ov-"+ov.ID)).Absolute().LeftPercent((100-width)/2).WidthPercent(width).MaxHeightPercent(85).
-			Radius(cardR).Background(k.panel).Border(1, k.panelBorder).Padding(12, 14)
+			Radius(cardR).Background(k.panel).Border(1, k.panelBorder).Padding(12, 14).Font(tspFont)
 		anchor, _ := ov.Props["anchor"].(string)
 		switch anchor {
 		case "top":
@@ -1205,4 +1226,28 @@ func (a *App) tspChart(c *ui.Context, k *colors, key *ui.Context, n *rex.TSPNode
 		}
 	})
 	return chart
+}
+
+// surfaceZoom shows a surface's image whole over the pane, fitted to
+// it, with its name and size: a click or Escape closes it.
+func (a *App) surfaceZoom(c *ui.Context, k *colors, t *Tab, p *Pane) {
+	bm := a.tspZoom
+	if bm == nil || a.tspZoomPane != p {
+		return
+	}
+	w, h := bm.Size()
+	view := ui.Column(c.Key("tsp-zoom")).Absolute().Fill().Background(ui.RGBA(0, 0, 0, 0.75)).
+		Center().Gap(8).Padding(16).Focusable().FocusRing(false).Focus().Font(tspFont)
+	view.Children(func() {
+		ui.Image(c, bm).MaxWidthPercent(100).MaxHeightPercent(90)
+		caption := fmt.Sprintf("%d×%d", w, h)
+		if a.tspZoomAlt != "" {
+			caption = a.tspZoomAlt + "  " + caption
+		}
+		ui.Text(c, caption).FontSize(12).TextColor(ui.RGB(230, 230, 230))
+	})
+	if view.Clicked() || view.Shortcut(0, ui.KeyEscape) {
+		a.tspZoom, a.tspZoomPane = nil, nil
+		a.surfacePressed(t, p)
+	}
 }

@@ -218,6 +218,12 @@ type App struct {
 	// tspDock is the dock region of the surface being drawn, which
 	// floats at the bottom of the pane after it.
 	tspDock *rex.TSPNode
+	// tspImages are the programs' blobs decoded, by id; tspZoom is the
+	// one shown whole over tspZoomPane, named tspZoomAlt.
+	tspImages   map[string]*ui.Bitmap
+	tspZoom     *ui.Bitmap
+	tspZoomAlt  string
+	tspZoomPane *Pane
 	// tspSVGs are the SVGs surfaces show (charts), parsed for a theme,
 	// by theme and source.
 	tspSVGs map[string]*tspSVG
@@ -392,6 +398,43 @@ func (a *App) attach(p *Pane, cols, rows int) {
 	// the same pane, as when the settings remake it: its exit is not the
 	// session's.
 	stream := p.stream
+	stream.OnSurfaces(func(sfs []rex.Surface) {
+		update(func() {
+			if p.stream != stream {
+				return
+			}
+			p.surfaces = sfs
+			// The rows told for a surface stand until the server's
+			// anchor has them, or the surface is gone.
+			for id, rows := range p.surfaceRows {
+				live := false
+				for i := range sfs {
+					if sfs[i].ID == id && !sfs[i].Closed && sfs[i].Rows != rows {
+						live = true
+					}
+				}
+				if !live {
+					delete(p.surfaceRows, id)
+				}
+			}
+			a.changed()
+		})
+	})
+	stream.OnBlob(func(id, mime string, data []byte) {
+		bm, err := ui.DecodeBitmap(data)
+		if err != nil {
+			return
+		}
+		update(func() {
+			// The last images programs sent; a surface shows a blob's
+			// alt text until its image is here.
+			if a.tspImages == nil || len(a.tspImages) >= 128 {
+				a.tspImages = map[string]*ui.Bitmap{}
+			}
+			a.tspImages[id] = bm
+			a.changed()
+		})
+	})
 	term, err := terminal.New(terminal.Options{
 		Conn: p.stream,
 		// The server's terminal lays out the program's output; this one
@@ -464,28 +507,6 @@ func (a *App) attach(p *Pane, cols, rows int) {
 	// size the session had, which the server's next frames are drawn at.
 	term.Resize(cols, rows)
 	stream.OnSize(term.Resize)
-	stream.OnSurfaces(func(sfs []rex.Surface) {
-		update(func() {
-			if p.stream != stream {
-				return
-			}
-			p.surfaces = sfs
-			// The rows told for a surface stand until the server's
-			// anchor has them, or the surface is gone.
-			for id, rows := range p.surfaceRows {
-				live := false
-				for i := range sfs {
-					if sfs[i].ID == id && !sfs[i].Closed && sfs[i].Rows != rows {
-						live = true
-					}
-				}
-				if !live {
-					delete(p.surfaceRows, id)
-				}
-			}
-			a.changed()
-		})
-	})
 	p.term = term
 }
 

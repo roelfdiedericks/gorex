@@ -2,6 +2,9 @@ package rex
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -28,9 +31,53 @@ var tspKinds = []string{"col", "row", "card", "section", "text", "md", "badge", 
 const (
 	tspAPC     = 65536 // the largest body a message carries
 	tspCredits = 2     // frames the program may send unacknowledged
-	// tspMaxBody caps a reassembled body; a longer one is dropped whole.
-	tspMaxBody = 4 << 20
+	// tspMaxBody caps a message's body, and tspMaxJoined a chunked one
+	// reassembled (a blob of tspMaxBlob, in base64); a longer one is
+	// dropped whole.
+	tspMaxBody   = 4 << 20
+	tspMaxJoined = 24 << 20
+	// tspMaxBlob is the largest blob, decoded, as the protocol has it,
+	// and tspMaxBlobs how much a session keeps of them: the oldest go.
+	tspMaxBlob  = 16 << 20
+	tspMaxBlobs = 64 << 20
 )
+
+// TSPBlob is a program's blob: an image its surfaces show by id.
+type TSPBlob struct {
+	ID, Mime string
+	Data     []byte
+}
+
+// addBlob keeps a blob, by the hex SHA-256 of its bytes, letting go of
+// the oldest past tspMaxBlobs.
+func (t *tspTracker) addBlob(mime string, data []byte) {
+	sum := sha256.Sum256(data)
+	id := hex.EncodeToString(sum[:])
+	if t.blobs == nil {
+		t.blobs = map[string]*TSPBlob{}
+	}
+	if t.blobs[id] != nil {
+		return
+	}
+	t.blobs[id] = &TSPBlob{ID: id, Mime: mime, Data: data}
+	t.blobOrder = append(t.blobOrder, id)
+	t.blobBytes += len(data)
+	for t.blobBytes > tspMaxBlobs && len(t.blobOrder) > 1 {
+		old := t.blobOrder[0]
+		t.blobOrder = t.blobOrder[1:]
+		t.blobBytes -= len(t.blobs[old].Data)
+		delete(t.blobs, old)
+	}
+}
+
+// blobList returns the blobs, oldest first.
+func (t *tspTracker) blobList() []*TSPBlob {
+	out := make([]*TSPBlob, 0, len(t.blobOrder))
+	for _, id := range t.blobOrder {
+		out = append(out, t.blobs[id])
+	}
+	return out
+}
 
 // Surface is a program's surface as a window draws it.
 type Surface struct {
@@ -97,6 +144,14 @@ type tspTracker struct {
 	in, inEscaped, over bool
 	body                []byte
 	chunks              map[string][]byte
+	chunkParams         map[string]map[string]string
+
+	// blobs are the program's blobs (images), by id, the hex SHA-256 of
+	// their bytes, blobOrder their ids oldest first and blobBytes their
+	// size together, which tspMaxBlobs caps.
+	blobs     map[string]*TSPBlob
+	blobOrder []string
+	blobBytes int
 }
 
 // tspOpener is what starts a message of ours.
@@ -185,21 +240,28 @@ func (t *tspTracker) end() {
 	}
 	if c := params["c"]; c != "" {
 		if t.chunks == nil {
-			t.chunks = map[string][]byte{}
+			t.chunks, t.chunkParams = map[string][]byte{}, map[string]map[string]string{}
+		}
+		// The first chunk carries the message's params.
+		if _, ok := t.chunkParams[c]; !ok {
+			t.chunkParams[c] = params
 		}
 		joined := append(t.chunks[c], rest...)
 		if params["m"] == "1" {
-			if len(joined) <= tspMaxBody {
+			if len(joined) <= tspMaxJoined {
 				t.chunks[c] = joined
 			} else {
 				delete(t.chunks, c)
+				delete(t.chunkParams, c)
 			}
 			return
 		}
+		params = t.chunkParams[c]
 		delete(t.chunks, c)
+		delete(t.chunkParams, c)
 		rest = string(joined)
 	}
-	t.message(verb, []byte(rest))
+	t.message(verb, params, []byte(rest))
 }
 
 // cutParam reads a key=value; at the start of s.
@@ -222,15 +284,36 @@ func cutParam(s string) (k, v string, ok bool) {
 }
 
 // message takes a message of the program.
-func (t *tspTracker) message(verb string, body []byte) {
+func (t *tspTracker) message(verb string, params map[string]string, body []byte) {
 	switch verb {
 	case "q":
 		var q struct {
-			Q string `json:"q"`
+			Q   string   `json:"q"`
+			IDs []string `json:"ids"`
 		}
-		if json.Unmarshal(body, &q) == nil && q.Q == "hello" {
+		if json.Unmarshal(body, &q) != nil {
+			return
+		}
+		switch q.Q {
+		case "hello":
 			t.replies = append(t.replies, t.helloReply())
+		case "blobs":
+			// Which of the program's blobs the session still holds.
+			have := []string{}
+			for _, id := range q.IDs {
+				if t.blobs[id] != nil {
+					have = append(have, id)
+				}
+			}
+			b, _ := json.Marshal(map[string]any{"r": "blobs", "have": have})
+			t.replies = append(t.replies, append(append([]byte("\x1b_tsp;r;"), b...), "\x1b\\"...))
 		}
+	case "b":
+		data, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(body)))
+		if err != nil || len(data) > tspMaxBlob {
+			return
+		}
+		t.addBlob(params["mime"], data)
 	case "o":
 		var o struct {
 			ID, Mode, Title string
@@ -662,8 +745,9 @@ func spliceUTF16(s string, at, del int, text string) string {
 func (t *tspTracker) helloReply() []byte {
 	r := map[string]any{
 		"r": "hello", "v": 1, "term": "gorex", "ver": "0.1.0",
-		// dock: a surface's dock region stays at the bottom of the pane.
-		"kinds": tspKinds, "features": []string{"dock"},
+		// dock: a surface's dock region stays at the bottom of the pane;
+		// blobs: images come as blobs, which the session keeps.
+		"kinds": tspKinds, "features": []string{"dock", "blobs"},
 		"apc": tspAPC, "credits": tspCredits,
 		"cols": t.cols, "cell": map[string]int{"w": t.cellW, "h": t.cellH},
 		"dark": t.dark, "reduceMotion": false,
