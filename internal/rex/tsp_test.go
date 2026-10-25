@@ -65,9 +65,14 @@ func TestTSPTracker(t *testing.T) {
 		t.Errorf("ack: %q", tr.replies)
 	}
 	tr.replies = nil
-	card := sf.Root.Children[0]
-	if sf.Root.Kind != "col" || card.Kind != "card" || card.Props["status"] != "running" || len(card.Children) != 2 {
-		t.Fatalf("document: %+v", sf.Root)
+	// The surface's root is a column of the program's top-level nodes,
+	// by the surface's id, which the adds name as their parent.
+	if sf.Root.ID != "s1" || sf.Root.Kind != "col" || len(sf.Root.Children) != 1 || sf.Root.Children[0].ID != "main" {
+		t.Fatalf("root: %+v", sf.Root)
+	}
+	card := sf.Root.Children[0].Children[0]
+	if card.Kind != "card" || card.Props["status"] != "running" || len(card.Children) != 2 {
+		t.Fatalf("document: %+v", sf.Root.Children[0])
 	}
 	count := card.Children[1].Children[1]
 	if count.ID != "main.card.row.count" || count.Props["text"] != "clicked 0 times, tick 0" {

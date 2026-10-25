@@ -81,6 +81,9 @@ type Pane struct {
 	// surfacesLive is how many of them were open at the last frame: one
 	// more gives the terminal the focus.
 	surfacesLive int
+	// elapsed is when the window first saw each live timer of a surface
+	// (by anchor and node id) and the age it had then.
+	elapsed map[string]elapsedStart
 	// files is a browser pane's tree, and edit an editor pane's file.
 	files *browserState
 	edit  *editorState
@@ -195,6 +198,9 @@ type App struct {
 	// focusReq asks the view to give the keyboard focus to a pane's
 	// terminal.
 	focusReq *Pane
+	// elapsedDue tells that a frame is due in a second, for the live
+	// timers of surfaces (tsp_view.go).
+	elapsedDue bool
 
 	// The command palette, the host's popover and the tab being renamed.
 	paletteOpen  bool

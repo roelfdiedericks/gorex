@@ -326,8 +326,16 @@ func (s *session) attach(conn net.Conn, at Attach) {
 		if at.Theme != nil {
 			s.vt.UseTheme(at.Theme)
 			s.mu.Lock()
-			s.tsp.dark = darkTheme(at.Theme)
+			dark := darkTheme(at.Theme)
+			var events [][]byte
+			if dark != s.tsp.dark {
+				s.tsp.dark = dark
+				events = s.tsp.themed()
+			}
 			s.mu.Unlock()
+			for _, e := range events {
+				s.p.write(e)
+			}
 		}
 		if at.Cols > 0 && at.Rows > 0 {
 			s.resize(at.Cols, at.Rows, at.CellWidth, at.CellHeight)
@@ -452,7 +460,11 @@ func (s *session) resize(cols, rows, cellWidth, cellHeight int) {
 	}
 	changed := cols != s.cols || rows != s.rows || cellWidth != s.cellWidth || cellHeight != s.cellHeight
 	s.cols, s.rows, s.cellWidth, s.cellHeight = cols, rows, cellWidth, cellHeight
-	s.tsp.cols, s.tsp.cellW, s.tsp.cellH = cols, cellWidth, cellHeight
+	var events [][]byte
+	if cols != s.tsp.cols || cellWidth != s.tsp.cellW || cellHeight != s.tsp.cellH {
+		s.tsp.cols, s.tsp.cellW, s.tsp.cellH = cols, cellWidth, cellHeight
+		events = s.tsp.resized()
+	}
 	exited := s.exited
 	if changed {
 		s.vt.ResizePixels(cols, rows, cellWidth, cellHeight)
@@ -461,6 +473,11 @@ func (s *session) resize(cols, rows, cellWidth, cellHeight int) {
 	s.mu.Unlock()
 	if changed && !exited {
 		s.p.resize(cols, rows, cols*cellWidth, rows*cellHeight)
+	}
+	if !exited {
+		for _, e := range events {
+			s.p.write(e)
+		}
 	}
 }
 

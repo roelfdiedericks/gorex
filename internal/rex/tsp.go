@@ -23,7 +23,7 @@ import (
 
 // tspKinds are the node kinds the windows draw: the hello reply says so,
 // and programs fall back for the others.
-var tspKinds = []string{"col", "row", "card", "section", "text", "md", "badge", "kv", "list", "item", "code", "table", "progress", "spinner", "status", "rule", "spacer", "kbd", "icon"}
+var tspKinds = []string{"col", "row", "card", "section", "text", "md", "badge", "kv", "list", "item", "code", "table", "progress", "spinner", "status", "rule", "spacer", "kbd", "icon", "editor", "meter", "seg", "image", "elapsed", "rate", "ansi", "checklist", "tree"}
 
 const (
 	tspAPC     = 65536 // the largest body a message carries
@@ -264,8 +264,11 @@ func (t *tspTracker) message(verb string, body []byte) {
 			sf.Image, sf.Rows = t.nextImage, 1
 			t.inject = append(t.inject, (anchor(sf.Image) + "\r\n")...)
 		}
+		// The surface is a column of the nodes added to it: its root,
+		// by its own id, which the adds name as their parent.
+		sf.Root = &TSPNode{ID: o.ID, Kind: "col"}
 		t.surfaces[o.ID] = sf
-		t.nodes[o.ID], t.parent[o.ID] = map[string]*TSPNode{}, map[string]string{}
+		t.nodes[o.ID], t.parent[o.ID] = map[string]*TSPNode{o.ID: sf.Root}, map[string]string{o.ID: ""}
 		t.changed = true
 	case "f":
 		var f struct {
@@ -394,6 +397,26 @@ func (t *tspTracker) reanchor() {
 		up += s.Rows
 		t.inject = append(t.inject, fmt.Sprintf("\x1b7\x1b[%dA%s\x1b8", up, anchor(s.Image))...)
 	}
+}
+
+// resized returns what tells the program each live surface's width and
+// cell size, after they changed.
+func (t *tspTracker) resized() [][]byte {
+	var out [][]byte
+	for _, id := range t.order {
+		out = append(out, []byte(fmt.Sprintf("\x1b_tsp;e;{\"ev\":\"resize\",\"sf\":%q,\"cols\":%d,\"cell\":{\"w\":%d,\"h\":%d},\"visible\":true}\x1b\\", id, t.cols, t.cellW, t.cellH)))
+	}
+	return out
+}
+
+// themed returns what tells the program each live surface's appearance,
+// after it switched.
+func (t *tspTracker) themed() [][]byte {
+	var out [][]byte
+	for _, id := range t.order {
+		out = append(out, []byte(fmt.Sprintf("\x1b_tsp;e;{\"ev\":\"theme\",\"sf\":%q,\"dark\":%v}\x1b\\", id, t.dark)))
+	}
+	return out
 }
 
 // live returns the open surfaces, in the order opened, for a server
@@ -547,9 +570,8 @@ func (t *tspTracker) apply(sf *Surface, raw json.RawMessage) {
 // insert puts n under parent (the surface itself when parent is the
 // surface's id or unknown) before the child before, at the end when "".
 func (t *tspTracker) insert(sf *Surface, n *TSPNode, parent, before string) {
-	if parent == sf.ID || parent == "" || t.nodes[sf.ID][parent] == nil {
-		sf.Root = n
-		return
+	if parent == "" || t.nodes[sf.ID][parent] == nil {
+		parent = sf.ID
 	}
 	p := t.nodes[sf.ID][parent]
 	at := len(p.Children)
@@ -567,14 +589,10 @@ func (t *tspTracker) insert(sf *Surface, n *TSPNode, parent, before string) {
 }
 
 // remove takes the node id out of its parent's children, keeping it in
-// the index.
+// the index; the root stays.
 func (t *tspTracker) remove(sf *Surface, id string) {
 	n := t.nodes[sf.ID][id]
-	if n == nil {
-		return
-	}
-	if sf.Root == n {
-		sf.Root = nil
+	if n == nil || n == sf.Root {
 		return
 	}
 	p := t.nodes[sf.ID][t.parent[sf.ID][id]]

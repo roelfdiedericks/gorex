@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
@@ -102,14 +103,14 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 	}
 }
 
-// surfaceContent draws a surface's document. Its text is selectable,
-// as one selection across the nodes, which copies as lines; a press on
-// it takes the focus, as selecting text does anywhere, and a press on
-// the surface's edge, or on a control of the program's, gives it back
-// to the terminal (surfacePressed), as Escape does, which the program
-// gets too: the key most programs end a surface with.
+// surfaceContent draws a surface's document. Its paragraphs are
+// selectable, each on its own (Markdown within itself); a press on one
+// takes the focus, as selecting text does anywhere, and a press
+// anywhere else on the surface, or on a control of the program's, gives
+// it back to the terminal (surfacePressed), as Escape does, which the
+// program gets too: the key most programs end a surface with.
 func (a *App) surfaceContent(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface) {
-	content := ui.Box(c).FillWidth().Selectable()
+	content := ui.Box(c).FillWidth()
 	content.Children(func() {
 		if sf.Root != nil {
 			a.tspNode(c, k, t, p, sf, sf.Root)
@@ -172,11 +173,11 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		})
 		el = sec
 	case "text":
-		el = ui.Text(c, text).FontSize(13).TextColor(k.text)
+		el = ui.Text(c, text).FontSize(13).TextColor(k.text).Selectable()
 	case "md":
 		box := ui.Box(key).FillWidth()
 		box.Children(func() {
-			markdown.View(c, text, &markdown.Options{Theme: &markdown.Theme{Text: k.text, Muted: k.textMuted, Link: k.busy, CodeFont: a.editorFont().Family}, ShareSelection: true})
+			markdown.View(c, text, &markdown.Options{Theme: &markdown.Theme{Text: k.text, Muted: k.textMuted, Link: k.busy, CodeFont: a.editorFont().Family}})
 		})
 		el = box
 	case "badge":
@@ -246,7 +247,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 				body = ui.Box(c).FillWidth().Padding(8, 10)
 			}
 			body.Children(func() {
-				ui.Text(c, text).Font(a.editorFont().Family).FontSize(12).TextColor(k.text).NoWrap()
+				ui.Text(c, text).Font(a.editorFont().Family).FontSize(12).TextColor(k.text).NoWrap().Selectable()
 			})
 		})
 		el = block
@@ -303,8 +304,164 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 	case "icon":
 		name, _ := n.Props["name"].(string)
 		el = a.tspIcon(c.Key(n.ID), k, name)
+	case "editor":
+		// A program's text field, which it edits itself from the keys the
+		// terminal gives it: drawn as it says, with its caret.
+		text, _ := n.Props["text"].(string)
+		placeholder, _ := n.Props["placeholder"].(string)
+		cursor, _ := n.Props["cursor"].(float64)
+		ed := ui.Row(key).FillWidth().AlignItems(ui.Center).Gap(0).Padding(2, 0)
+		ed.Children(func() {
+			if text == "" {
+				ui.Box(c).Width(2).Height(16).Background(k.text)
+				ui.Text(c, placeholder).FontSize(13).TextColor(k.textFaint)
+				return
+			}
+			at := utf16Offset(text, int(cursor))
+			ui.Text(c, text[:at]).FontSize(13).TextColor(k.text)
+			ui.Box(c).Width(2).Height(16).Background(k.text)
+			ui.Text(c, text[at:]).FontSize(13).TextColor(k.text)
+		})
+		el = ed
+	case "meter":
+		value, has := n.Props["value"].(float64)
+		marks, _ := n.Props["marks"].([]any)
+		track := ui.Box(key).Height(6).Radius(3).Background(k.track).Width(120).Clip()
+		track.Children(func() {
+			if has {
+				ui.Box(c).WidthPercent(float32(max(0, min(1, value)) * 100)).Height(6).Background(k.busy)
+			}
+			for i, m := range marks {
+				m, _ := m.(map[string]any)
+				at, _ := m["at"].(float64)
+				ui.Box(c.Key(i)).Absolute().LeftPercent(float32(at * 100)).Top(0).Width(1).Height(6).Background(k.textMuted)
+			}
+		})
+		el = track
+	case "seg":
+		seg := ui.Row(key).Gap(4).AlignItems(ui.Center)
+		seg.Children(func() {
+			if icon, _ := n.Props["icon"].(string); icon != "" {
+				a.tspIcon(c, k, icon)
+			}
+			a.tspRich(c, k, n.Props["spans"], 12, false).TextColor(k.textMuted)
+		})
+		el = seg
+	case "image":
+		alt, _ := n.Props["alt"].(string)
+		builtin, _ := n.Props["builtin"].(string)
+		if alt == "" {
+			alt = builtin
+		}
+		img := ui.Box(key).Radius(6).Background(k.hover).Padding(6, 12)
+		img.Children(func() {
+			ui.Text(c, alt).FontSize(16).Bold().TextColor(k.text)
+		})
+		el = img
+	case "elapsed":
+		// A live timer: the program says how long so far, in ms, and
+		// the window keeps counting from when it heard, until stopped.
+		age, _ := n.Props["age"].(float64)
+		ms := age
+		id := fmt.Sprintf("%d/%s", sf.Image, n.ID)
+		if stopped, ok := n.Props["stopped"].(float64); ok {
+			ms = stopped
+			delete(p.elapsed, id)
+		} else if !sf.Closed {
+			st, ok := p.elapsed[id]
+			if !ok || st.age != age {
+				st = elapsedStart{age: age, at: time.Now()}
+				if p.elapsed == nil {
+					p.elapsed = map[string]elapsedStart{}
+				}
+				p.elapsed[id] = st
+			}
+			ms = age + float64(time.Since(st.at)/time.Millisecond)
+			if !a.elapsedDue {
+				a.elapsedDue = true
+				time.AfterFunc(time.Second, func() {
+					a.elapsedDue = false
+					c.Invalidate()
+				})
+			}
+		}
+		el = ui.Text(c, elapsedText(ms/1000)).FontSize(12).TextColor(k.textMuted)
+	case "rate":
+		value, _ := n.Props["value"].(float64)
+		unit, _ := n.Props["unit"].(string)
+		el = ui.Text(c, fmt.Sprintf("%.0f %s", value, unit)).FontSize(12).TextColor(k.textMuted)
+	case "ansi":
+		// A program's terminal output, its colors dropped for now, cut
+		// to the preview it asks for.
+		lines := strings.Split(stripSGR(text), "\n")
+		more := 0
+		if pv, ok := n.Props["preview"].(map[string]any); ok {
+			if l, ok := pv["lines"].(float64); ok && int(l) < len(lines) {
+				more, lines = len(lines)-int(l), lines[:int(l)]
+			} else if t, ok := pv["tail"].(float64); ok && int(t) < len(lines) {
+				more, lines = len(lines)-int(t), lines[len(lines)-int(t):]
+			}
+		}
+		block := ui.Column(key).Radius(6).Background(k.bgLow).FillWidth().Padding(6, 10).Clip()
+		block.Children(func() {
+			ui.Text(c, strings.Join(lines, "\n")).Font(a.editorFont().Family).FontSize(12).TextColor(k.text).NoWrap().Selectable()
+			if more > 0 {
+				ui.Text(c, fmt.Sprintf("… %d more lines", more)).FontSize(11).TextColor(k.textMuted)
+			}
+		})
+		el = block
+	case "checklist":
+		phases, _ := n.Props["phases"].([]any)
+		cl := ui.Column(key).Gap(3).FillWidth()
+		cl.Children(func() {
+			for pi, ph := range phases {
+				ph, _ := ph.(map[string]any)
+				if title := ph["title"]; title != nil {
+					a.tspRich(c.Key(pi), k, title, 12, true)
+				}
+				items, _ := ph["items"].([]any)
+				for i, it := range items {
+					it, _ := it.(map[string]any)
+					status, _ := it["status"].(string)
+					row := ui.Row(c.Key(fmt.Sprintf("%d.%d", pi, i))).Gap(6).AlignItems(ui.Baseline).FillWidth()
+					row.Children(func() {
+						glyph, color := "☐", k.textMuted
+						switch status {
+						case "active":
+							glyph, color = "◉", k.busy
+						case "done":
+							glyph, color = "☑", k.busy
+						case "dropped":
+							glyph = "⊘"
+						case "blocked":
+							glyph, color = "⊗", k.attention
+						}
+						ui.Text(c, glyph).FontSize(13).TextColor(color)
+						t := a.tspRich(c, k, it["text"], 13, false)
+						if status == "done" || status == "dropped" {
+							t.TextColor(k.textMuted)
+						}
+					})
+					if note := it["note"]; note != nil {
+						a.tspRich(c, k, note, 12, false).TextColor(k.textMuted).Padding(0, 0, 0, 20)
+					}
+				}
+			}
+			if note := n.Props["note"]; note != nil {
+				a.tspRich(c, k, note, 12, false).TextColor(k.textMuted)
+			}
+		})
+		el = cl
+	case "tree":
+		nodes, _ := n.Props["nodes"].([]any)
+		tree := ui.Column(key).Gap(2).FillWidth()
+		tree.Children(func() { a.tspTreeNodes(c, k, nodes, 0) })
+		el = tree
 	default:
 		return
+	}
+	if grow, _ := n.Props["grow"].(float64); grow > 0 {
+		el.Grow(float32(grow))
 	}
 	if title, _ := n.Props["title"].(string); title != "" {
 		el.Tooltip(title)
@@ -495,4 +652,78 @@ func (a *App) tspStatus(c *ui.Context, k *colors, status string) {
 		}
 		ui.Text(c, fmt.Sprint(status)).FontSize(11).TextColor(color)
 	})
+}
+
+// utf16Offset returns the byte offset in s of the UTF-16 unit at, the
+// end past them.
+func utf16Offset(s string, at int) int {
+	units := 0
+	for i, r := range s {
+		if units >= at {
+			return i
+		}
+		units++
+		if r > 0xffff {
+			units++
+		}
+	}
+	return len(s)
+}
+
+// tspTreeNodes draws a tree's nodes, indented by depth.
+func (a *App) tspTreeNodes(c *ui.Context, k *colors, nodes []any, depth int) {
+	for i, nd := range nodes {
+		nd, _ := nd.(map[string]any)
+		row := ui.Row(c.Key(i)).Gap(6).AlignItems(ui.Baseline).FillWidth().Padding(1, 0, 1, float32(depth*16))
+		row.Children(func() {
+			if icon, _ := nd["icon"].(string); icon != "" {
+				a.tspIcon(c, k, icon)
+			}
+			a.tspRich(c, k, nd["label"], 13, false)
+		})
+		if children, _ := nd["children"].([]any); len(children) > 0 {
+			ui.Column(c.Key(fmt.Sprintf("c%d", i))).Gap(2).FillWidth().Children(func() { a.tspTreeNodes(c, k, children, depth+1) })
+		}
+	}
+}
+
+// elapsedText formats seconds as a program shows how long something
+// took: 36s, 1m 12s, 2h 05m.
+func elapsedText(secs float64) string {
+	s := int(secs)
+	switch {
+	case s < 60:
+		return fmt.Sprintf("%ds", s)
+	case s < 3600:
+		return fmt.Sprintf("%dm %02ds", s/60, s%60)
+	}
+	return fmt.Sprintf("%dh %02dm", s/3600, s%3600/60)
+}
+
+// stripSGR drops the escape sequences of styled terminal output,
+// leaving its text.
+func stripSGR(s string) string {
+	if !strings.Contains(s, "\x1b") {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == 0x1b && i+1 < len(s) && s[i+1] == '[' {
+			j := i + 2
+			for j < len(s) && (s[j] < 0x40 || s[j] > 0x7e) {
+				j++
+			}
+			i = j
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+// elapsedStart is a live timer as the window first saw it: the age the
+// program gave, and when.
+type elapsedStart struct {
+	age float64
+	at  time.Time
 }
