@@ -402,9 +402,9 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 				return
 			}
 			at := utf16Offset(text, int(cursor))
-			ui.Text(c, text[:at]).FontSize(13).TextColor(k.text)
+			ui.Text(c, edgeSpaces(text[:at], false)).FontSize(13).TextColor(k.text)
 			ui.Box(c).Width(2).Height(16).Background(k.text)
-			ui.Text(c, text[at:]).FontSize(13).TextColor(k.text)
+			ui.Text(c, edgeSpaces(text[at:], true)).FontSize(13).TextColor(k.text)
 		})
 		el = in
 	case "overlay":
@@ -617,9 +617,9 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 				return
 			}
 			at := utf16Offset(text, int(cursor))
-			ui.Text(c, text[:at]).FontSize(13).TextColor(k.text)
+			ui.Text(c, edgeSpaces(text[:at], false)).FontSize(13).TextColor(k.text)
 			ui.Box(c).Width(2).Height(16).Background(k.text)
-			ui.Text(c, text[at:]).FontSize(13).TextColor(k.text)
+			ui.Text(c, edgeSpaces(text[at:], true)).FontSize(13).TextColor(k.text)
 		})
 		el = ed
 	case "meter":
@@ -1250,4 +1250,16 @@ func (a *App) surfaceZoom(c *ui.Context, k *colors, t *Tab, p *Pane) {
 		a.tspZoom, a.tspZoomPane = nil, nil
 		a.surfacePressed(t, p)
 	}
+}
+
+// edgeSpaces keeps the spaces at a field's caret, which layout would
+// drop at the end of a line (leading, at its start), so that the caret
+// moves when a space is typed: they become no-break spaces.
+func edgeSpaces(s string, leading bool) string {
+	if leading {
+		t := strings.TrimLeft(s, " ")
+		return strings.Repeat("\u00a0", len(s)-len(t)) + t
+	}
+	t := strings.TrimRight(s, " ")
+	return t + strings.Repeat("\u00a0", len(s)-len(t))
 }
