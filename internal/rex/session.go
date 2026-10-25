@@ -527,7 +527,9 @@ func (s *session) tspSize(sf string, rows int) {
 
 // tspPad feeds the terminal the lines the last opened inline surface
 // lacks under its anchor, or takes back those it has spare
-// (tspTracker.padding). s.mu held.
+// (tspTracker.padding). The lines fed are erased as they come: they are
+// the surface's, and what a program printed there before, as a shell's
+// last words, would show through. s.mu held.
 func (s *session) tspPad() {
 	if len(s.tsp.order) == 0 {
 		return
@@ -537,9 +539,9 @@ func (s *session) tspPad() {
 		rows[pl.Image] = pl.Row
 	}
 	_, cursor := s.vt.Cursor()
-	switch n := s.tsp.padding(rows, cursor); {
+	switch n := s.tsp.padding(rows, cursor, s.rows); {
 	case n > 0:
-		s.vt.Feed([]byte(strings.Repeat("\r\n", n)))
+		s.vt.Feed([]byte(strings.Repeat("\r\n\x1b[2K", n)))
 	case n < 0:
 		// Up over the spare rows, which are blank, and clear them.
 		s.vt.Feed([]byte("\x1b[" + strconv.Itoa(-n) + "A\r\x1b[J"))

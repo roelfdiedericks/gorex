@@ -68,7 +68,10 @@ func (a *App) screenSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 // terminal's width. Live, it is as tall as its content, and its height
 // in rows, as the last frame laid it out, goes to the server when it
 // differs from the rows the surface has; kept, it is cut to those rows.
-// Scrolled out of the viewport it draws nothing.
+// Live with a dock, it reaches the pane's bottom, where the dock is
+// pinned, over the rows the server pads it with (tspTracker.padding):
+// no terminal shows between them. Scrolled out of the viewport it draws
+// nothing.
 func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, pl terminal.AppPlacement) {
 	_, screenRows := p.term.Size()
 	rows := max(sf.Rows, p.surfaceRows[sf.ID], 1)
@@ -77,8 +80,11 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 	}
 	cell := pl.Rect.H / float32(max(pl.Rows, 1))
 	box := ui.Box(c.Key(fmt.Sprintf("tsp-%d", sf.Image))).Absolute().Left(pl.Rect.X).Top(pl.Rect.Y).Right(0).Background(k.bgBottom).Padding(4, 8).Font(tspFont)
+	docked := !sf.Closed && tspDocked(sf)
 	if sf.Closed {
 		box.Height(cell * float32(sf.Rows)).Clip()
+	} else if docked {
+		box.Bottom(0)
 	}
 	// The wheel over the surface scrolls the terminal, as over its rows.
 	term, at := p.term, pl.Rect
@@ -91,7 +97,8 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 	})
 	a.tspOverlays = a.tspOverlays[:0]
 	a.tspDock = nil
-	box.Children(func() { a.surfaceContent(c, k, t, p, sf, !sf.Closed) })
+	var content ui.Element
+	box.Children(func() { content = a.surfaceContent(c, k, t, p, sf, !sf.Closed) })
 	if box.Pressed() {
 		a.surfacePressed(t, p)
 	}
@@ -102,7 +109,13 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 	if sf.Closed || cell <= 0 {
 		return
 	}
-	if h := box.Bounds().H; h > 0 {
+	// The rows the content takes, the box's padding included; a docked
+	// surface's box reaches further.
+	h := box.Bounds().H
+	if docked {
+		h = content.Bounds().H + 8
+	}
+	if h > 0 {
 		rows := int(math.Ceil(float64(h/cell - 0.01)))
 		if rows > 0 && rows != sf.Rows && rows != p.surfaceRows[sf.ID] {
 			if p.surfaceRows == nil {
@@ -113,6 +126,20 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 			go stream.TSPSize(id, rows)
 		}
 	}
+}
+
+// tspDocked reports whether a surface has a dock region, as the server
+// pads it for (rex.Surface.docked).
+func tspDocked(sf *rex.Surface) bool {
+	if sf.Root == nil {
+		return false
+	}
+	for _, n := range sf.Root.Children {
+		if n.ID == "dock" {
+			return true
+		}
+	}
+	return false
 }
 
 // surfaceDock draws a live surface's dock region (a program's composer
@@ -153,7 +180,7 @@ func (a *App) surfaceDock(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Sur
 // it back to the terminal (surfacePressed), as Escape does, which the
 // program gets too: the key most programs end a surface with. With
 // pin, the dock region is left as a space for surfaceDock to draw.
-func (a *App) surfaceContent(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, pin bool) {
+func (a *App) surfaceContent(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, pin bool) ui.Element {
 	content := ui.Column(c).FillWidth().Gap(8)
 	content.Children(func() {
 		if sf.Root == nil {
@@ -174,6 +201,7 @@ func (a *App) surfaceContent(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.
 			p.term.Send([]byte{0x1b})
 		}
 	}
+	return content
 }
 
 // surfacePressed takes a press on a surface's edge, or on a control of

@@ -161,13 +161,26 @@ func TestTSPTracker(t *testing.T) {
 	// fewer rows below it than the surface has, and has some spare when
 	// more, as many as are on the screen; an anchor not found, none.
 	for _, c := range []struct{ anchor, cursor, want int }{{10, 11, 3}, {10, 14, 0}, {10, 20, -6}, {-5, 2, -2}, {-5, -2, 1}, {-20, 3, -3}} {
-		if got := ch.padding(map[uint32]int{TSPImageFirst: c.anchor}, c.cursor); got != c.want {
+		if got := ch.padding(map[uint32]int{TSPImageFirst: c.anchor}, c.cursor, 40); got != c.want {
 			t.Errorf("padding with the anchor at %d, the cursor at %d: %d, want %d", c.anchor, c.cursor, got, c.want)
 		}
 	}
-	if ch.padding(map[uint32]int{}, 11) != 0 {
+	if ch.padding(map[uint32]int{}, 11, 40) != 0 {
 		t.Error("padding without the anchor")
 	}
+	// A live surface with a dock takes the screen down from its anchor,
+	// its own rows when they are more; closed, only its rows.
+	s4.Root = &TSPNode{Children: []*TSPNode{{ID: "main"}, {ID: "dock"}}}
+	for _, c := range []struct{ anchor, cursor, screen, want int }{{10, 11, 40, 28}, {10, 14, 12, 0}, {-5, 2, 40, 37}, {0, 30, 40, 9}, {0, 39, 40, 0}} {
+		if got := ch.padding(map[uint32]int{TSPImageFirst: c.anchor}, c.cursor, c.screen); got != c.want {
+			t.Errorf("docked padding with the anchor at %d, the cursor at %d, %d rows: %d, want %d", c.anchor, c.cursor, c.screen, got, c.want)
+		}
+	}
+	s4.Closed = true
+	if got := ch.padding(map[uint32]int{TSPImageFirst: 10}, 20, 40); got != -6 {
+		t.Errorf("closed docked padding: %d, want -6", got)
+	}
+	s4.Closed, s4.Root = false, nil
 	if ch.resize("s4", 4) || ch.resize("s2", 3) || ch.resize("s9", 3) {
 		t.Error("a resize to the same rows, of a screen surface or of none went through")
 	}

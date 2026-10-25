@@ -464,13 +464,17 @@ func (t *tspTracker) resize(sf string, rows int) bool {
 
 // padding returns how many lines the terminal needs fed for the last
 // opened inline surface to have its rows above the cursor, given where
-// the anchors are (placements: image id → row) and the cursor's row:
-// the program prints nothing while its surface is live, but what moves
-// the cursor otherwise (a reflow, an upgrade, output that came anyway)
-// is made up for. Negative, it is how many rows the surface has spare
-// under it, which are blank, and as many as are on the screen are taken
-// back, so that what follows the surface comes right after it.
-func (t *tspTracker) padding(placements map[uint32]int, cursor int) int {
+// the anchors are (placements: image id → row), the cursor's row and
+// the screen's rows: the program prints nothing while its surface is
+// live, but what moves the cursor otherwise (a reflow, an upgrade,
+// output that came anyway) is made up for. A live surface with a dock
+// (a composer pinned at the bottom) takes the screen down from its
+// anchor, as its program would in a terminal of its own, so that no
+// terminal shows between it and its dock. Negative, it is how many rows
+// the surface has spare under it, which are blank, and as many as are
+// on the screen are taken back, so that what follows the surface comes
+// right after it.
+func (t *tspTracker) padding(placements map[uint32]int, cursor, screen int) int {
 	if len(t.order) == 0 {
 		return 0
 	}
@@ -482,12 +486,32 @@ func (t *tspTracker) padding(placements map[uint32]int, cursor int) int {
 	if !ok {
 		return 0
 	}
-	n := s.Rows - (cursor - row)
+	rows := s.Rows
+	if !s.Closed && s.docked() {
+		// Down to the screen's last row, where the cursor stays: a row
+		// further would scroll, and the anchor with it, without end.
+		rows = max(rows, screen-1-row)
+	}
+	n := rows - (cursor - row)
 	if n < 0 {
 		// Rows above the screen are the scrollback's, which stay.
 		n = max(n, -cursor)
 	}
 	return n
+}
+
+// docked reports whether the surface has a dock region, which windows
+// pin at the bottom of the pane.
+func (s *Surface) docked() bool {
+	if s.Root == nil {
+		return false
+	}
+	for _, n := range s.Root.Children {
+		if n.ID == "dock" {
+			return true
+		}
+	}
+	return false
 }
 
 // reanchor places the live surfaces' anchors again, after a server
