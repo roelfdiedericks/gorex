@@ -615,10 +615,24 @@ func (a *App) tspKeys(c *ui.Context, k *colors, keys []any) ui.Element {
 
 // tspIcon draws an icon of the protocol's by name, those GoRex has.
 func (a *App) tspIcon(c *ui.Context, k *colors, name string) ui.Element {
+	// GoRex's icons, by the protocol's names.
+	if svg, ok := map[string]string{
+		"check": "check", "x": "x", "copy": "copy", "folder": "folder", "folder-open": "folder-open",
+		"file": "file", "file-code": "file-code", "branch": "git-branch", "diff": "diff", "trash": "trash-2",
+		"search": "search", "terminal": "terminal", "model": "sparkles", "bot": "bot", "settings": "settings-2",
+		"rewind": "rotate-ccw", "undo": "rotate-ccw", "refresh": "refresh-cw", "more": "ellipsis", "plus": "plus",
+		"minus": "minus", "arrow-left": "arrow-left", "chev": "chevron-down", "chev-down": "chevron-down",
+		"circle": "circle-dot", "eye": "eye", "pencil": "pencil", "globe": "globe", "database": "database",
+		"cpu": "cpu", "server": "server", "keyboard": "keyboard", "command": "command", "activity": "activity",
+	}[name]; ok {
+		return ui.Icon(c, icon(svg)).Size(13, 13).TextColor(k.textMuted).Shrink(0)
+	}
 	glyph := map[string]string{
-		"check": "✓", "x": "✕", "close": "✕", "warning": "⚠", "error": "⊗", "info": "ⓘ",
-		"arrow-up": "↑", "arrow-down": "↓", "arrow-left": "←", "arrow-right": "→", "back": "←",
-		"folder": "▸", "file": "▫", "dot": "•", "star": "★", "clock": "◷", "search": "⌕",
+		"close": "✕", "x-circle": "⊗", "warn": "⚠", "warning": "⚠", "error": "⊗", "info": "ⓘ", "help": "?",
+		"arrow-up": "↑", "arrow-down": "↓", "arrow-right": "→", "back": "←", "forward": "→",
+		"chev-r": "›", "chev-up": "︿", "dot": "•", "star": "★", "clock": "◷", "timer": "⏱", "lightbulb": "💡",
+		"play": "▶", "pause": "⏸", "stop": "■", "send": "➤", "lock": "🔒", "key": "⚿", "bell": "🔔",
+		"context.speculation": "◔", "context.compaction": "◑", "commit": "●", "merge": "⑂",
 	}[name]
 	if glyph == "" {
 		glyph = "•"
