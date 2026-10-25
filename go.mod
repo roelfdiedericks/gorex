@@ -1,6 +1,6 @@
 module gorex
 
-go 1.27.1
+go 1.27.3
 
 require (
 	github.com/alecthomas/chroma/v2 v2.27.0
@@ -31,4 +31,4 @@ tool github.com/egoist/mygo/cmd/mygo
 // GoRex's MyGo: upstream main and the changes GoRex carries, branch
 // gorex-upstream of the fork. To work on MyGo alongside, replace it with
 // ../mygo in a go.work, which is not committed.
-replace github.com/egoist/mygo => github.com/roelfdiedericks/mygo v0.0.0-20261025153134-5257093432eb
+replace github.com/egoist/mygo => github.com/roelfdiedericks/mygo v0.0.0-20261025224142-c0aba8e2f041
