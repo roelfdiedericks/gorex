@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 
 	"github.com/egoist/mygo/plugins/terminal"
@@ -129,6 +130,10 @@ type tspTracker struct {
 	// oldest first; nextImage is the last anchor's image id.
 	kept      []*Surface
 	nextImage uint32
+	// spare is how many rows the cursor is under the last opened inline
+	// surface's content, and under its rows anchor: told by the session
+	// before each read, for a close to take them back (reclaim).
+	spare, under int
 	// changed tells that a surface changed since the windows were told.
 	changed bool
 	// hello is the hello reply's terminal facts the session knows: its
@@ -395,10 +400,11 @@ func (t *tspTracker) message(verb string, params map[string]string, body []byte)
 		switch {
 		case x.Keep && sf.Image != 0:
 			// The last view stays where it is, drawn as it was, in the
-			// rows the anchor keeps; the oldest kept goes when there are
-			// many.
+			// rows the anchor keeps, and the rows padded under them go
+			// (reclaim); the oldest kept goes when there are many.
 			sf.Closed = true
 			t.kept = append(t.kept, sf)
+			t.inject = append(t.inject, reclaim(t.spare)...)
 			if len(t.kept) > tspMaxKept {
 				t.inject = append(t.inject, deleteAnchor(t.kept[0].Image)...)
 				t.kept = t.kept[1:]
@@ -413,8 +419,9 @@ func (t *tspTracker) message(verb string, params map[string]string, body []byte)
 			}
 			t.inject = append(t.inject, b.String()...)
 		case sf.Image != 0:
-			t.inject = append(t.inject, deleteAnchor(sf.Image)...)
+			t.inject = append(t.inject, (reclaim(t.under) + deleteAnchor(sf.Image))...)
 		}
+		t.spare, t.under = 0, 0
 		t.changed = true
 	}
 }
@@ -447,6 +454,57 @@ func anchor(image uint32) string {
 // placement; its rows stay, blank.
 func deleteAnchor(image uint32) string {
 	return fmt.Sprintf("\x1b_Ga=d,d=I,i=%d,q=2\x1b\\", image)
+}
+
+// reclaim returns what takes back n blank rows above the cursor: up over
+// them and clear from there down. Nothing for none.
+func reclaim(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	return "\x1b[" + strconv.Itoa(n) + "A\r\x1b[J"
+}
+
+// spareRows tells the tracker the rows the cursor is under the last
+// opened inline surface's content (spare) and under its anchor (under),
+// from where the anchors are and the cursor's row, as the session reads
+// output: a close in it takes them back.
+func (t *tspTracker) spareRows(placements map[uint32]int, cursor int) {
+	t.spare, t.under = 0, 0
+	if len(t.order) == 0 {
+		return
+	}
+	s := t.surfaces[t.order[len(t.order)-1]]
+	if s == nil || s.Image == 0 {
+		return
+	}
+	row, ok := placements[s.Image]
+	if !ok {
+		return
+	}
+	// Rows above the screen are the scrollback's, which stay.
+	t.under = max(0, min(cursor, cursor-row))
+	t.spare = max(0, min(cursor, cursor-row-s.Rows))
+}
+
+// sweep drops the kept surfaces whose anchors the terminal no longer
+// has, as after a clear: they are gone from the windows with it. It
+// reports whether any went.
+func (t *tspTracker) sweep(placements map[uint32]int) bool {
+	n := 0
+	for _, s := range t.kept {
+		if _, ok := placements[s.Image]; ok {
+			t.kept[n] = s
+			n++
+		}
+	}
+	if n == len(t.kept) {
+		return false
+	}
+	clear(t.kept[n:])
+	t.kept = t.kept[:n]
+	t.changed = true
+	return true
 }
 
 // resize takes the rows a window measured a live surface to need. The

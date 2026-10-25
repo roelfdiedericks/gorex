@@ -9,7 +9,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -257,7 +256,10 @@ func (s *session) read() {
 			s.mu.Lock()
 			// TSP messages are the server's: taken out before the
 			// terminal sees the output, and answered first, so that the
-			// hello reply comes before the terminal's DA1 answer.
+			// hello reply comes before the terminal's DA1 answer. A
+			// close among them takes back the rows padded under its
+			// surface, as they are now (spareRows).
+			s.tsp.spareRows(s.anchorRows())
 			out := s.tsp.feed(buf[:n])
 			replies := s.tsp.replies
 			s.tsp.replies = nil
@@ -525,26 +527,35 @@ func (s *session) tspSize(sf string, rows int) {
 	s.wake()
 }
 
-// tspPad feeds the terminal the lines the last opened inline surface
-// lacks under its anchor, or takes back those it has spare
-// (tspTracker.padding). The lines fed are erased as they come: they are
-// the surface's, and what a program printed there before, as a shell's
-// last words, would show through. s.mu held.
-func (s *session) tspPad() {
-	if len(s.tsp.order) == 0 {
-		return
-	}
+// anchorRows returns the rows of the anchors in the terminal (image id →
+// row, negative in the scrollback) and the cursor's row. s.mu held.
+func (s *session) anchorRows() (map[uint32]int, int) {
 	rows := map[uint32]int{}
 	for _, pl := range s.vt.AppPlacements() {
 		rows[pl.Image] = pl.Row
 	}
 	_, cursor := s.vt.Cursor()
+	return rows, cursor
+}
+
+// tspPad feeds the terminal the lines the last opened inline surface
+// lacks under its anchor, or takes back those it has spare
+// (tspTracker.padding), and drops the kept surfaces whose anchors are
+// gone, as after a clear (sweep). The lines fed are erased as they come:
+// they are the surface's, and what a program printed there before, as a
+// shell's last words, would show through. s.mu held.
+func (s *session) tspPad() {
+	if len(s.tsp.order) == 0 && len(s.tsp.kept) == 0 {
+		return
+	}
+	rows, cursor := s.anchorRows()
+	s.tsp.sweep(rows)
 	switch n := s.tsp.padding(rows, cursor, s.rows); {
 	case n > 0:
 		s.vt.Feed([]byte(strings.Repeat("\r\n\x1b[2K", n)))
 	case n < 0:
 		// Up over the spare rows, which are blank, and clear them.
-		s.vt.Feed([]byte("\x1b[" + strconv.Itoa(-n) + "A\r\x1b[J"))
+		s.vt.Feed([]byte(reclaim(-n)))
 	}
 }
 

@@ -192,14 +192,32 @@ func TestTSPTracker(t *testing.T) {
 	}
 	ch.inject = nil
 	// Closed with keep, it stays, drawn as it was, among the kept, and
-	// in the list before the open ones; closed without, its anchor goes.
-	ch.feed([]byte("\x1b_tsp;x;{\"id\":\"s4\",\"keep\":true}\x1b\\"))
+	// in the list before the open ones, and the rows padded under its
+	// content are taken back; closed without, its anchor goes with all
+	// its rows.
+	ch.spareRows(map[uint32]int{TSPImageFirst: 10}, 40)
+	if ch.spare != 26 || ch.under != 30 {
+		t.Errorf("spare rows: %d under the content, %d under the anchor", ch.spare, ch.under)
+	}
+	if out := string(ch.feed([]byte("\x1b_tsp;x;{\"id\":\"s4\",\"keep\":true}\x1b\\"))); out != reclaim(26) {
+		t.Errorf("close with keep: %q", out)
+	}
 	if len(ch.kept) != 1 || !ch.kept[0].Closed || ch.kept[0].Image != TSPImageFirst || len(ch.list()) != 2 || ch.list()[0] != ch.kept[0] {
 		t.Errorf("kept: %+v list %v", ch.kept, ch.list())
 	}
 	ch.feed([]byte("\x1b_tsp;o;{\"id\":\"s5\",\"mode\":\"inline\"}\x1b\\"))
-	if out := string(ch.feed([]byte("\x1b_tsp;x;{\"id\":\"s5\"}\x1b\\"))); out != deleteAnchor(TSPImageFirst+1) {
+	ch.spareRows(map[uint32]int{TSPImageFirst: 10, TSPImageFirst + 1: 20}, 25)
+	if out := string(ch.feed([]byte("\x1b_tsp;x;{\"id\":\"s5\"}\x1b\\"))); out != reclaim(5)+deleteAnchor(TSPImageFirst+1) {
 		t.Errorf("close without keep: %q", out)
+	}
+	// A kept surface whose anchor the terminal lost, as after a clear,
+	// goes; one scrolled into the scrollback stays.
+	ch.changed = false
+	if ch.sweep(map[uint32]int{TSPImageFirst: -30}) || ch.changed || len(ch.kept) != 1 {
+		t.Error("a kept surface in the scrollback went")
+	}
+	if !ch.sweep(map[uint32]int{}) || !ch.changed || len(ch.kept) != 0 || len(ch.list()) != 1 {
+		t.Errorf("after a clear: kept %v, list %v", ch.kept, ch.list())
 	}
 	if _, err := ch.event(json.RawMessage(`{"ev":"action","sf":"s4","id":"x","act":"click"}`)); err == nil {
 		t.Error("an event of a kept surface went through")
