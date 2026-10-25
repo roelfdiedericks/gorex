@@ -151,29 +151,81 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		el = ui.Row(key).Gap(8).AlignItems(ui.Center).FillWidth().Children(children)
 	case "card":
 		status, _ := n.Props["status"].(string)
-		card := ui.Column(key).Radius(cardR).Background(k.card).Border(1, k.cardBorder).Padding(12, 14).Gap(10).FillWidth()
+		variant, _ := n.Props["variant"].(string)
+		head, body, collapsed := a.tspFold(p, sf, n)
+		card := ui.Column(key).Gap(10).FillWidth()
+		if variant != "bare" {
+			card.Radius(cardR).Background(k.card).Border(1, k.cardBorder).Padding(12, 14)
+			if selected, _ := n.Props["selected"].(bool); selected {
+				card.Border(1, k.busy)
+			}
+		}
 		card.Children(func() {
 			h := ui.Row(c).Gap(8).AlignItems(ui.Center).FillWidth()
+			if collapsible, _ := n.Props["collapsible"].(bool); collapsible {
+				h.Unselectable()
+			}
 			h.Children(func() {
-				a.tspRich(c, k, n.Props["head"], 14, true).Grow(1)
+				if head != nil {
+					a.tspHead = true
+					ui.Box(c).Grow(1).Children(func() { a.tspNode(c, k, t, p, sf, head) })
+					a.tspHead = false
+				} else {
+					a.tspRich(c, k, n.Props["head"], 14, true).Grow(1)
+				}
 				if status != "" {
 					a.tspStatus(c, k, status)
 				}
 			})
-			children()
+			a.tspFoldHead(h, p, sf, n, collapsed)
+			if !collapsed {
+				for _, ch := range body {
+					a.tspNode(c, k, t, p, sf, ch)
+				}
+			}
 		})
 		el = card
 	case "section":
+		head, body, collapsed := a.tspFold(p, sf, n)
 		sec := ui.Column(key).Gap(8).FillWidth()
 		sec.Children(func() {
-			if head := n.Props["head"]; head != nil {
-				a.tspRich(c, k, head, 13, true)
+			h := ui.Row(c).Gap(6).AlignItems(ui.Center).FillWidth()
+			if collapsible, _ := n.Props["collapsible"].(bool); collapsible {
+				h.Unselectable()
 			}
-			children()
+			h.Children(func() {
+				if collapsible, _ := n.Props["collapsible"].(bool); collapsible {
+					glyph := "▾"
+					if collapsed {
+						glyph = "▸"
+					}
+					ui.Text(c, glyph).FontSize(12).TextColor(k.textMuted)
+				}
+				if head != nil {
+					a.tspHead = true
+					a.tspNode(c, k, t, p, sf, head)
+					a.tspHead = false
+				} else if hd := n.Props["head"]; hd != nil {
+					a.tspRich(c, k, hd, 13, true)
+				}
+			})
+			a.tspFoldHead(h, p, sf, n, collapsed)
+			if !collapsed {
+				for _, ch := range body {
+					a.tspNode(c, k, t, p, sf, ch)
+				}
+			}
 		})
 		el = sec
 	case "text":
-		el = ui.Text(c, text).FontSize(13).TextColor(k.text).Selectable()
+		if spans, ok := n.Props["spans"]; ok {
+			el = a.tspRich(c, k, spans, 13, false)
+		} else {
+			el = ui.Text(c, text).FontSize(13).TextColor(k.text)
+		}
+		if !a.tspHead {
+			el.Selectable()
+		}
 	case "md":
 		box := ui.Box(key).FillWidth()
 		box.Children(func() {
@@ -726,4 +778,43 @@ func stripSGR(s string) string {
 type elapsedStart struct {
 	age float64
 	at  time.Time
+}
+
+// tspFold reads a card's or section's head and body: the head is the
+// child the head prop names (a slot), when it names one, and the body
+// the other children; collapsed tells that only the head shows, as the
+// program said at first and as the user flipped it since.
+func (a *App) tspFold(p *Pane, sf *rex.Surface, n *rex.TSPNode) (head *rex.TSPNode, body []*rex.TSPNode, collapsed bool) {
+	slot, _ := n.Props["head"].(string)
+	for _, ch := range n.Children {
+		if slot != "" && ch.ID == slot && head == nil {
+			head = ch
+		} else {
+			body = append(body, ch)
+		}
+	}
+	if collapsible, _ := n.Props["collapsible"].(bool); collapsible {
+		collapsed, _ = n.Props["collapsed"].(bool)
+		if v, ok := p.folds[fmt.Sprintf("%d/%s", sf.Image, n.ID)]; ok {
+			collapsed = v
+		}
+	}
+	return head, body, collapsed
+}
+
+// tspFoldHead makes a collapsible node's head row flip its fold on a
+// click, which the program is told of (a toggle event).
+func (a *App) tspFoldHead(h ui.Element, p *Pane, sf *rex.Surface, n *rex.TSPNode, collapsed bool) {
+	if collapsible, _ := n.Props["collapsible"].(bool); !collapsible || sf.Closed {
+		return
+	}
+	if h.Clicked() {
+		if p.folds == nil {
+			p.folds = map[string]bool{}
+		}
+		p.folds[fmt.Sprintf("%d/%s", sf.Image, n.ID)] = !collapsed
+		stream := p.stream
+		ev := map[string]any{"ev": "toggle", "sf": sf.ID, "id": n.ID, "collapsed": !collapsed}
+		go stream.TSPEvent(ev)
+	}
 }

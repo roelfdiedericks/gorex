@@ -84,6 +84,9 @@ type Pane struct {
 	// elapsed is when the window first saw each live timer of a surface
 	// (by anchor and node id) and the age it had then.
 	elapsed map[string]elapsedStart
+	// folds is how the user folded a surface's collapsible nodes (by
+	// anchor and node id), over what the program said.
+	folds map[string]bool
 	// files is a browser pane's tree, and edit an editor pane's file.
 	files *browserState
 	edit  *editorState
@@ -201,6 +204,9 @@ type App struct {
 	// elapsedDue tells that a frame is due in a second, for the live
 	// timers of surfaces (tsp_view.go).
 	elapsedDue bool
+	// tspHead tells that a surface's head slot is being drawn, whose
+	// text is not selectable: a click on it folds.
+	tspHead bool
 
 	// The command palette, the host's popover and the tab being renamed.
 	paletteOpen  bool
