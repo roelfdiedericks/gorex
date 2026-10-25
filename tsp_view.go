@@ -156,7 +156,19 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 	case "col":
 		el = ui.Column(key).Gap(8).FillWidth().Children(children)
 	case "row":
-		el = ui.Row(key).Gap(8).AlignItems(ui.Center).FillWidth().Children(children)
+		row := ui.Row(key).Gap(8).AlignItems(ui.Center).FillWidth()
+		if wrap, _ := n.Props["wrap"].(bool); wrap {
+			row.Wrap()
+		}
+		switch justify, _ := n.Props["justify"].(string); justify {
+		case "end":
+			row.Justify(ui.End)
+		case "between":
+			row.Justify(ui.SpaceBetween)
+		case "center":
+			row.Justify(ui.Center)
+		}
+		el = row.Children(children)
 	case "card":
 		status, _ := n.Props["status"].(string)
 		variant, _ := n.Props["variant"].(string)
@@ -356,6 +368,56 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 			}
 			body.Children(func() {
 				ui.Text(c, text).Font(a.editorFont().Family).FontSize(12).TextColor(k.text).NoWrap().Selectable()
+			})
+		})
+		el = block
+	case "diff":
+		// A unified diff, as text or hunks: added lines green, removed
+		// red, hunk heads muted.
+		var lines []string
+		if hunks, ok := n.Props["hunks"].([]any); ok && len(hunks) > 0 {
+			for _, h := range hunks {
+				h, _ := h.(map[string]any)
+				oldStart, _ := h["oldStart"].(float64)
+				newStart, _ := h["newStart"].(float64)
+				lines = append(lines, fmt.Sprintf("@@ -%d +%d @@", int(oldStart), int(newStart)))
+				hl, _ := h["lines"].([]any)
+				for _, l := range hl {
+					s, _ := l.(string)
+					lines = append(lines, s)
+				}
+			}
+		} else {
+			lines = strings.Split(strings.TrimRight(text, "\n"), "\n")
+		}
+		path, _ := n.Props["path"].(string)
+		block := ui.Column(key).Radius(6).Background(k.bgLow).Border(1, k.cardBorder).FillWidth().Clip()
+		block.Children(func() {
+			if path != "" {
+				ui.Text(c, path).FontSize(11).TextColor(k.textMuted).Padding(4, 10, 0, 10)
+			}
+			body := ui.ScrollHorizontal(c).FillWidth().Padding(6, 0)
+			body.Children(func() {
+				col := ui.Column(c).Gap(0)
+				col.Children(func() {
+					for i, l := range lines {
+						row := ui.Box(c.Key(i)).Padding(0, 10)
+						color := k.text
+						switch {
+						case strings.HasPrefix(l, "+++") || strings.HasPrefix(l, "---") || strings.HasPrefix(l, "@@"):
+							color = k.textMuted
+						case strings.HasPrefix(l, "+"):
+							color = k.busy
+							row.Background(k.busy.Alpha(0.1))
+						case strings.HasPrefix(l, "-"):
+							color = k.attention
+							row.Background(k.attention.Alpha(0.1))
+						}
+						row.Children(func() {
+							ui.Text(c, l).Font(a.editorFont().Family).FontSize(12).TextColor(color).NoWrap().Selectable()
+						})
+					}
+				})
 			})
 		})
 		el = block
