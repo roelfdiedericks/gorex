@@ -87,6 +87,9 @@ type Pane struct {
 	// folds is how the user folded a surface's collapsible nodes (by
 	// anchor and node id), over what the program said.
 	folds map[string]bool
+	// dockH is how tall each live surface's pinned dock was drawn (by
+	// anchor), the space the surface keeps for it.
+	dockH map[uint32]float32
 	// files is a browser pane's tree, and edit an editor pane's file.
 	files *browserState
 	edit  *editorState
@@ -212,6 +215,9 @@ type App struct {
 	// float over it after it.
 	tspList, tspSelected string
 	tspOverlays          []*rex.TSPNode
+	// tspDock is the dock region of the surface being drawn, which
+	// floats at the bottom of the pane after it.
+	tspDock *rex.TSPNode
 	// tspSVGs are the SVGs surfaces show (charts), parsed for a theme,
 	// by theme and source.
 	tspSVGs map[string]*tspSVG

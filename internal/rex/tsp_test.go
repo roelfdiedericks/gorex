@@ -155,9 +155,9 @@ func TestTSPTracker(t *testing.T) {
 		t.Errorf("resize: rows %d", s4.Rows)
 	}
 	// The terminal lacks lines under the anchor while the cursor is
-	// fewer rows below it than the surface has; a surface not last, or
-	// an anchor not found, needs none.
-	for _, c := range []struct{ anchor, cursor, want int }{{10, 11, 3}, {10, 14, 0}, {10, 20, 0}, {-5, 2, 0}, {-5, -2, 1}} {
+	// fewer rows below it than the surface has, and has some spare when
+	// more, as many as are on the screen; an anchor not found, none.
+	for _, c := range []struct{ anchor, cursor, want int }{{10, 11, 3}, {10, 14, 0}, {10, 20, -6}, {-5, 2, -2}, {-5, -2, 1}, {-20, 3, -3}} {
 		if got := ch.padding(map[uint32]int{TSPImageFirst: c.anchor}, c.cursor); got != c.want {
 			t.Errorf("padding with the anchor at %d, the cursor at %d: %d, want %d", c.anchor, c.cursor, got, c.want)
 		}

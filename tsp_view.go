@@ -53,7 +53,7 @@ func (a *App) surfaces(c *ui.Context, k *colors, t *Tab, p *Pane) {
 // the box it is in.
 func (a *App) screenSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface) {
 	s := ui.Scroll(c.Key("tsp-"+sf.ID)).Absolute().Fill().Background(k.bgBottom).Padding(12, 16)
-	s.Children(func() { a.surfaceContent(c, k, t, p, sf) })
+	s.Children(func() { a.surfaceContent(c, k, t, p, sf, false) })
 	if s.Pressed() {
 		a.surfacePressed(t, p)
 	}
@@ -85,9 +85,13 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 		return term.Scroll(ev)
 	})
 	a.tspOverlays = a.tspOverlays[:0]
-	box.Children(func() { a.surfaceContent(c, k, t, p, sf) })
+	a.tspDock = nil
+	box.Children(func() { a.surfaceContent(c, k, t, p, sf, !sf.Closed) })
 	if box.Pressed() {
 		a.surfacePressed(t, p)
+	}
+	if dock := a.tspDock; dock != nil {
+		a.surfaceDock(c, k, t, p, sf, dock, pl.Rect.X)
 	}
 	a.surfaceOverlays(c, k, t, p, sf)
 	if sf.Closed || cell <= 0 {
@@ -106,17 +110,57 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 	}
 }
 
+// surfaceDock draws a live surface's dock region (a program's composer
+// and status bar) pinned to the bottom of the pane, where the user
+// types whatever part of the output they look at; the surface keeps a
+// space as tall in its place, so that at the bottom the dock is where
+// it would be.
+func (a *App) surfaceDock(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, dock *rex.TSPNode, x float32) {
+	pinned := ui.Column(c.Key(fmt.Sprintf("tsp-dock-%d", sf.Image))).Absolute().Left(x).Right(0).Bottom(0).
+		Background(k.bgBottom).Padding(4, 8).Gap(8)
+	term := p.term
+	pinned.HandleInput(func(ev ui.InputEvent) bool {
+		if ev.Kind != ui.InputScroll {
+			return false
+		}
+		return term.Scroll(ev)
+	})
+	pinned.Children(func() {
+		for _, ch := range dock.Children {
+			a.tspNode(c, k, t, p, sf, ch)
+		}
+	})
+	if pinned.Pressed() {
+		a.surfacePressed(t, p)
+	}
+	if h := pinned.Bounds().H - 8; h > 0 && h != p.dockH[sf.Image] {
+		if p.dockH == nil {
+			p.dockH = map[uint32]float32{}
+		}
+		p.dockH[sf.Image] = h
+	}
+}
+
 // surfaceContent draws a surface's document. Its paragraphs are
 // selectable, each on its own (Markdown within itself); a press on one
 // takes the focus, as selecting text does anywhere, and a press
 // anywhere else on the surface, or on a control of the program's, gives
 // it back to the terminal (surfacePressed), as Escape does, which the
-// program gets too: the key most programs end a surface with.
-func (a *App) surfaceContent(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface) {
-	content := ui.Box(c).FillWidth()
+// program gets too: the key most programs end a surface with. With
+// pin, the dock region is left as a space for surfaceDock to draw.
+func (a *App) surfaceContent(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, pin bool) {
+	content := ui.Column(c).FillWidth().Gap(8)
 	content.Children(func() {
-		if sf.Root != nil {
-			a.tspNode(c, k, t, p, sf, sf.Root)
+		if sf.Root == nil {
+			return
+		}
+		for _, region := range sf.Root.Children {
+			if pin && region.ID == "dock" {
+				a.tspDock = region
+				ui.Box(c.Key("dock-space")).Height(p.dockH[sf.Image])
+				continue
+			}
+			a.tspNode(c, k, t, p, sf, region)
 		}
 	})
 	if content.Shortcut(0, ui.KeyEscape) {

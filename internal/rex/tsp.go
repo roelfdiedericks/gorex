@@ -384,7 +384,9 @@ func (t *tspTracker) resize(sf string, rows int) bool {
 // the anchors are (placements: image id → row) and the cursor's row:
 // the program prints nothing while its surface is live, but what moves
 // the cursor otherwise (a reflow, an upgrade, output that came anyway)
-// is made up for.
+// is made up for. Negative, it is how many rows the surface has spare
+// under it, which are blank, and as many as are on the screen are taken
+// back, so that what follows the surface comes right after it.
 func (t *tspTracker) padding(placements map[uint32]int, cursor int) int {
 	if len(t.order) == 0 {
 		return 0
@@ -397,7 +399,12 @@ func (t *tspTracker) padding(placements map[uint32]int, cursor int) int {
 	if !ok {
 		return 0
 	}
-	return max(0, s.Rows-(cursor-row))
+	n := s.Rows - (cursor - row)
+	if n < 0 {
+		// Rows above the screen are the scrollback's, which stay.
+		n = max(n, -cursor)
+	}
+	return n
 }
 
 // reanchor places the live surfaces' anchors again, after a server
@@ -655,7 +662,8 @@ func spliceUTF16(s string, at, del int, text string) string {
 func (t *tspTracker) helloReply() []byte {
 	r := map[string]any{
 		"r": "hello", "v": 1, "term": "gorex", "ver": "0.1.0",
-		"kinds": tspKinds, "features": []string{},
+		// dock: a surface's dock region stays at the bottom of the pane.
+		"kinds": tspKinds, "features": []string{"dock"},
 		"apc": tspAPC, "credits": tspCredits,
 		"cols": t.cols, "cell": map[string]int{"w": t.cellW, "h": t.cellH},
 		"dark": t.dark, "reduceMotion": false,
