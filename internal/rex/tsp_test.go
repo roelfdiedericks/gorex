@@ -150,14 +150,20 @@ func TestTSPTracker(t *testing.T) {
 	if out != anchor(TSPImageFirst)+"\r\n" {
 		t.Errorf("anchor: %q", out)
 	}
-	// A window measured it at 6 rows: five more blank lines; measured
-	// at 4 after, the lines stay.
-	if !ch.resize("s4", 6) || s4.Rows != 6 || string(ch.inject) != "\r\n\r\n\r\n\r\n\r\n" {
-		t.Errorf("resize: rows %d inject %q", s4.Rows, ch.inject)
+	// A window measured it at 6 rows, then 4: the surface has them.
+	if !ch.resize("s4", 6) || s4.Rows != 6 || !ch.resize("s4", 4) || s4.Rows != 4 {
+		t.Errorf("resize: rows %d", s4.Rows)
 	}
-	ch.inject = nil
-	if !ch.resize("s4", 4) || s4.Rows != 4 || len(ch.inject) != 0 {
-		t.Errorf("resize to fewer: rows %d inject %q", s4.Rows, ch.inject)
+	// The terminal lacks lines under the anchor while the cursor is
+	// fewer rows below it than the surface has; a surface not last, or
+	// an anchor not found, needs none.
+	for _, c := range []struct{ anchor, cursor, want int }{{10, 11, 3}, {10, 14, 0}, {10, 20, 0}, {-5, 2, 0}, {-5, -2, 1}} {
+		if got := ch.padding(map[uint32]int{TSPImageFirst: c.anchor}, c.cursor); got != c.want {
+			t.Errorf("padding with the anchor at %d, the cursor at %d: %d, want %d", c.anchor, c.cursor, got, c.want)
+		}
+	}
+	if ch.padding(map[uint32]int{}, 11) != 0 {
+		t.Error("padding without the anchor")
 	}
 	if ch.resize("s4", 4) || ch.resize("s2", 3) || ch.resize("s9", 3) {
 		t.Error("a resize to the same rows, of a screen surface or of none went through")

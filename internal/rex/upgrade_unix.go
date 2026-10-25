@@ -299,6 +299,7 @@ func resumeSession(st sessionState, emit func(Response)) (*session, error) {
 		s.tsp.reanchor()
 		s.vt.Feed(s.tsp.inject)
 		s.tsp.inject = nil
+		s.tspPad()
 		s.mu.Unlock()
 	}
 	return s, nil

@@ -207,6 +207,11 @@ type App struct {
 	// tspHead tells that a surface's head slot is being drawn, whose
 	// text is not selectable: a click on it folds.
 	tspHead bool
+	// tspList and tspSelected are the list being drawn and its selected
+	// item; tspOverlays the overlays of the surface being drawn, which
+	// float over it after it.
+	tspList, tspSelected string
+	tspOverlays          []*rex.TSPNode
 
 	// The command palette, the host's popover and the tab being renamed.
 	paletteOpen  bool

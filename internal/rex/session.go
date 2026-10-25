@@ -267,6 +267,7 @@ func (s *session) read() {
 			}
 			s.mu.Lock()
 			s.vt.Feed(out)
+			s.tspPad()
 			s.status.feed(out)
 			s.paste.feed(out)
 			for a := range s.clients {
@@ -499,9 +500,24 @@ func (s *session) tspSize(sf string, rows int) {
 	if s.exited || !s.tsp.resize(sf, rows) {
 		return
 	}
-	s.vt.Feed(s.tsp.inject)
-	s.tsp.inject = nil
+	s.tspPad()
 	s.wake()
+}
+
+// tspPad feeds the terminal the lines the last opened inline surface
+// lacks under its anchor (tspTracker.padding). s.mu held.
+func (s *session) tspPad() {
+	if len(s.tsp.order) == 0 {
+		return
+	}
+	rows := map[uint32]int{}
+	for _, pl := range s.vt.AppPlacements() {
+		rows[pl.Image] = pl.Row
+	}
+	_, cursor := s.vt.Cursor()
+	if n := s.tsp.padding(rows, cursor); n > 0 {
+		s.vt.Feed([]byte(strings.Repeat("\r\n", n)))
+	}
 }
 
 // kill hangs up the session and waits a little for it to end.

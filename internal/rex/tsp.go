@@ -23,7 +23,7 @@ import (
 
 // tspKinds are the node kinds the windows draw: the hello reply says so,
 // and programs fall back for the others.
-var tspKinds = []string{"col", "row", "card", "section", "text", "md", "badge", "kv", "list", "item", "code", "table", "progress", "spinner", "status", "rule", "spacer", "kbd", "icon", "editor", "meter", "seg", "image", "elapsed", "rate", "ansi", "checklist", "tree"}
+var tspKinds = []string{"col", "row", "card", "section", "text", "md", "badge", "kv", "list", "item", "code", "table", "progress", "spinner", "status", "rule", "spacer", "kbd", "icon", "editor", "meter", "seg", "image", "elapsed", "rate", "ansi", "checklist", "tree", "overlay", "input"}
 
 const (
 	tspAPC     = 65536 // the largest body a message carries
@@ -366,21 +366,38 @@ func deleteAnchor(image uint32) string {
 	return fmt.Sprintf("\x1b_Ga=d,d=I,i=%d,q=2\x1b\\", image)
 }
 
-// resize takes the rows a window measured a live surface to need: the
-// surface takes them, with blank lines fed after its rows for the
-// more, where the cursor is, under the last surface opened; fewer rows
-// leave the lines there. It reports whether anything changed.
+// resize takes the rows a window measured a live surface to need. The
+// session's terminal gets the lines for them (padding). It reports
+// whether anything changed.
 func (t *tspTracker) resize(sf string, rows int) bool {
 	s := t.surfaces[sf]
 	if s == nil || s.Image == 0 || rows <= 0 || rows == s.Rows {
 		return false
 	}
-	if rows > s.Rows && len(t.order) > 0 && t.order[len(t.order)-1] == sf {
-		t.inject = append(t.inject, strings.Repeat("\r\n", rows-s.Rows)...)
-	}
 	s.Rows = rows
 	t.changed = true
 	return true
+}
+
+// padding returns how many lines the terminal needs fed for the last
+// opened inline surface to have its rows above the cursor, given where
+// the anchors are (placements: image id → row) and the cursor's row:
+// the program prints nothing while its surface is live, but what moves
+// the cursor otherwise (a reflow, an upgrade, output that came anyway)
+// is made up for.
+func (t *tspTracker) padding(placements map[uint32]int, cursor int) int {
+	if len(t.order) == 0 {
+		return 0
+	}
+	s := t.surfaces[t.order[len(t.order)-1]]
+	if s == nil || s.Image == 0 {
+		return 0
+	}
+	row, ok := placements[s.Image]
+	if !ok {
+		return 0
+	}
+	return max(0, s.Rows-(cursor-row))
 }
 
 // reanchor places the live surfaces' anchors again, after a server

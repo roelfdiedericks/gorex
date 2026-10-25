@@ -83,10 +83,12 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 		ev.X, ev.Y = ev.X+at.X, ev.Y+at.Y
 		return term.Scroll(ev)
 	})
+	a.tspOverlays = a.tspOverlays[:0]
 	box.Children(func() { a.surfaceContent(c, k, t, p, sf) })
 	if box.Pressed() {
 		a.surfacePressed(t, p)
 	}
+	a.surfaceOverlays(c, k, t, p, sf)
 	if sf.Closed || cell <= 0 {
 		return
 	}
@@ -143,6 +145,12 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 	key := c.Key("n-" + n.ID)
 	text, _ := n.Props["text"].(string)
 	children := func() { a.tspChildren(c, k, t, p, sf, n) }
+	// A node with a click action is a control: its text is not
+	// selectable, so that a click on it reaches the node.
+	if actions, ok := n.Props["actions"].(map[string]any); ok && actions["click"] != nil && !a.tspHead {
+		a.tspHead = true
+		defer func() { a.tspHead = false }()
+	}
 	var el ui.Element
 	switch n.Kind {
 	case "col":
@@ -257,11 +265,18 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		})
 		el = kv
 	case "list":
+		selected, _ := n.Props["selected"].(string)
+		wasSel, wasList := a.tspSelected, a.tspList
+		a.tspSelected, a.tspList = selected, n.ID
 		el = ui.Column(key).Gap(2).FillWidth().Children(children)
+		a.tspSelected, a.tspList = wasSel, wasList
 	case "item":
 		item := ui.Row(key).Gap(8).AlignItems(ui.Center).FillWidth().Padding(3, 6).Radius(4)
 		if disabled, _ := n.Props["disabled"].(bool); disabled {
 			item.Opacity(0.5)
+		}
+		if a.tspSelected != "" && a.tspSelected == n.ID {
+			item.Background(k.hover).ScrollIntoView()
 		}
 		item.Children(func() {
 			if icon, _ := n.Props["icon"].(string); icon != "" {
@@ -281,7 +296,48 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 				a.tspKeys(c, k, hint)
 			}
 		})
+		// In a list, a click selects the item and a double click
+		// activates it, as the keys do.
+		if a.tspList != "" && !sf.Closed {
+			if clicks := item.Clicks(); clicks > 0 {
+				ev := "select"
+				if clicks > 1 {
+					ev = "activate"
+				}
+				a.surfacePressed(t, p)
+				stream, list, id := p.stream, a.tspList, n.ID
+				go stream.TSPEvent(map[string]any{"ev": ev, "sf": sf.ID, "id": list, "item": id})
+			}
+		}
 		el = item
+	case "input":
+		// A program's one-line field, which it edits itself.
+		text, _ := n.Props["text"].(string)
+		prompt, _ := n.Props["prompt"].(string)
+		placeholder, _ := n.Props["placeholder"].(string)
+		cursor, _ := n.Props["cursor"].(float64)
+		in := ui.Row(key).FillWidth().AlignItems(ui.Center).Gap(0).Padding(4, 8).Radius(4).Background(k.bgLow)
+		in.Children(func() {
+			if prompt != "" {
+				ui.Text(c, prompt).FontSize(13).TextColor(k.textMuted)
+			}
+			if text == "" {
+				ui.Box(c).Width(2).Height(16).Background(k.text)
+				ui.Text(c, placeholder).FontSize(13).TextColor(k.textFaint)
+				return
+			}
+			at := utf16Offset(text, int(cursor))
+			ui.Text(c, text[:at]).FontSize(13).TextColor(k.text)
+			ui.Box(c).Width(2).Height(16).Background(k.text)
+			ui.Text(c, text[at:]).FontSize(13).TextColor(k.text)
+		})
+		el = in
+	case "overlay":
+		// Drawn over the surface, after it (surfaceOverlays).
+		if !sf.Closed {
+			a.tspOverlays = append(a.tspOverlays, n)
+		}
+		return
 	case "code":
 		lang, _ := n.Props["lang"].(string)
 		path, _ := n.Props["path"].(string)
@@ -378,18 +434,34 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 	case "meter":
 		value, has := n.Props["value"].(float64)
 		marks, _ := n.Props["marks"].([]any)
-		track := ui.Box(key).Height(6).Radius(3).Background(k.track).Width(120).Clip()
-		track.Children(func() {
-			if has {
-				ui.Box(c).WidthPercent(float32(max(0, min(1, value)) * 100)).Height(6).Background(k.busy)
+		label, _ := n.Props["label"].(string)
+		fill := k.busy
+		if th, ok := n.Props["thresholds"].(map[string]any); ok && has {
+			// Thresholds of what is left: below warn, then below bad.
+			if bad, ok := th["bad"].(float64); ok && 1-value < bad {
+				fill = k.attention
+			} else if warn, ok := th["warn"].(float64); ok && 1-value < warn {
+				fill = k.attention.Alpha(0.7)
 			}
-			for i, m := range marks {
-				m, _ := m.(map[string]any)
-				at, _ := m["at"].(float64)
-				ui.Box(c.Key(i)).Absolute().LeftPercent(float32(at * 100)).Top(0).Width(1).Height(6).Background(k.textMuted)
+		}
+		meter := ui.Row(key).Gap(6).AlignItems(ui.Center)
+		meter.Children(func() {
+			track := ui.Box(c).Height(6).Radius(3).Background(k.track).Width(120).Clip()
+			track.Children(func() {
+				if has {
+					ui.Box(c).WidthPercent(float32(max(0, min(1, value)) * 100)).Height(6).Background(fill)
+				}
+				for i, m := range marks {
+					m, _ := m.(map[string]any)
+					at, _ := m["at"].(float64)
+					ui.Box(c.Key(i)).Absolute().LeftPercent(float32(at * 100)).Top(0).Width(1).Height(6).Background(k.textMuted)
+				}
+			})
+			if label != "" {
+				ui.Text(c, label).FontSize(11).TextColor(k.textMuted)
 			}
 		})
-		el = track
+		el = meter
 	case "seg":
 		seg := ui.Row(key).Gap(4).AlignItems(ui.Center)
 		seg.Children(func() {
@@ -574,6 +646,9 @@ func (a *App) tspRich(c *ui.Context, k *colors, v any, size float32, bold bool) 
 					sp.Weight = 600
 				case "em":
 					sp.Italic = true
+				case "icon":
+					// Glyphs of the Nerd Fonts, which GoRex bundles.
+					sp.Font = symbolsFont
 				case "code", "mono", "path", "key", "num":
 					sp.Font = a.editorFont().Family
 				case "accent", "info", "link":
@@ -830,5 +905,51 @@ func (a *App) tspFoldHead(h ui.Element, p *Pane, sf *rex.Surface, n *rex.TSPNode
 		stream := p.stream
 		ev := map[string]any{"ev": "toggle", "sf": sf.ID, "id": n.ID, "collapsed": !collapsed}
 		go stream.TSPEvent(ev)
+	}
+}
+
+// surfaceOverlays draws the overlays a surface's document has (pickers,
+// dialogs) floating over the pane: anchored at the bottom, the top or
+// the center, sized sm, md, lg or full, a modal one over a dim backdrop.
+// Their keys go to the program through the terminal, as any.
+func (a *App) surfaceOverlays(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface) {
+	overlays := a.tspOverlays
+	a.tspOverlays = nil
+	for _, ov := range overlays {
+		if modal, _ := ov.Props["modal"].(bool); modal {
+			back := ui.Box(c.Key("tsp-back-" + ov.ID)).Absolute().Fill().Background(k.backdrop)
+			if back.Pressed() {
+				a.surfacePressed(t, p)
+			}
+		}
+		width := map[string]float32{"sm": 40, "md": 60, "lg": 80, "full": 100}[func() string {
+			s, _ := ov.Props["size"].(string)
+			return s
+		}()]
+		if width == 0 {
+			width = 60
+		}
+		panel := ui.Scroll(c.Key("tsp-ov-"+ov.ID)).Absolute().LeftPercent((100-width)/2).WidthPercent(width).MaxHeightPercent(85).
+			Radius(cardR).Background(k.panel).Border(1, k.panelBorder).Padding(12, 14)
+		anchor, _ := ov.Props["anchor"].(string)
+		switch anchor {
+		case "top":
+			panel.Top(8)
+		case "bottom":
+			panel.Bottom(8)
+		default:
+			panel.TopPercent(8)
+		}
+		panel.Children(func() {
+			if head := ov.Props["head"]; head != nil {
+				a.tspRich(c, k, head, 14, true)
+			}
+			for _, ch := range ov.Children {
+				a.tspNode(c, k, t, p, sf, ch)
+			}
+		})
+		if panel.Pressed() {
+			a.surfacePressed(t, p)
+		}
 	}
 }
