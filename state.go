@@ -212,6 +212,9 @@ type App struct {
 	// float over it after it.
 	tspList, tspSelected string
 	tspOverlays          []*rex.TSPNode
+	// tspSVGs are the SVGs surfaces show (charts), parsed for a theme,
+	// by theme and source.
+	tspSVGs map[string]*tspSVG
 
 	// The command palette, the host's popover and the tab being renamed.
 	paletteOpen  bool

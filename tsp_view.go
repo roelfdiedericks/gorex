@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -249,7 +250,20 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 	case "md":
 		box := ui.Box(key).FillWidth()
 		box.Children(func() {
-			markdown.View(c, text, &markdown.Options{Theme: &markdown.Theme{Text: k.text, Muted: k.textMuted, Link: k.busy, CodeFont: a.editorFont().Family}})
+			markdown.View(c, text, &markdown.Options{
+				Theme: &markdown.Theme{Text: k.text, Muted: k.textMuted, Link: k.busy, CodeFont: a.editorFont().Family},
+				// Charts come as SVG: drawn in the theme's colors with
+				// their labels, once the block is whole.
+				Code: map[string]func(*ui.Context, *markdown.CodeBlockView){"svg": func(c *ui.Context, b *markdown.CodeBlockView) {
+					if !b.Open {
+						if s := a.tspSVGFor(k, b.Code()); s != nil {
+							s.draw(c)
+							return
+						}
+					}
+					markdown.DefaultCodeBlock(c, b)
+				}},
+			})
 		})
 		el = box
 	case "badge":
@@ -421,6 +435,72 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 			})
 		})
 		el = block
+	case "agent":
+		// A subagent: its name and kind, state, model and what it cost,
+		// its task, and what it did, folding as a card does.
+		name, _ := n.Props["name"].(string)
+		kind, _ := n.Props["agent"].(string)
+		status, _ := n.Props["status"].(string)
+		model, _ := n.Props["model"].(string)
+		_, body, collapsed := a.tspFold(p, sf, n)
+		ag := ui.Column(key).Gap(6).FillWidth().Radius(cardR).Background(k.card).Border(1, k.cardBorder).Padding(8, 12)
+		ag.Children(func() {
+			h := ui.Row(c).Gap(8).AlignItems(ui.Center).FillWidth().Unselectable()
+			h.Children(func() {
+				ui.Text(c, name).FontSize(13).Bold().TextColor(k.text)
+				if kind != "" {
+					ui.Text(c, kind).FontSize(12).TextColor(k.textMuted)
+				}
+				if badges, _ := n.Props["badges"].([]any); len(badges) > 0 {
+					for i, b := range badges {
+						b, _ := b.(map[string]any)
+						t, _ := b["text"].(string)
+						ui.Text(c.Key(i), t).FontSize(11).TextColor(k.textMuted).Padding(1, 6).Radius(4).Background(k.hover)
+					}
+				}
+				ui.Box(c).Grow(1)
+				if model != "" {
+					ui.Text(c, model).FontSize(11).TextColor(k.textMuted)
+				}
+				if st, ok := n.Props["stats"].(map[string]any); ok {
+					var parts []string
+					if l, _ := st["contextLabel"].(string); l != "" {
+						parts = append(parts, l)
+					}
+					if cost, _ := st["cost"].(float64); cost > 0 {
+						parts = append(parts, fmt.Sprintf("$%.2f", cost))
+					}
+					if len(parts) > 0 {
+						ui.Text(c, strings.Join(parts, " · ")).FontSize(11).TextColor(k.textMuted)
+					}
+				}
+				if status != "" {
+					a.tspStatus(c, k, status)
+				}
+			})
+			a.tspFoldHead(h, p, sf, n, collapsed)
+			if task := n.Props["task"]; task != nil {
+				a.tspRich(c, k, task, 12, false).TextColor(k.textMuted)
+			}
+			if !collapsed {
+				for _, ch := range body {
+					a.tspNode(c, k, t, p, sf, ch)
+				}
+			}
+		})
+		el = ag
+	case "toast":
+		sub, _ := n.Props["sub"].(string)
+		toast := ui.Column(key).Gap(2).Padding(6, 10).Radius(6).Background(k.panel).Border(1, k.panelBorder)
+		toast.Children(func() {
+			ui.Text(c, text).FontSize(12).TextColor(k.text)
+			if sub != "" {
+				ui.Text(c, sub).FontSize(11).TextColor(k.textMuted)
+			}
+		})
+		el = toast
+	case "chart":
+		el = a.tspChart(c, k, key, n)
 	case "table":
 		el = a.tspTable(c, k, key, n)
 	case "progress":
@@ -1014,4 +1094,71 @@ func (a *App) surfaceOverlays(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex
 			a.surfacePressed(t, p)
 		}
 	}
+}
+
+// tspChart draws a chart: a bars or spark chart as a bar for each point
+// of its series, labeled, scaled to its domain; a heatmap as a grid of
+// cells shaded by intensity; the summary under it.
+func (a *App) tspChart(c *ui.Context, k *colors, key *ui.Context, n *rex.TSPNode) ui.Element {
+	kind, _ := n.Props["kind"].(string)
+	chart := ui.Column(key).Gap(3).FillWidth()
+	chart.Children(func() {
+		if kind == "bars" || kind == "spark" {
+			series, _ := n.Props["series"].([]any)
+			lo, _ := n.Props["min"].(float64)
+			hi, ok := n.Props["max"].(float64)
+			if !ok {
+				for _, pt := range series {
+					pt, _ := pt.(map[string]any)
+					if v, _ := pt["value"].(float64); v > hi {
+						hi = v
+					}
+				}
+			}
+			for i, pt := range series {
+				pt, _ := pt.(map[string]any)
+				v, _ := pt["value"].(float64)
+				label, _ := pt["label"].(string)
+				frac := float32(0)
+				if hi > lo {
+					frac = float32(max(0, min(1, (v-lo)/(hi-lo))))
+				}
+				row := ui.Row(c.Key(i)).Gap(8).AlignItems(ui.Center).FillWidth()
+				row.Children(func() {
+					ui.Text(c, label).FontSize(12).TextColor(k.textMuted).Width(140).NoWrap()
+					track := ui.Box(c).Height(10).Grow(1).Radius(2).Clip()
+					track.Children(func() {
+						ui.Box(c).WidthPercent(frac * 100).Height(10).Background(k.busy)
+					})
+					ui.Text(c, strconv.FormatFloat(v, 'g', 6, 64)).FontSize(12).TextColor(k.textMuted).Width(70)
+				})
+				if title, _ := pt["title"].(string); title != "" {
+					row.Tooltip(title)
+				}
+			}
+		} else {
+			cells, _ := n.Props["cells"].([]any)
+			labels, _ := n.Props["rows"].([]any)
+			for i, r := range cells {
+				r, _ := r.([]any)
+				row := ui.Row(c.Key(i)).Gap(2).AlignItems(ui.Center)
+				row.Children(func() {
+					if i < len(labels) {
+						l, _ := labels[i].(string)
+						ui.Text(c, l).FontSize(11).TextColor(k.textMuted).Width(60).NoWrap()
+					}
+					for j, v := range r {
+						cell := ui.Box(c.Key(j)).Size(12, 12).Radius(2).Background(k.track)
+						if f, ok := v.(float64); ok {
+							cell.Background(k.busy.Alpha(float32(0.15 + 0.85*max(0, min(1, f)))))
+						}
+					}
+				})
+			}
+		}
+		if s := n.Props["summary"]; s != nil {
+			a.tspRich(c, k, s, 12, false).TextColor(k.textMuted)
+		}
+	})
+	return chart
 }
