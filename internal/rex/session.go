@@ -87,9 +87,10 @@ type attached struct {
 	cols, rows int
 	paste      bool
 	reads      []string
-	// surfaced tells that the window was sent the surfaces, and blobs
-	// the blobs it was sent, by id.
-	surfaced bool
+	// surfaced is the tracker's version of the surfaces the window was
+	// sent, plus one (0: none yet), and blobs the blobs it was sent, by
+	// id.
+	surfaced uint64
 	blobs    map[string]bool
 }
 
@@ -447,8 +448,16 @@ func (s *session) frame(a *attached, size *[9]byte) (bufs net.Buffers, due bool)
 		head = append(head, b.Mime...)
 		bufs = append(bufs, head, b.Data)
 	}
-	if t := &s.tsp; t.changed || !a.surfaced {
-		t.changed, a.surfaced = false, true
+	// Each window gets the surfaces when they changed since it was last
+	// sent them: the tracker's changes are counted, the window keeps
+	// the count it has.
+	t := &s.tsp
+	if t.changed {
+		t.changed = false
+		t.version++
+	}
+	if a.surfaced != t.version+1 {
+		a.surfaced = t.version + 1
 		if b, err := json.Marshal(t.list()); err == nil {
 			var h [5]byte
 			h[0] = msgSurface

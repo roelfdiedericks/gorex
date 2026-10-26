@@ -23,18 +23,64 @@ import (
 // paste into the terminal would, which programs take as an attachment.
 
 // tspField is what the window keeps of a program's field: its text, which
-// the widget edits; what the program last said of it (said), so that a
-// new word from the program is told from a stale one; what the field
-// last sent it (sent), which the program echoes back; and the caret as
-// of the last frame.
+// the widget edits; what the program last said of it (said); the texts
+// the field sent it that it has not echoed yet, oldest first (sent);
+// and the caret as of the last frame.
 type tspField struct {
 	text       string
 	said       string
 	saidAt     int // UTF-16 units, as the program counts
-	sent       string
-	sentAt     int
+	sent       []tspSent
 	caretRunes int
-	pending    int // edits sent, not yet echoed
+}
+
+// tspSent is a text a field sent its program, with its caret.
+type tspSent struct {
+	text string
+	at   int
+}
+
+// tspMaxSent caps the texts a field keeps waiting for their echoes: a
+// program drops an edit it finds stale, and never echoes it.
+const tspMaxSent = 32
+
+// hear takes what the program says of the field. An echo of a text the
+// field sent settles it and those before it; the program's word between
+// them is stale, and the field keeps its own. A text it never sent is
+// the program's own (a slash command, a history recall, a send, another
+// window's typing), which the field takes, over what it was waiting for.
+// It reports whether the caret is to go where the program put it.
+func (f *tspField) hear(text string, at int) bool {
+	if text == f.said && at == f.saidAt {
+		return false
+	}
+	f.said, f.saidAt = text, at
+	for i, s := range f.sent {
+		if s.text == text {
+			f.sent = f.sent[i+1:]
+			return false
+		}
+	}
+	f.sent = f.sent[:0]
+	f.text = text
+	return true
+}
+
+// base is the text and caret the program has as the field's next edit
+// comes to it: the last it was sent, or the last it said.
+func (f *tspField) base() (string, int) {
+	if n := len(f.sent); n > 0 {
+		return f.sent[n-1].text, f.sent[n-1].at
+	}
+	return f.said, f.saidAt
+}
+
+// send records a text sent to the program, awaiting its echo.
+func (f *tspField) send(text string, at int) {
+	if len(f.sent) == tspMaxSent {
+		f.sent = f.sent[1:]
+	}
+	f.sent = append(f.sent, tspSent{text, at})
 }
 
 // tspField draws a program's text field, an editor (many lines) or an
@@ -55,19 +101,7 @@ func (a *App) tspField(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pan
 	if v, ok := n.Props["cursor"].(float64); ok {
 		cursor = int(v)
 	}
-	// What the program says. An echo of what the field sent settles a
-	// pending edit; while edits are pending, its text is stale, and
-	// stays; otherwise a new text is the program's own (a slash command,
-	// a history recall, a send), which the field takes.
-	placeCaret := false
-	if text == f.sent && cursor == f.sentAt {
-		f.pending = 0
-	} else if f.pending == 0 && (text != f.said || cursor != f.saidAt) {
-		f.text = text
-		f.sent, f.sentAt = text, cursor
-		placeCaret = true
-	}
-	f.said, f.saidAt = text, cursor
+	placeCaret := f.hear(text, cursor)
 	placeholder, _ := n.Props["placeholder"].(string)
 	readonly, _ := n.Props["readonly"].(bool)
 	sendable, _ := n.Props["sendable"].(bool)
@@ -147,20 +181,20 @@ func (a *App) tspField(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pan
 	f.caretRunes = s
 	if el.Changed() {
 		// What the user typed, as the edit over the part that differs
-		// from what the program has, with the caret; the program's
-		// answer is awaited before its text is taken again. A one-line
-		// input gets it as keys, through the terminal: programs filter
-		// their lists as their fields take keys (omp's pickers apply an
-		// edit event to the field alone).
+		// from what the program has, with the caret, which the program
+		// is to echo (hear). A one-line input gets it as keys, through
+		// the terminal: programs filter their lists as their fields
+		// take keys (omp's pickers apply an edit event to the field
+		// alone).
 		cur := runesToUTF16(f.text, s)
+		base, baseAt := f.base()
 		if area {
-			from, to, ins := textDelta(f.sent, f.text)
-			send(map[string]any{"ev": "edit", "from": from, "to": to, "text": ins, "cursor": cur, "len": utf16Len(f.sent)})
+			from, to, ins := textDelta(base, f.text)
+			send(map[string]any{"ev": "edit", "from": from, "to": to, "text": ins, "cursor": cur, "len": utf16Len(base)})
 		} else {
-			term.Send(tspEditKeys(f.sent, f.sentAt, f.text, cur))
+			term.Send(tspEditKeys(base, baseAt, f.text, cur))
 		}
-		f.sent, f.sentAt = f.text, cur
-		f.pending++
+		f.send(f.text, cur)
 	}
 	return el
 }

@@ -143,8 +143,11 @@ type tspTracker struct {
 	spare, under int
 	// growing are the rows kept surfaces are to get (resize, grow).
 	growing []tspGrowth
-	// changed tells that a surface changed since the windows were told.
+	// changed tells that a surface changed since the windows were told;
+	// version counts those changes, which each window is told of
+	// (session.frame).
 	changed bool
+	version uint64
 	// hello is the hello reply's terminal facts the session knows: its
 	// size, cell size and whether the window's theme is dark.
 	cols, cellW, cellH int

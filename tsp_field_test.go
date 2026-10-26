@@ -28,3 +28,49 @@ func TestTSPEditKeys(t *testing.T) {
 		}
 	}
 }
+
+// A field takes what its program says unless it is an echo of what the
+// field sent: typed ahead of the echoes, the field keeps its text; a
+// text the program has of its own (a send, another window's typing)
+// replaces it, even while echoes were awaited that will not come.
+func TestTSPFieldHear(t *testing.T) {
+	f := &tspField{}
+	f.text = "ab"
+	f.send("a", 1)
+	f.send("ab", 2)
+	if base, at := f.base(); base != "ab" || at != 2 {
+		t.Errorf("base while typing: %q at %d", base, at)
+	}
+	// The echo of "a" comes after "ab" was typed: stale, kept.
+	if f.hear("a", 1) || f.text != "ab" || len(f.sent) != 1 {
+		t.Errorf("a stale echo: text %q, waiting %v", f.text, f.sent)
+	}
+	if f.hear("ab", 2) || f.text != "ab" || len(f.sent) != 0 {
+		t.Errorf("the last echo: text %q, waiting %v", f.text, f.sent)
+	}
+	// An edit the program dropped is never echoed; another window's text
+	// comes instead, and is taken.
+	f.text = "abc"
+	f.send("abc", 3)
+	if !f.hear("from window two", 15) || f.text != "from window two" || len(f.sent) != 0 {
+		t.Errorf("the program's own text: text %q, waiting %v", f.text, f.sent)
+	}
+	if base, at := f.base(); base != "from window two" || at != 15 {
+		t.Errorf("base after the program's text: %q at %d", base, at)
+	}
+	// Said again unchanged: nothing.
+	if f.hear("from window two", 15) {
+		t.Error("the same word heard twice moved the caret")
+	}
+	// The program clears it after a send: taken.
+	if !f.hear("", 0) || f.text != "" {
+		t.Errorf("after a send: %q", f.text)
+	}
+	// The waiting texts are capped.
+	for i := range tspMaxSent + 5 {
+		f.send(string(rune('a'+i%26)), 1)
+	}
+	if len(f.sent) != tspMaxSent {
+		t.Errorf("waiting %d texts", len(f.sent))
+	}
+}
