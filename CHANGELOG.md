@@ -4,6 +4,16 @@ The version of each release is its heading here, which `mygo.json`'s
 `version` must match: `make website` refuses to build otherwise, and
 refuses a version already published.
 
+## 0.1.1
+
+- Programs that speak the Tern Surface Protocol, such as the coding
+  agent omp, draw natively: their messages, tool calls, pickers,
+  settings, forms, pictures, math and composer as GoRex's own controls,
+  in their colors, among the terminal's output and kept in its
+  scrollback. Turn it on for a host in Settings, Programs: Tern Surface
+  Protocol (experimental); omp then starts natively by itself.
+- A new icon: a rex in cyan on a dark tile.
+
 ## 0.1.0
 
 The first release from gorex.goclaw.org.
