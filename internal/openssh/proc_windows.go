@@ -1,4 +1,4 @@
-package remote
+package openssh
 
 import (
 	"os"
@@ -9,14 +9,14 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// hide keeps a console from showing for cmd, run from the GUI app.
-func hide(cmd *exec.Cmd) {
+// Detach keeps cmd off any console: none shows for it, run from the GUI
+// app, and ssh asks its askpass, never a console.
+func Detach(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 }
 
-// systemSSH is where Windows's optional OpenSSH Client installs ssh, which
-// a PATH changed since may miss.
-func systemSSH() string {
+// system is where Windows's optional OpenSSH Client installs ssh.
+func system() string {
 	p := filepath.Join(os.Getenv("SystemRoot"), "System32", "OpenSSH", "ssh.exe")
 	if _, err := os.Stat(p); err != nil {
 		return ""

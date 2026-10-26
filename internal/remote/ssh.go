@@ -6,23 +6,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
+	"time"
 
+	"gorex/internal/askpass"
+	"gorex/internal/openssh"
 	"gorex/internal/rex"
 )
-
-// sshPath finds OpenSSH's ssh.
-func sshPath() (string, error) {
-	if p, err := exec.LookPath("ssh"); err == nil {
-		return p, nil
-	}
-	if p := systemSSH(); p != "" {
-		return p, nil
-	}
-	return "", errors.New("GoRex needs OpenSSH's ssh: install the OpenSSH Client")
-}
 
 // shQuote quotes s for a POSIX shell.
 func shQuote(s string) string {
@@ -33,37 +27,128 @@ func shQuote(s string) string {
 // keeps the end of.
 type sshProc struct {
 	*exec.Cmd
-	spec   string
+	t      Target
 	stderr *tail
+	login  *askpass.Session
 }
 
-// sshCmd makes an ssh that runs script with sh on t: never asking for a
-// password, which the app has no way to, and giving up on a link that
-// stopped answering. Each line ssh prints goes to logf.
-func sshCmd(t Target, script string, logf func(string)) (*sshProc, error) {
-	ssh, err := sshPath()
+// sshCmd makes an ssh that runs script with sh on t, with openssh.Options.
+// Each line ssh prints goes to logf. It asks the user through login, or,
+// with none, nothing.
+func sshCmd(t Target, script string, logf func(string), login *askpass.Session) (*sshProc, error) {
+	ssh, err := openssh.Path()
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.Command(ssh, "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
-		"-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3",
-		"--", t.Spec, "sh -c "+shQuote(script))
-	hide(cmd)
-	p := &sshProc{Cmd: cmd, spec: t.Spec, stderr: &tail{logf: logf}}
+	args := slices.Clone(openssh.Options)
+	var env []string
+	if login == nil {
+		args = append(args, openssh.Batch...)
+	} else {
+		exe, err := os.Executable()
+		if err != nil {
+			return nil, err
+		}
+		env = append(os.Environ(), login.Env(exe)...)
+	}
+	cmd := exec.Command(ssh, append(args, "--", t.Spec, "sh -c "+shQuote(script))...)
+	cmd.Env = env
+	openssh.Detach(cmd)
+	p := &sshProc{Cmd: cmd, t: t, stderr: &tail{logf: logf}, login: login}
 	cmd.Stderr = p.stderr
 	return p, nil
 }
 
-// err describes why ssh failed, from what it printed last.
+// start starts ssh, which stops when the user cancels a prompt of its
+// login.
+func (p *sshProc) start() error {
+	if err := p.Start(); err != nil {
+		return err
+	}
+	if p.login != nil {
+		go func() {
+			select {
+			case <-p.login.Done():
+				p.Process.Kill()
+			case <-p.login.Ended():
+			}
+		}()
+	}
+	return nil
+}
+
+// limit kills p once it has run d, not counting the time its login waits
+// for the user, unless the returned stop is called first, which reports
+// whether it was killed.
+func (p *sshProc) limit(d time.Duration) (stop func() bool) {
+	done := make(chan struct{})
+	killed := make(chan bool, 1)
+	go func() {
+		tick := time.NewTicker(100 * time.Millisecond)
+		defer tick.Stop()
+		last := time.Now()
+		for {
+			select {
+			case <-done:
+				killed <- false
+				return
+			case now := <-tick.C:
+				if p.login == nil || !p.login.Asking() {
+					d -= now.Sub(last)
+				}
+				last = now
+				if d <= 0 {
+					p.Process.Kill()
+					<-done
+					killed <- true
+					return
+				}
+			}
+		}
+	}()
+	return func() bool {
+		close(done)
+		return <-killed
+	}
+}
+
+// LoginError is why logging in to a host failed where trying again by
+// itself won't help: the user cancelled a prompt, refused a host's key,
+// or gave a password ssh stopped asking for, or the host's key changed.
+type LoginError struct{ Reason string }
+
+func (e *LoginError) Error() string { return e.Reason }
+
+// err describes why ssh failed, from what it printed last and what the
+// user did with its prompts.
 func (p *sshProc) err() error {
 	msg := p.stderr.last()
 	if msg == "" {
 		msg = "the connection closed"
 	}
-	if strings.Contains(p.stderr.String(), "Host key verification failed") {
-		msg += " (run ssh " + p.spec + " once in a terminal to accept its host key)"
+	out := p.stderr.String()
+	if p.login != nil {
+		asked, cancelled, refused := p.login.Outcome()
+		switch {
+		case cancelled:
+			return &LoginError{"Login to " + p.t.Spec + " cancelled"}
+		case refused:
+			return &LoginError{"Not connected: the key of " + p.t.Spec + " was not trusted"}
+		case asked && strings.Contains(out, "Permission denied"):
+			return &LoginError{"Login to " + p.t.Spec + " failed: " + msg}
+		}
 	}
-	return fmt.Errorf("ssh %s: %s", p.spec, msg)
+	if strings.Contains(out, "REMOTE HOST IDENTIFICATION HAS CHANGED") {
+		host := p.t.Host
+		if p.t.Port != "" && p.t.Port != "22" {
+			host = "[" + host + "]:" + p.t.Port
+		}
+		return &LoginError{"The key of " + p.t.Spec + " has changed since ssh last saw it, which ssh refuses. If the host was reinstalled, remove its old key with: ssh-keygen -R \"" + host + "\", then Retry."}
+	}
+	if p.login == nil && strings.Contains(out, "Host key verification failed") {
+		msg += " (run ssh " + p.t.Spec + " once in a terminal to accept its host key)"
+	}
+	return fmt.Errorf("ssh %s: %s", p.t.Spec, msg)
 }
 
 // tail keeps the last 4 KiB written to it, and passes each line to logf.

@@ -16,6 +16,7 @@ import (
 	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
 
+	"gorex/internal/askpass"
 	"gorex/internal/remote"
 	"gorex/internal/rex"
 )
@@ -201,6 +202,14 @@ type App struct {
 	// lines it showed last, to follow new ones while at the end.
 	logScroll ui.ScrollState
 	logShown  int
+	// login is what ssh asks while the window connects, which the window
+	// shows until answered, loginText what the user types into it. ssh
+	// asks through askSrv, started once, or askErr why it could not.
+	login     *loginPrompt
+	loginText string
+	askOnce   sync.Once
+	askSrv    *askpass.Server
+	askErr    error
 	// remotes are the known remote servers, for the palette.
 	remotes []savedRemote
 	// defaults are this PC's settings, host the current host's overrides,

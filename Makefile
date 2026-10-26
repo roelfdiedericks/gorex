@@ -46,6 +46,13 @@ LDFLAGS := $(if $(filter windows,$(GOOS)),-H=windowsgui) \
 # fetched by tools/conpty, which pins its version.
 CONPTY := resources/windows-amd64/conpty.dll resources/windows-amd64/x64/OpenConsole.exe
 
+# gorex.com, GoRex's console program on Windows (cmd/gorex), which a shell
+# runs for `gorex` before GoRex.exe: beside GoRex.exe in dev, and from
+# resources in the installed app's bin, which the installer puts on the
+# PATH (packaging/installer.nsh).
+CLI_COM := $(if $(filter windows,$(GOOS)),resources/windows-$(GOARCH)/bin/gorex.com)
+DEV_COM := $(if $(filter windows,$(GOOS)),$(DEV)/gorex.com)
+
 # The version CHANGELOG.md is at: its first "## X.Y.Z" heading.
 CL_VERSION := $(shell sed -n 's/^## \([0-9][^ ]*\).*/\1/p' CHANGELOG.md | head -n 1)
 
@@ -109,7 +116,7 @@ $(info [make] app: $(NAME) $(VERSION) ($(IDENT)) -> $(EXE))
 
 .PHONY: dev run release version website website-sync publish icon test vet clean FORCE
 
-dev: $(EXE) $(DEV)/remote $(PLAT_RES) $(TOP_RES)
+dev: $(EXE) $(DEV_COM) $(DEV)/remote $(PLAT_RES) $(TOP_RES)
 	$(total)
 
 run: dev
@@ -120,6 +127,9 @@ $(EXE): FORCE $(ICON_SYSO)
 
 $(ICON_SYSO): resources/icon.png tools/devicon/main.go
 	$(call run,go run ./tools/devicon -out $@ -arch $(GOARCH))
+
+$(DEV_COM) $(CLI_COM): FORCE
+	$(call run,go build -o $@ -ldflags "-X 'main.version=$(VERSION)'" ./cmd/gorex)
 
 $(DEV)/remote: FORCE
 	$(call run,go run ./tools/remotepayload -out $@ -targets $(PAYLOADS))
@@ -133,7 +143,7 @@ $(DEV)/%: resources/$(PLATFORM)/%
 $(DEV)/%: resources/%
 	$(call run,mkdir -p $(@D) && cp -p $< $@)
 
-release: version $(CONPTY)
+release: version $(CONPTY) $(CLI_COM)
 	$(call run,go tool mygo build)
 	$(total)
 
@@ -147,7 +157,7 @@ version:
 # website builds what gorex.goclaw.org serves into website/, for each
 # platform whose published version is older (darwin and linux on the Mac); see
 # tools/website.sh. website-sync publishes it; publish does both.
-website: version $(CONPTY)
+website: version $(CONPTY) $(CLI_COM)
 	$(call run,(set -- build $(SITE_ARGS); . ./tools/website.sh))
 	$(total)
 

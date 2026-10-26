@@ -6,6 +6,7 @@
 //	go tool mygo dev                 the app, rebuilt as the code changes
 //	go run . -server                 the session server alone, in the foreground
 //	GoRex ssh user@host              a window on the sessions of a server on host
+//	GoRex help                       its commands, which write to the terminal (internal/cli)
 //	go run ./tools/remotepayload     builds the servers ssh copies there
 package main
 
@@ -22,11 +23,18 @@ import (
 	"github.com/egoist/mygo/plugins/updater/native"
 	"github.com/egoist/mygo/ui"
 
+	"gorex/internal/askpass"
+	"gorex/internal/cli"
 	"gorex/internal/remote"
 	"gorex/internal/rex"
 )
 
 func main() {
+	// ssh runs GoRex as its askpass, to ask the window what it would ask
+	// in a terminal (internal/askpass): before anything else.
+	if askpass.Active() {
+		os.Exit(askpass.Main(os.Args[1:]))
+	}
 	// -server runs the session server, and -server -resume <state> the one
 	// a server upgrading in place becomes; other arguments are AppKit's,
 	// as -NSWindowResizeTime, which it reads itself.
@@ -56,6 +64,13 @@ func main() {
 		if dir, err := mygo.App.Path(mygo.PathUserData); err == nil {
 			os.Setenv("GOREX_DIR", dir)
 		}
+	}
+	// A command (internal/cli) runs where it was typed, without a window.
+	// On Windows the shell runs gorex.com for it (cmd/gorex): GoRex.exe,
+	// a GUI program, has no console to write to unless its output goes
+	// through a pipe or to a file.
+	if ran, code := cli.Run(os.Stdout, os.Args[1:], mygo.App.Version()); ran {
+		os.Exit(code)
 	}
 	registerFonts()
 	a := &App{stateKey: "main", k: &lightColors}
@@ -161,6 +176,9 @@ func (a *App) open() {
 		a.quitting = true
 		a.gen.Add(1) // stops connecting
 		a.detachAll()
+		if a.askSrv != nil {
+			a.askSrv.Close()
+		}
 		a.win = nil
 	})
 	a.startConnecting(win, a.bind, "Connecting to "+a.bind.label()+"…")

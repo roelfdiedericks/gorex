@@ -49,8 +49,12 @@ terminal plugin (Ghostty's libghostty-vt). No webview, no cgo: one ~15 MB app.
   connection comes back by itself, trying five times; a bar under the
   panes tells how it goes, with Retry once it gave up, and the Connection
   Log (also in the palette) shows what ssh said. Remote hosts run Linux
-  (glibc 2.28 or later) or macOS, on amd64 or arm64, and ssh logs in with
-  keys or an agent, never a password. A window opened with `GoRex ssh`
+  (glibc 2.28 or later) or macOS, on amd64 or arm64. ssh logs in with
+  keys or an agent, or asks, in the window, what it would ask in a
+  terminal: a password, a key's passphrase, a code, whether to trust a
+  host's key it has not seen. It asks again on each connect, and a login
+  cancelled or refused is not retried by itself. `gorex doctor user@host`
+  tells how a host takes logins. A window opened with `GoRex ssh`
   quits when it is closed, on macOS too; the server and its sessions go on.
 - **Pasting images.** A program that reads the clipboard itself (the
   Kitty clipboard protocol, as omp does) is told what a paste holds and

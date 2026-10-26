@@ -17,11 +17,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"time"
 	"unicode"
 
 	"github.com/hashicorp/yamux"
+
+	"gorex/internal/askpass"
+	"gorex/internal/openssh"
 )
 
 // Target is a machine to reach over ssh: Spec as the user gave it, and
@@ -36,12 +38,12 @@ func Resolve(spec string) (Target, error) {
 	if spec == "" || strings.HasPrefix(spec, "-") || strings.ContainsFunc(spec, unicode.IsSpace) {
 		return Target{}, fmt.Errorf("not an ssh destination: %q", spec)
 	}
-	ssh, err := sshPath()
+	ssh, err := openssh.Path()
 	if err != nil {
 		return Target{}, err
 	}
 	cmd := exec.Command(ssh, "-G", "--", spec)
-	hide(cmd)
+	openssh.Detach(cmd)
 	out, err := cmd.CombinedOutput()
 	t := Target{Spec: spec}
 	for l := range strings.SplitSeq(string(out), "\n") {
@@ -87,12 +89,12 @@ type Progress struct {
 }
 
 // Open connects to the server of profile on t, copying p there first when
-// it is not.
-func Open(t Target, profile string, p Payload, prog Progress) (*Link, error) {
+// it is not. ssh asks the user through login, or, with none, nothing.
+func Open(t Target, profile string, p Payload, prog Progress, login *askpass.Session) (*Link, error) {
 	for try := 0; ; try++ {
 		prog.Status("Connecting to " + t.Spec + "…")
 		prog.Log("ssh " + t.Spec + " (" + t.Key() + "): starting GoRex's bridge")
-		l, system, err := bridge(t, profile, p, prog.Log)
+		l, system, err := bridge(t, profile, p, prog.Log, login)
 		if err != nil || l != nil {
 			if l != nil {
 				prog.Log("bridge ready: " + l.Exe())
@@ -108,7 +110,7 @@ func Open(t Target, profile string, p Payload, prog Progress) (*Link, error) {
 		}
 		prog.Status("Copying GoRex to " + t.Spec + "…")
 		prog.Log(fmt.Sprintf("%s is %s: copying the %s server (%s)", t.Spec, system, s.name, s.id))
-		if err := upload(t, s, prog.Log); err != nil {
+		if err := upload(t, s, prog.Log, login); err != nil {
 			return nil, err
 		}
 		prog.Log("copied")
@@ -117,8 +119,8 @@ func Open(t Target, profile string, p Payload, prog Progress) (*Link, error) {
 
 // bridge runs the bridge of p on t: it returns the link, or, when p is not
 // there yet, the remote system as uname names it.
-func bridge(t Target, profile string, p Payload, logf func(string)) (*Link, string, error) {
-	cmd, err := sshCmd(t, p.bridgeScript(profile), logf)
+func bridge(t Target, profile string, p Payload, logf func(string), login *askpass.Session) (*Link, string, error) {
+	cmd, err := sshCmd(t, p.bridgeScript(profile), logf, login)
 	if err != nil {
 		return nil, "", err
 	}
@@ -130,14 +132,12 @@ func bridge(t Target, profile string, p Payload, logf func(string)) (*Link, stri
 	if err != nil {
 		return nil, "", err
 	}
-	if err := cmd.Start(); err != nil {
+	if err := cmd.start(); err != nil {
 		return nil, "", err
 	}
-	var timedOut atomic.Bool
-	timer := time.AfterFunc(30*time.Second, func() {
-		timedOut.Store(true)
-		cmd.Process.Kill()
-	})
+	// 30 seconds to answer, not counting what the user takes to answer
+	// ssh's prompts.
+	stop := cmd.limit(30 * time.Second)
 	br := bufio.NewReaderSize(stdout, 64<<10)
 	kind, value, err := readHandshake(br)
 	if err != nil || kind == "deploy" {
@@ -148,9 +148,9 @@ func bridge(t Target, profile string, p Payload, logf func(string)) (*Link, stri
 			cmd.Process.Kill()
 		}
 		cmd.Wait()
-		timer.Stop()
+		timedOut := stop()
 		switch {
-		case timedOut.Load():
+		case timedOut:
 			return nil, "", fmt.Errorf("ssh %s: no answer in 30 seconds", t.Spec)
 		case errors.Is(err, errNoisyHost):
 			return nil, "", fmt.Errorf("ssh %s: %w", t.Spec, err)
@@ -159,7 +159,7 @@ func bridge(t Target, profile string, p Payload, logf func(string)) (*Link, stri
 		}
 		return nil, value, nil
 	}
-	timer.Stop()
+	stop()
 	conn := rwc{Reader: br, Writer: stdin, close: func() { cmd.Process.Kill() }}
 	cfg := yamux.DefaultConfig()
 	// Pings every few seconds tell a link that stopped answering within
@@ -180,11 +180,11 @@ func bridge(t Target, profile string, p Payload, logf func(string)) (*Link, stri
 // upload copies the server s to t, where it lands in ~/.cache/gorex/<id>
 // whole or not at all. Its files go as a gzipped tar archive made on the
 // way, which the host's tar unpacks.
-func upload(t Target, s server, logf func(string)) error {
+func upload(t Target, s server, logf func(string), login *askpass.Session) error {
 	script := `set -e; c="$HOME/.cache/gorex"; mkdir -p "$c"; t=$(mktemp -d "$c/.upload.XXXXXX"); ` +
 		`trap 'rm -rf "$t"' EXIT; tar -xzf - -C "$t"; chmod 755 "$t/gorex"; ` +
 		`if [ ! -d "$c/` + s.id + `" ]; then mv "$t" "$c/` + s.id + `"; fi; echo GOREX-DEPLOYED`
-	cmd, err := sshCmd(t, script, logf)
+	cmd, err := sshCmd(t, script, logf, login)
 	if err != nil {
 		return err
 	}
@@ -193,7 +193,11 @@ func upload(t Target, s server, logf func(string)) error {
 	defer pr.Close()
 	var out bytes.Buffer
 	cmd.Stdin, cmd.Stdout = pr, &out
-	if err := cmd.Run(); err != nil || !strings.Contains(out.String(), "GOREX-DEPLOYED") {
+	err = cmd.start()
+	if err == nil {
+		err = cmd.Wait()
+	}
+	if err != nil || !strings.Contains(out.String(), "GOREX-DEPLOYED") {
 		return cmd.err()
 	}
 	return nil

@@ -11,6 +11,7 @@ import (
 
 	"github.com/egoist/mygo"
 
+	"gorex/internal/askpass"
 	"gorex/internal/remote"
 	"gorex/internal/rex"
 )
@@ -102,12 +103,13 @@ func (e *upgradeLoopError) Error() string {
 		e.host, e.other, upgradeLoop, int(upgradeWindow.Seconds()))
 }
 
-// dialBinding connects to the server of b, telling prog how it goes. The
-// link is nil for this machine's server. restart has the server replaced
-// by this build's, as a development build does by itself with a server of
-// another build, unless guard says this window does so in a loop; a nil
-// guard leaves the server as it is.
-func dialBinding(b binding, prog remote.Progress, restart bool, guard *upgradeGuard) (*rex.Client, *remote.Link, rex.Hello, error) {
+// dialBinding connects to the server of b, telling prog how it goes, and
+// asking the user through login what ssh asks; with none, ssh asks
+// nothing. The link is nil for this machine's server. restart has the
+// server replaced by this build's, as a development build does by itself
+// with a server of another build, unless guard says this window does so
+// in a loop; a nil guard leaves the server as it is.
+func dialBinding(b binding, prog remote.Progress, login *askpass.Session, restart bool, guard *upgradeGuard) (*rex.Client, *remote.Link, rex.Hello, error) {
 	var client *rex.Client
 	var link *remote.Link
 	var err error
@@ -118,7 +120,7 @@ func dialBinding(b binding, prog remote.Progress, restart bool, guard *upgradeGu
 		if p, err = loadPayload(); err != nil {
 			return nil, nil, rex.Hello{}, err
 		}
-		if link, err = remote.Open(b.target, filepath.Base(rex.Dir()), p, prog); err != nil {
+		if link, err = remote.Open(b.target, filepath.Base(rex.Dir()), p, prog, login); err != nil {
 			return nil, nil, rex.Hello{}, err
 		}
 		if client, err = rex.Connect(link.Dial); err != nil {
@@ -224,7 +226,16 @@ func (a *App) connectLoop(win *mygo.Window, b binding, gen int64, attempts int, 
 	}
 	for try := 1; ; try++ {
 		prog.Log(fmt.Sprintf("connecting to %s, attempt %d of %d", b.label(), try, attempts))
-		client, link, h, err := dialBinding(b, prog, restart && try == 1, &a.upgrades)
+		// What ssh asks shows in the window; its answers last this
+		// attempt, and an attempt after asks again.
+		var login *askpass.Session
+		if b.remote {
+			login = a.loginSession(win, b, gen)
+		}
+		client, link, h, err := dialBinding(b, prog, login, restart && try == 1, &a.upgrades)
+		if login != nil {
+			login.Close()
+		}
 		if !current() {
 			if err == nil {
 				client.Close()
@@ -245,7 +256,8 @@ func (a *App) connectLoop(win *mygo.Window, b binding, gen int64, attempts int, 
 			return
 		}
 		prog.Log("failed: " + err.Error())
-		if loop := (*upgradeLoopError)(nil); errors.As(err, &loop) {
+		var loop *upgradeLoopError
+		if errors.As(err, &loop) {
 			// Retrying would only go on with the other GoRex.
 			win.Update(func() {
 				if current() {
@@ -253,6 +265,19 @@ func (a *App) connectLoop(win *mygo.Window, b binding, gen int64, attempts int, 
 					a.connDown = true
 					a.err = loop.Error()
 					a.errAction, a.errRun = "Connect Again", a.connectAgain
+				}
+			})
+			return
+		}
+		// A login the user cancelled or got wrong, a host key not trusted
+		// or changed: retrying by itself would only fail again, or ask
+		// again unasked.
+		var failed *remote.LoginError
+		if errors.As(err, &failed) {
+			win.Update(func() {
+				if current() {
+					a.status = failed.Reason
+					a.connDown = true
 				}
 			})
 			return

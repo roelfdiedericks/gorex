@@ -21,6 +21,20 @@ refuses a version already published.
   a long scrollback's handle is no sliver), and Always show scroll bars,
   in Settings, Defaults: Appearance, for the terminal and everything
   else that scrolls.
+- `gorex doctor [user@host]`: which ssh GoRex runs among those on the
+  PATH, whether ssh's agent holds keys, and, for a host, a connection
+  made as GoRex makes it, with why it fails in words (a host that wants
+  a password, keys it refuses). `gorex help` lists the commands. On
+  Windows they come from gorex.com, a console program beside GoRex.exe
+  in the installed app's bin, which a shell runs for `gorex`: the shell
+  waits for it and gets its exit status, and it starts GoRex.exe for
+  everything else.
+- ssh asks in the window what it would ask in a terminal: a password,
+  a key's passphrase, a one-time code, whether to trust a host's key it
+  has not seen (it failed instead). The answers last one connect: a
+  reconnect asks again. A login cancelled, a password ssh stopped asking
+  for, a host key not trusted or changed stop the connecting, with
+  Retry, rather than trying again by themselves.
 
 ## 0.1.1
 
