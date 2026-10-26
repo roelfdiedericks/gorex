@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -955,4 +957,66 @@ func patchItems(props map[string]any) {
 		}
 	}
 	props["items"] = out
+}
+
+// placeAnchors puts the anchors of surfaces back into a terminal's
+// snapshot, which carries no images: rows maps each anchor's image id to
+// its row from the screen's top, negative in the scrollback, and screen
+// is the screen's rows. A snapshot writes its rows one after the other,
+// each ending with "\r\n", up to the cursor's placing (Terminal.Snapshot),
+// so an anchor in the scrollback goes at the start of its row, which the
+// rows after it scroll up; one on the screen comes back as what places
+// it at its row after the snapshot (onScreen). Anchors whose rows the
+// snapshot no longer has are dropped.
+func placeAnchors(snap []byte, rows map[uint32]int, screen int) (out []byte, onScreen string) {
+	if len(rows) == 0 {
+		return snap, ""
+	}
+	// The rows end where the snapshot places the cursor: its last CUP.
+	end := -1
+	for i := len(snap) - 1; i >= 1; i-- {
+		if snap[i] != 'H' {
+			continue
+		}
+		j := i - 1
+		for j >= 0 && (snap[j] >= '0' && snap[j] <= '9' || snap[j] == ';') {
+			j--
+		}
+		if j >= 1 && snap[j] == '[' && snap[j-1] == 0x1b {
+			end = j - 1
+			break
+		}
+	}
+	if end < 0 {
+		end = len(snap)
+	}
+	// Where each row starts.
+	starts := []int{0}
+	for i := 0; i+1 < end; i++ {
+		if snap[i] == '\r' && snap[i+1] == '\n' {
+			starts = append(starts, i+2)
+		}
+	}
+	scrollback := max(0, len(starts)-screen)
+	type insert struct {
+		at  int
+		seq string
+	}
+	var inserts []insert
+	var b strings.Builder
+	for image, row := range rows {
+		if row >= 0 {
+			fmt.Fprintf(&b, "\x1b7\x1b[%d;1H%s\x1b8", row+1, anchor(image))
+			continue
+		}
+		if at := scrollback + row; at >= 0 && at < len(starts) {
+			inserts = append(inserts, insert{starts[at], anchor(image)})
+		}
+	}
+	sort.Slice(inserts, func(i, j int) bool { return inserts[i].at > inserts[j].at })
+	out = snap
+	for _, in := range inserts {
+		out = slices.Concat(out[:in.at], []byte(in.seq), out[in.at:])
+	}
+	return out, b.String()
 }

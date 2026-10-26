@@ -5,8 +5,13 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"io"
+	"maps"
 	"strings"
 	"testing"
+
+	"github.com/egoist/mygo/plugins/terminal"
 )
 
 // What tspdemo sends (recorded through the SDK): the hello query with
@@ -442,5 +447,83 @@ func TestSurfaceMirror(t *testing.T) {
 	// An update that does not follow is refused.
 	if _, ok := m.Update(SurfaceUpdate{V: m.Version() + 2}); ok {
 		t.Error("an update out of order went through")
+	}
+}
+
+// idleConn is a terminal's connection to nothing: it reads nothing and
+// takes what is written.
+type idleConn struct{ r *io.PipeReader }
+
+func (c idleConn) Read(p []byte) (int, error)  { return c.r.Read(p) }
+func (c idleConn) Write(p []byte) (int, error) { return len(p), nil }
+func (c idleConn) Close() error                { return c.r.Close() }
+
+func newAnchorTerm(t *testing.T) *terminal.Terminal {
+	r, _ := io.Pipe()
+	vt, err := terminal.New(terminal.Options{
+		Conn:      idleConn{r},
+		AppImages: struct{ First, Last uint32 }{TSPImageFirst, TSPImageLast},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { vt.Close() })
+	vt.ResizePixels(20, 6, 8, 16)
+	return vt
+}
+
+func anchorRows(vt *terminal.Terminal) map[uint32]int {
+	rows := map[uint32]int{}
+	for _, pl := range vt.AppPlacements() {
+		rows[pl.Image] = pl.Row
+	}
+	return rows
+}
+
+// An upgrade's snapshot, with the anchors put back, places them in a new
+// terminal where they were: up in the scrollback, on the screen, and a
+// row long gone dropped.
+func TestPlaceAnchors(t *testing.T) {
+	vt := newAnchorTerm(t)
+	var b strings.Builder
+	for i := range 30 {
+		switch i {
+		case 3:
+			b.WriteString(anchor(TSPImageFirst))
+		case 12:
+			b.WriteString(anchor(TSPImageFirst + 1))
+		case 27:
+			b.WriteString(anchor(TSPImageFirst + 2))
+		}
+		fmt.Fprintf(&b, "line %d\r\n", i)
+	}
+	b.WriteString("$ ")
+	vt.Feed([]byte(b.String()))
+	want := anchorRows(vt)
+	if len(want) != 3 || want[TSPImageFirst] >= 0 || want[TSPImageFirst+2] < 0 {
+		t.Fatalf("anchors placed at %v", want)
+	}
+	snap := vt.Snapshot()
+
+	out, onScreen := placeAnchors(snap, want, 6)
+	got := newAnchorTerm(t)
+	got.Feed(out)
+	got.Feed([]byte(onScreen))
+	if rows := anchorRows(got); !maps.Equal(rows, want) {
+		t.Errorf("anchors at %v, want %v", rows, want)
+	}
+	if got.Text() != vt.Text() {
+		t.Errorf("text %q, want %q", got.Text(), vt.Text())
+	}
+
+	// A row the snapshot no longer has.
+	gone := maps.Clone(want)
+	gone[TSPImageFirst+3] = -1000
+	out, onScreen = placeAnchors(snap, gone, 6)
+	got = newAnchorTerm(t)
+	got.Feed(out)
+	got.Feed([]byte(onScreen))
+	if rows := anchorRows(got); !maps.Equal(rows, want) {
+		t.Errorf("with a row gone, anchors at %v, want %v", rows, want)
 	}
 }

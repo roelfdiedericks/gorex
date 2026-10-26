@@ -44,18 +44,23 @@ type sessionState struct {
 	Paste bool `json:"paste,omitempty"`
 	// TSP tells that the session answers the Tern Surface Protocol;
 	// Surfaces are its program's live surfaces, with their documents,
-	// NextImage the last anchor's image id and Blobs the program's
-	// blobs, oldest first, which it sent once and does not again.
-	TSP        bool       `json:"tsp,omitempty"`
-	Surfaces   []*Surface `json:"surfaces,omitempty"`
-	NextImage  uint32     `json:"nextImage,omitempty"`
-	Blobs      []*TSPBlob `json:"blobs,omitempty"`
-	Exited     bool       `json:"exited,omitempty"`
-	Code       int        `json:"code,omitempty"`
-	Output     uint64     `json:"output"`
-	Bells      int64      `json:"bells,omitempty"`
-	LastOutput time.Time  `json:"lastOutput"`
-	LastInput  time.Time  `json:"lastInput"`
+	// Kept those kept after their close, NextImage the last anchor's
+	// image id and Blobs the program's blobs, oldest first, which it
+	// sent once and does not again. Anchors are the rows of the
+	// surfaces' anchors, by image id, from the screen's top (negative
+	// in the scrollback), which the snapshot carries no image of.
+	TSP        bool           `json:"tsp,omitempty"`
+	Surfaces   []*Surface     `json:"surfaces,omitempty"`
+	Kept       []*Surface     `json:"kept,omitempty"`
+	Anchors    map[uint32]int `json:"anchors,omitempty"`
+	NextImage  uint32         `json:"nextImage,omitempty"`
+	Blobs      []*TSPBlob     `json:"blobs,omitempty"`
+	Exited     bool           `json:"exited,omitempty"`
+	Code       int            `json:"code,omitempty"`
+	Output     uint64         `json:"output"`
+	Bells      int64          `json:"bells,omitempty"`
+	LastOutput time.Time      `json:"lastOutput"`
+	LastInput  time.Time      `json:"lastInput"`
 	// Screen is the title and the snapshot of the screen and scrollback,
 	// which the new server's terminal starts from.
 	Screen []byte `json:"screen,omitempty"`
@@ -113,12 +118,18 @@ func (s *Server) upgrade(exe string) error {
 		ses := sessionState{
 			ID: ss.id, Shell: ss.shell, Created: ss.created, PID: ss.p.pid(), FD: -1, Keep: ss.keep, Images: ss.images,
 			Cols: ss.cols, Rows: ss.rows, CellWidth: ss.cellWidth, CellHeight: ss.cellHeight, Paste: ss.paste.on, TSP: ss.tsp.on,
-			Surfaces: ss.tsp.live(), NextImage: ss.tsp.nextImage, Blobs: ss.tsp.blobList(),
+			Surfaces: ss.tsp.live(), Kept: ss.tsp.kept, NextImage: ss.tsp.nextImage, Blobs: ss.tsp.blobList(),
 			Exited: ss.exited || !paused[i], Code: ss.code, Output: ss.output,
 			Bells: ss.bells.Load(), LastOutput: ss.lastOutput, LastInput: ss.lastInput,
 		}
 		if !ses.Exited {
 			ses.Screen = ss.vt.Snapshot()
+			for _, pl := range ss.vt.AppPlacements() {
+				if ses.Anchors == nil {
+					ses.Anchors = map[uint32]int{}
+				}
+				ses.Anchors[pl.Image] = pl.Row
+			}
 			if title := ss.vt.Title(); title != "" {
 				ses.Screen = append([]byte("\x1b]2;"+title+"\x07"), ses.Screen...)
 			}
@@ -288,25 +299,30 @@ func resumeSession(st sessionState, emit func(Response)) (*session, error) {
 		return nil, err
 	}
 	s.p = &pty{master: os.NewFile(uintptr(st.FD), "/dev/ptmx"), proc: proc}
-	if err := s.start(st.Screen); err != nil {
+	// The snapshot carries no anchors: those in the scrollback go into
+	// it, at the starts of their rows, and those on the screen are
+	// placed at their rows after it. A state without the anchors' rows
+	// has the live surfaces' placed from the cursor (reanchor).
+	screen, onScreen := placeAnchors(st.Screen, st.Anchors, st.Rows)
+	if err := s.start(screen); err != nil {
 		s.p.hangup()
 		return nil, err
 	}
-	// The screen carries no anchors: the live surfaces' are placed
-	// anew, from the cursor under the last (reanchor). The kept
-	// surfaces, whose rows may be in the scrollback, are gone.
-	if len(st.Surfaces) > 0 || len(st.Blobs) > 0 {
+	if len(st.Surfaces) > 0 || len(st.Kept) > 0 || len(st.Blobs) > 0 {
 		s.mu.Lock()
 		for _, b := range st.Blobs {
 			s.tsp.addBlob(b.Mime, b.Data)
 		}
-		if len(st.Surfaces) > 0 {
-			s.tsp.restore(st.Surfaces)
+		s.tsp.restore(st.Surfaces)
+		s.tsp.kept = st.Kept
+		if st.Anchors != nil {
+			s.vt.Feed([]byte(onScreen))
+		} else if len(st.Surfaces) > 0 {
 			s.tsp.reanchor()
 			s.vt.Feed(s.tsp.inject)
 			s.tsp.inject = nil
-			s.tspPad()
 		}
+		s.tspPad()
 		s.mu.Unlock()
 	}
 	return s, nil
