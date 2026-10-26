@@ -78,6 +78,11 @@ type Pane struct {
 	// server each live inline one needs, and its dock's.
 	surfaces    []rex.Surface
 	surfaceRows map[string]tspSize
+	// mirror is the window's copy of the session's surfaces, which
+	// surfaces is the list of; tspHints are the hints of the ops it took
+	// (reveal, scroll, focus), for the next frame to act on.
+	mirror   rex.SurfaceMirror
+	tspHints []rex.SurfaceHint
 	// keptFrames counts the frames each kept surface was drawn, by
 	// anchor: its content is measured from the second.
 	keptFrames map[uint32]int
@@ -413,11 +418,25 @@ func (a *App) attach(p *Pane, cols, rows int) {
 	// the same pane, as when the settings remake it: its exit is not the
 	// session's.
 	stream := p.stream
-	stream.OnSurfaces(func(sfs []rex.Surface) {
+	stream.OnSurfaces(func(set *rex.SurfaceSet, updates []rex.SurfaceUpdate) {
 		update(func() {
 			if p.stream != stream {
 				return
 			}
+			// The window mirrors the session's surfaces: whole as it
+			// attaches, then by the ops the programs apply.
+			if set != nil {
+				p.mirror.Reset(set)
+			}
+			for _, u := range updates {
+				hints, ok := p.mirror.Update(u)
+				if !ok {
+					log.Printf("tsp: an update of surfaces out of order (%d after %d)", u.V, p.mirror.Version())
+					break
+				}
+				p.tspHints = append(p.tspHints, hints...)
+			}
+			sfs := p.mirror.List()
 			p.surfaces = sfs
 			// The rows told for a surface stand until the server's
 			// anchor has them, or the surface is gone.

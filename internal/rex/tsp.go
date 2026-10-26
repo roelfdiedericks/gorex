@@ -121,10 +121,8 @@ type tspTracker struct {
 	// opened.
 	surfaces map[string]*Surface
 	order    []string
-	// nodes index each surface's nodes by id, and parent each node's
-	// parent, "" for the root.
-	nodes  map[string]map[string]*TSPNode
-	parent map[string]map[string]string
+	// doc indexes the surfaces' documents and applies their ops.
+	doc tspDoc
 	// replies are what the program is to be told, in order: the hello
 	// reply, acks. The reader writes them to the pty.
 	replies [][]byte
@@ -144,9 +142,13 @@ type tspTracker struct {
 	growing []tspGrowth
 	// changed tells that a surface changed since the windows were told;
 	// version counts those changes, which each window is told of
-	// (session.frame).
+	// (session.frame): pending is what changed since the last, which
+	// commit makes the update of the next version, and updates the
+	// last ones made, encoded, for the windows that lag.
 	changed bool
 	version uint64
+	pending SurfaceUpdate
+	updates []tspUpdate
 	// hello is the hello reply's terminal facts the session knows: its
 	// size, cell size and whether the window's theme is dark.
 	cols, cellW, cellH int
@@ -343,11 +345,14 @@ func (t *tspTracker) message(verb string, params map[string]string, body []byte)
 		// A flow surface is laid out among the output as an inline one
 		// is, and stays as output does (its close keeps it).
 		if t.surfaces == nil {
-			t.surfaces, t.nodes, t.parent = map[string]*Surface{}, map[string]map[string]*TSPNode{}, map[string]map[string]string{}
+			t.surfaces = map[string]*Surface{}
 		}
-		if old := t.surfaces[o.ID]; old != nil && old.Image != 0 {
-			t.inject = append(t.inject, deleteAnchor(old.Image)...)
-		} else if old == nil {
+		if old := t.surfaces[o.ID]; old != nil {
+			t.doc.drop(old)
+			if old.Image != 0 {
+				t.inject = append(t.inject, deleteAnchor(old.Image)...)
+			}
+		} else {
 			t.order = append(t.order, o.ID)
 		}
 		sf := &Surface{ID: o.ID, Mode: o.Mode, Title: o.Title}
@@ -365,7 +370,10 @@ func (t *tspTracker) message(verb string, params map[string]string, body []byte)
 		// by its own id, which the adds name as their parent.
 		sf.Root = &TSPNode{ID: o.ID, Kind: "col"}
 		t.surfaces[o.ID] = sf
-		t.nodes[o.ID], t.parent[o.ID] = map[string]*TSPNode{o.ID: sf.Root}, map[string]string{o.ID: ""}
+		t.doc.index(sf)
+		if b, err := json.Marshal(sf); err == nil {
+			t.pending.Opens = append(t.pending.Opens, b)
+		}
 		t.changed = true
 	case "f":
 		var f struct {
@@ -378,8 +386,9 @@ func (t *tspTracker) message(verb string, params map[string]string, body []byte)
 		}
 		if sf := t.surfaces[f.SF]; sf != nil {
 			for _, op := range f.Ops {
-				t.apply(sf, op)
+				t.doc.apply(sf, op)
 			}
+			t.pending.Frames = append(t.pending.Frames, SurfaceFrame{SF: sf.ID, Image: sf.Image, Ops: f.Ops})
 			t.changed = true
 		}
 		// Acked whether the surface is drawn or not, so that a program
@@ -398,8 +407,7 @@ func (t *tspTracker) message(verb string, params map[string]string, body []byte)
 			return
 		}
 		delete(t.surfaces, x.ID)
-		delete(t.nodes, x.ID)
-		delete(t.parent, x.ID)
+		t.doc.drop(sf)
 		for i, id := range t.order {
 			if id == x.ID {
 				t.order = append(t.order[:i], t.order[i+1:]...)
@@ -697,182 +705,76 @@ func (t *tspTracker) live() []*Surface {
 
 // restore takes the surfaces an upgrade carried, indexing their nodes.
 func (t *tspTracker) restore(sfs []*Surface) {
-	t.surfaces, t.nodes, t.parent = map[string]*Surface{}, map[string]map[string]*TSPNode{}, map[string]map[string]string{}
+	t.surfaces, t.doc = map[string]*Surface{}, tspDoc{}
 	t.order = t.order[:0]
 	for _, sf := range sfs {
 		t.surfaces[sf.ID] = sf
 		t.order = append(t.order, sf.ID)
-		nodes, parent := map[string]*TSPNode{}, map[string]string{}
-		var index func(n *TSPNode, p string)
-		index = func(n *TSPNode, p string) {
-			nodes[n.ID], parent[n.ID] = n, p
-			for _, c := range n.Children {
-				index(c, n.ID)
-			}
-		}
-		if sf.Root != nil {
-			index(sf.Root, "")
-		}
-		t.nodes[sf.ID], t.parent[sf.ID] = nodes, parent
+		t.doc.index(sf)
 	}
 	t.changed = true
 }
 
-// apply applies a frame op to a surface's document.
-func (t *tspTracker) apply(sf *Surface, raw json.RawMessage) {
-	var op []json.RawMessage
-	if json.Unmarshal(raw, &op) != nil || len(op) == 0 {
-		return
-	}
-	var name string
-	if json.Unmarshal(op[0], &name) != nil {
-		return
-	}
-	str := func(i int) string {
-		var s string
-		if i < len(op) {
-			json.Unmarshal(op[i], &s)
-		}
-		return s
-	}
-	nodes, parents := t.nodes[sf.ID], t.parent[sf.ID]
-	switch name {
-	case "add":
-		// ["add", id, parent, before, node]
-		if len(op) < 5 {
-			return
-		}
-		var n TSPNode
-		if json.Unmarshal(op[4], &n) != nil || n.ID == "" {
-			return
-		}
-		t.remove(sf, n.ID)
-		parent, before := str(2), str(3)
-		t.insert(sf, &n, parent, before)
-		var index func(n *TSPNode, parent string)
-		index = func(n *TSPNode, parent string) {
-			nodes[n.ID], parents[n.ID] = n, parent
-			for _, c := range n.Children {
-				index(c, n.ID)
-			}
-		}
-		index(&n, parent)
-		patchItems(n.Props)
-	case "set":
-		// ["set", id, props]: a null prop deletes it.
-		n := nodes[str(1)]
-		if n == nil || len(op) < 3 {
-			return
-		}
-		var props map[string]any
-		if json.Unmarshal(op[2], &props) != nil {
-			return
-		}
-		if n.Props == nil {
-			n.Props = map[string]any{}
-		}
-		for k, v := range props {
-			if v == nil {
-				delete(n.Props, k)
-			} else {
-				n.Props[k] = v
-			}
-		}
-		patchItems(n.Props)
-	case "text":
-		// ["text", id, "append"|"replace", text]
-		n := nodes[str(1)]
-		if n == nil || len(op) < 4 {
-			return
-		}
-		if n.Props == nil {
-			n.Props = map[string]any{}
-		}
-		text, _ := n.Props["text"].(string)
-		if str(2) == "append" {
-			n.Props["text"] = text + str(3)
-		} else {
-			n.Props["text"] = str(3)
-		}
-	case "splice":
-		// ["splice", id, at, del, text]: at and del count UTF-16 units.
-		n := nodes[str(1)]
-		if n == nil || len(op) < 5 {
-			return
-		}
-		var at, del int
-		json.Unmarshal(op[2], &at)
-		json.Unmarshal(op[3], &del)
-		if n.Props == nil {
-			n.Props = map[string]any{}
-		}
-		text, _ := n.Props["text"].(string)
-		n.Props["text"] = spliceUTF16(text, at, del, str(4))
-	case "move":
-		// ["move", id, parent, before]
-		n := nodes[str(1)]
-		if n == nil {
-			return
-		}
-		t.remove(sf, n.ID)
-		t.insert(sf, n, str(2), str(3))
-		parents[n.ID] = str(2)
-		nodes[n.ID] = n
-	case "del":
-		t.remove(sf, str(1))
-		var drop func(id string)
-		drop = func(id string) {
-			if n := nodes[id]; n != nil {
-				for _, c := range n.Children {
-					drop(c.ID)
-				}
-			}
-			delete(nodes, id)
-			delete(parents, id)
-		}
-		drop(str(1))
-	}
-	// settle, focus, reveal, scroll, suspend, resume: hints, nothing kept.
+// tspUpdate is an update made of a version's changes, encoded once for
+// every window.
+type tspUpdate struct {
+	v    uint64
+	json []byte
 }
 
-// insert puts n under parent (the surface itself when parent is the
-// surface's id or unknown) before the child before, at the end when "".
-func (t *tspTracker) insert(sf *Surface, n *TSPNode, parent, before string) {
-	if parent == "" || t.nodes[sf.ID][parent] == nil {
-		parent = sf.ID
+// tspMaxUpdates caps the updates kept for windows that lag: one further
+// behind gets the surfaces whole.
+const tspMaxUpdates = 256
+
+// commit makes what changed since the last version the update of the
+// next one, with the surfaces there are now, and reports the version.
+func (t *tspTracker) commit() uint64 {
+	if t.version == 0 {
+		// Windows that have the surfaces have a version; 0 is none.
+		t.version = 1
 	}
-	p := t.nodes[sf.ID][parent]
-	at := len(p.Children)
-	if before != "" {
-		for i, c := range p.Children {
-			if c.ID == before {
-				at = i
-				break
-			}
+	if !t.changed {
+		return t.version
+	}
+	t.changed = false
+	t.version++
+	u := t.pending
+	u.V = t.version
+	u.List = make([]Surface, 0, len(t.kept)+len(t.order))
+	for _, sf := range t.list() {
+		meta := *sf
+		meta.Root = nil
+		u.List = append(u.List, meta)
+	}
+	t.pending = SurfaceUpdate{}
+	if b, err := json.Marshal(u); err == nil {
+		if len(t.updates) == tspMaxUpdates {
+			t.updates = append(t.updates[:0], t.updates[1:]...)
 		}
+		t.updates = append(t.updates, tspUpdate{t.version, b})
 	}
-	p.Children = append(p.Children, nil)
-	copy(p.Children[at+1:], p.Children[at:])
-	p.Children[at] = n
+	return t.version
 }
 
-// remove takes the node id out of its parent's children, keeping it in
-// the index; the root stays.
-func (t *tspTracker) remove(sf *Surface, id string) {
-	n := t.nodes[sf.ID][id]
-	if n == nil || n == sf.Root {
-		return
+// updatesSince returns the updates after version v, as a JSON array; ok
+// is false when some of them are no longer kept, or v is none.
+func (t *tspTracker) updatesSince(v uint64) (b []byte, ok bool) {
+	if v == 0 || len(t.updates) == 0 || t.updates[0].v > v+1 {
+		return nil, false
 	}
-	p := t.nodes[sf.ID][t.parent[sf.ID][id]]
-	if p == nil {
-		return
-	}
-	for i, c := range p.Children {
-		if c == n {
-			p.Children = append(p.Children[:i], p.Children[i+1:]...)
-			return
+	b = append(b, '[')
+	n := 0
+	for _, u := range t.updates {
+		if u.v <= v {
+			continue
 		}
+		if n > 0 {
+			b = append(b, ',')
+		}
+		b = append(b, u.json...)
+		n++
 	}
+	return append(b, ']'), true
 }
 
 // spliceUTF16 replaces del UTF-16 units of s at at with text.

@@ -336,7 +336,7 @@ type Stream struct {
 	cols, rows int
 	onSize     func(cols, rows int)
 	// onSurfaces takes the session's surfaces (OnSurfaces).
-	onSurfaces func([]Surface)
+	onSurfaces func(*SurfaceSet, []SurfaceUpdate)
 	// onBlob takes the programs' blobs (OnBlob).
 	onBlob func(id, mime string, data []byte)
 	// left is what is left to read of the frame being read, by the
@@ -500,7 +500,7 @@ func (s *Stream) Read(p []byte) (int, error) {
 			if onSize != nil {
 				onSize(cols, rows)
 			}
-		case msgSurface:
+		case msgSurface, msgSurfaceUpdates:
 			if n > 64<<20 {
 				return 0, errFraming
 			}
@@ -508,15 +508,21 @@ func (s *Stream) Read(p []byte) (int, error) {
 			if _, err := io.ReadFull(r, b); err != nil {
 				return 0, err
 			}
-			var surfaces []Surface
-			if err := json.Unmarshal(b, &surfaces); err != nil {
+			var set *SurfaceSet
+			var updates []SurfaceUpdate
+			if h[0] == msgSurface {
+				set = &SurfaceSet{}
+				if err := json.Unmarshal(b, set); err != nil {
+					return 0, errFraming
+				}
+			} else if err := json.Unmarshal(b, &updates); err != nil {
 				return 0, errFraming
 			}
 			s.mu.Lock()
 			onSurfaces := s.onSurfaces
 			s.mu.Unlock()
 			if onSurfaces != nil {
-				onSurfaces(surfaces)
+				onSurfaces(set, updates)
 			}
 		case msgBlob:
 			if n < 65 || n > 32<<20 {
@@ -569,9 +575,10 @@ func (s *Stream) OnSize(f func(cols, rows int)) {
 }
 
 // OnSurfaces has f take the session's surfaces of the Tern Surface
-// Protocol, as the server sends them: all of them, whenever one changed,
-// from the reading goroutine.
-func (s *Stream) OnSurfaces(f func([]Surface)) {
+// Protocol, as the server sends them, from the reading goroutine: all of
+// them (set) as the stream attaches, and what changed (updates) after
+// that, which a SurfaceMirror applies.
+func (s *Stream) OnSurfaces(f func(set *SurfaceSet, updates []SurfaceUpdate)) {
 	s.mu.Lock()
 	s.onSurfaces = f
 	s.mu.Unlock()

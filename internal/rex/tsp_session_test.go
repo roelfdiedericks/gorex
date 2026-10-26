@@ -47,11 +47,21 @@ func TestTSPEveryWindow(t *testing.T) {
 	var mu sync.Mutex
 	got := map[string]string{}
 	watch := func(name string, s *Stream) {
-		s.OnSurfaces(func(sfs []Surface) {
+		// The window's mirror of the surfaces, whole then updated.
+		var m SurfaceMirror
+		s.OnSurfaces(func(set *SurfaceSet, updates []SurfaceUpdate) {
 			mu.Lock()
 			defer mu.Unlock()
+			if set != nil {
+				m.Reset(set)
+			}
+			for _, u := range updates {
+				if _, ok := m.Update(u); !ok {
+					t.Errorf("%s: update %d after %d", name, u.V, m.Version())
+				}
+			}
 			got[name] = ""
-			if len(sfs) == 1 && sfs[0].Root != nil {
+			if sfs := m.List(); len(sfs) == 1 && sfs[0].Root != nil {
 				var walk func(n *TSPNode)
 				walk = func(n *TSPNode) {
 					if n.ID == "main.card.row.count" {

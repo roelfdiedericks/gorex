@@ -110,8 +110,8 @@ func TestTSPTracker(t *testing.T) {
 		t.Errorf("move: row %v card %v", ids(row.Children), ids(card.Children))
 	}
 	ops(`["del","main.card.row"]`)
-	if len(card.Children) != 2 || tr.nodes["s1"]["main.card.row.count"] != nil {
-		t.Errorf("del: %v, count indexed %v", ids(card.Children), tr.nodes["s1"]["main.card.row.count"] != nil)
+	if len(card.Children) != 2 || tr.doc.nodes["s1#0"]["main.card.row.count"] != nil {
+		t.Errorf("del: %v, count indexed %v", ids(card.Children), tr.doc.nodes["s1#0"]["main.card.row.count"] != nil)
 	}
 	ops(`["splice","main.card.body",0,4,"Line"]`)
 	if body := card.Children[0]; body.Props["text"] != "Line" {
@@ -352,7 +352,7 @@ func TestPickerItemsPatch(t *testing.T) {
 	tr.feed([]byte(`` + "\x1b_tsp;o;{\"id\":\"s\",\"mode\":\"screen\"}\x1b\\" +
 		"\x1b_tsp;f;{\"sf\":\"s\",\"s\":1,\"ops\":[[\"add\",\"p\",\"s\",null,{\"id\":\"p\",\"k\":\"picker\",\"p\":{\"items\":[{\"id\":\"a\",\"label\":\"A\"},{\"id\":\"b\",\"label\":\"B\"},{\"id\":\"c\",\"label\":\"C\"}]}}]]}\x1b\\" +
 		"\x1b_tsp;f;{\"sf\":\"s\",\"s\":2,\"ops\":[[\"set\",\"p\",{\"itemsAdd\":[{\"id\":\"b\",\"label\":\"B2\"},{\"id\":\"d\",\"label\":\"D\"}],\"itemsDel\":[\"a\"]}]]}\x1b\\"))
-	p := tr.nodes["s"]["p"]
+	p := tr.doc.nodes["s#0"]["p"]
 	if p == nil {
 		t.Fatal("no picker")
 	}
@@ -370,5 +370,77 @@ func TestPickerItemsPatch(t *testing.T) {
 	}
 	if _, ok := p.Props["itemsDel"]; ok {
 		t.Error("itemsDel kept")
+	}
+}
+
+// A window's mirror, made whole at one version and kept by the updates
+// after it, has what the server has: opens, frames, closes that keep,
+// a program run again under the same surface ids, and the hints of ops
+// that keep nothing.
+func TestSurfaceMirror(t *testing.T) {
+	tr := tspTracker{on: true, cols: 80}
+	same := func(m *SurfaceMirror, when string) {
+		t.Helper()
+		want, _ := json.Marshal(tr.list())
+		var list []*Surface
+		for _, sf := range m.List() {
+			list = append(list, &sf)
+		}
+		got, _ := json.Marshal(list)
+		if string(got) != string(want) {
+			t.Errorf("%s:\n%s\nwant\n%s", when, got, want)
+		}
+	}
+	update := func(m *SurfaceMirror, from uint64) []SurfaceHint {
+		t.Helper()
+		tr.commit()
+		b, ok := tr.updatesSince(from)
+		if !ok {
+			t.Fatalf("no updates since %d", from)
+		}
+		var us []SurfaceUpdate
+		if err := json.Unmarshal(b, &us); err != nil {
+			t.Fatal(err)
+		}
+		var hints []SurfaceHint
+		for _, u := range us {
+			h, ok := m.Update(u)
+			if !ok {
+				t.Fatalf("update %d after %d", u.V, m.Version())
+			}
+			hints = append(hints, h...)
+		}
+		return hints
+	}
+	inline := strings.Replace(tspOpen, `"mode":"screen"`, `"mode":"inline"`, 1)
+	tr.feed([]byte(inline + tspFrame1))
+	var m SurfaceMirror
+	v := tr.commit()
+	b, _ := json.Marshal(SurfaceSet{V: v, Surfaces: tr.list()})
+	var set SurfaceSet
+	json.Unmarshal(b, &set)
+	m.Reset(&set)
+	same(&m, "whole")
+
+	tr.feed([]byte(tspFrame2 + "\x1b_tsp;f;{\"sf\":\"s1\",\"s\":3,\"ops\":[[\"reveal\",\"main.card\",\"end\"]]}\x1b\\"))
+	hints := update(&m, v)
+	same(&m, "after a frame")
+	if len(hints) != 1 || hints[0].Op != "reveal" || hints[0].ID != "main.card" || hints[0].Arg != "end" || hints[0].SF != "s1" {
+		t.Errorf("hints %+v", hints)
+	}
+
+	// Kept, then the program runs again: s1 opens anew beside the kept
+	// s1, and draws.
+	v = m.Version()
+	tr.feed([]byte("\x1b_tsp;x;{\"id\":\"s1\",\"keep\":true}\x1b\\" + inline + tspFrame1))
+	tr.resize("s1", 5, 2)
+	update(&m, v)
+	same(&m, "after a close that keeps and a reopen")
+	if l := m.List(); len(l) != 2 || !l[0].Closed || l[1].Closed || l[1].Rows != 5 || l[1].Dock != 2 {
+		t.Errorf("list %+v", l)
+	}
+	// An update that does not follow is refused.
+	if _, ok := m.Update(SurfaceUpdate{V: m.Version() + 2}); ok {
+		t.Error("an update out of order went through")
 	}
 }

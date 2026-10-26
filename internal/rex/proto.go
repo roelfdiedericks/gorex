@@ -21,7 +21,7 @@ import (
 )
 
 // ProtocolVersion changes whenever the wire protocol does.
-const ProtocolVersion = 7
+const ProtocolVersion = 8
 
 // BridgeReady starts the line a bridge prints before it multiplexes its
 // standard input and output; the rest of the line is its executable.
@@ -240,15 +240,25 @@ const (
 	// big-endian), which the window's terminal takes before the frames
 	// that follow.
 	msgSize = 'S'
-	// msgSurface is the session's surfaces of the Tern Surface Protocol,
-	// as JSON ([]Surface), whenever one changed and when the window
-	// attaches.
+	// msgSurface is the session's surfaces of the Tern Surface Protocol
+	// whole, as JSON (SurfaceSet), when the window attaches and when it
+	// lags too far for msgSurfaceUpdates.
 	msgSurface = 'T'
+	// msgSurfaceUpdates is what changed in the surfaces since the
+	// version the window has, as JSON ([]SurfaceUpdate).
+	msgSurfaceUpdates = 'U'
 	// msgBlob is a blob of a program's, an image its surfaces show, once
 	// for each window: its id (64 hex digits), the length of its mime
 	// type (a byte), the mime type and its bytes.
 	msgBlob = 'B'
 )
+
+// SurfaceSet is a session's surfaces whole, at a version of them, which
+// the updates after it follow (SurfaceUpdate).
+type SurfaceSet struct {
+	V        uint64     `json:"v"`
+	Surfaces []*Surface `json:"surfaces"`
+}
 
 // Dir returns the directory of the server's socket, log and state.
 func Dir() string {

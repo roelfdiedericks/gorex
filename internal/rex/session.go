@@ -87,9 +87,8 @@ type attached struct {
 	cols, rows int
 	paste      bool
 	reads      []string
-	// surfaced is the tracker's version of the surfaces the window was
-	// sent, plus one (0: none yet), and blobs the blobs it was sent, by
-	// id.
+	// surfaced is the version of the surfaces the window has (0: none
+	// yet), and blobs the blobs it was sent, by id.
 	surfaced uint64
 	blobs    map[string]bool
 }
@@ -265,6 +264,9 @@ func (s *session) read() {
 			replies := s.tsp.replies
 			s.tsp.replies = nil
 			if s.tsp.changed {
+				// Each read's changes are an update, so that what the
+				// windows are to be sent stays small with none attached.
+				s.tsp.commit()
 				s.wake()
 			}
 			s.mu.Unlock()
@@ -448,21 +450,32 @@ func (s *session) frame(a *attached, size *[9]byte) (bufs net.Buffers, due bool)
 		head = append(head, b.Mime...)
 		bufs = append(bufs, head, b.Data)
 	}
-	// Each window gets the surfaces when they changed since it was last
-	// sent them: the tracker's changes are counted, the window keeps
-	// the count it has.
+	// Each window gets the surfaces whole as it attaches, and after
+	// that the updates since the version it has: the ops the programs
+	// applied, a few hundred bytes for a document of tens of
+	// kilobytes; whole again when it lags further than the updates
+	// kept.
 	t := &s.tsp
-	if t.changed {
-		t.changed = false
-		t.version++
-	}
-	if a.surfaced != t.version+1 {
-		a.surfaced = t.version + 1
-		if b, err := json.Marshal(t.list()); err == nil {
+	v := t.commit()
+	switch {
+	case a.surfaced == v:
+	case a.surfaced != 0:
+		if b, ok := t.updatesSince(a.surfaced); ok {
+			var h [5]byte
+			h[0] = msgSurfaceUpdates
+			binary.BigEndian.PutUint32(h[1:], uint32(len(b)))
+			bufs = append(bufs, h[:], b)
+			a.surfaced = v
+			break
+		}
+		fallthrough
+	default:
+		if b, err := json.Marshal(SurfaceSet{V: v, Surfaces: t.list()}); err == nil {
 			var h [5]byte
 			h[0] = msgSurface
 			binary.BigEndian.PutUint32(h[1:], uint32(len(b)))
 			bufs = append(bufs, h[:], b)
+			a.surfaced = v
 		}
 	}
 	if len(f) > 0 {
