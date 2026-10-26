@@ -78,12 +78,16 @@ func (a *App) screenSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 }
 
 // inlineSurface draws an inline surface from its anchor's row, over the
-// terminal's width. Live, it is as tall as its content, and its height
-// in rows, as the last frame laid it out, goes to the server when it
-// differs from the rows the surface has; kept, it is cut to those rows.
-// Live with a dock, it reaches the pane's bottom, where the dock is
-// pinned, over the rows the server pads it with (tspTracker.padding):
-// no terminal shows between them. Scrolled out of the viewport it draws
+// terminal's width, in a box that scrolls its content. Live, the box is
+// as tall as its content, up to the screen less the cursor's row, and
+// its height in rows, as the last frame laid it out, goes to the server
+// when it differs from the rows the surface has: content taller scrolls
+// in the box rather than taking more of the terminal's rows, which its
+// scrollback would drop, and the anchor with them. Kept, the box is its
+// rows. Live with a dock, it reaches the pane's bottom, where the dock
+// is pinned, over the rows the server pads it with (tspTracker.padding):
+// no terminal shows between them. Scrolled to its end, the box follows
+// the content as it grows. Scrolled out of the viewport it draws
 // nothing.
 func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, pl terminal.AppPlacement) {
 	_, screenRows := p.term.Size()
@@ -92,17 +96,44 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 		return
 	}
 	cell := pl.Rect.H / float32(max(pl.Rows, 1))
-	box := ui.Box(c.Key(fmt.Sprintf("tsp-%d", sf.Image))).Absolute().Left(pl.Rect.X).Top(pl.Rect.Y).Right(tspAside(p, sf, pl)).Background(k.bgBottom).Padding(4, 8).Font(tspFont)
-	docked := !sf.Closed && tspDocked(sf)
-	if sf.Closed {
-		box.Height(cell * float32(sf.Rows)).Clip()
-	} else if docked {
-		box.Bottom(0)
+	// The most rows a surface takes: the screen's, less the row the
+	// cursor is on under it.
+	most := max(screenRows-1, 1)
+	st := p.tspScroll[sf.Image]
+	if st == nil {
+		if p.tspScroll == nil {
+			p.tspScroll = map[uint32]*tspScroller{}
+		}
+		st = &tspScroller{}
+		p.tspScroll[sf.Image] = st
 	}
-	// The wheel over the surface scrolls the terminal, as over its rows.
+	if st.Y >= st.MaxY {
+		st.Y = math.MaxFloat32
+	}
+	box := ui.Scroll(c.Key(fmt.Sprintf("tsp-%d", sf.Image))).TrackScroll(&st.ScrollState).Absolute().Left(pl.Rect.X).Top(pl.Rect.Y).Right(tspAside(p, sf, pl)).
+		Background(k.bgBottom).Padding(4, 8).Font(tspFont)
+	st.box = box.Bounds()
+	// What shows of the content: the box less its padding.
+	st.view = st.box.H - 8
+	docked := !sf.Closed && tspDocked(sf)
+	dockH := float32(0)
+	switch {
+	case sf.Closed:
+		box.Height(cell * float32(sf.Rows))
+	case docked:
+		// The scroll bar stops at the dock (surfaceDock, its padding),
+		// which hides the content over it, above the box's padding.
+		dockH = p.dockH[sf.Image]
+		box.Bottom(0).ScrollbarInsets(0, 0, dockH+8, 0)
+		st.view -= dockH + 4
+	default:
+		box.MaxHeight(cell * float32(most))
+	}
+	// The wheel over the surface scrolls its content, and the terminal
+	// past its ends, as over its rows.
 	term, at := p.term, pl.Rect
 	box.HandleInput(func(ev ui.InputEvent) bool {
-		if ev.Kind != ui.InputScroll {
+		if ev.Kind != ui.InputScroll || st.scrolls(ev.DY) {
 			return false
 		}
 		ev.X, ev.Y = ev.X+at.X, ev.Y+at.Y
@@ -124,11 +155,11 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 	}
 	// The rows the content takes, the box's padding included, and those
 	// of the dock's space under it, which the server pads while the
-	// surface is live and leaves when it is kept. A kept surface's box
-	// is cut to its rows: its content measured taller is told once, for
-	// the rows it lacks (rex.tspTracker.resize), from its second kept
-	// frame on, the bounds being the last frame's, the live layout's
-	// with the dock's space on the first.
+	// surface is live and leaves when it is kept, at most the screen's.
+	// A kept surface's box is its rows: its content measured taller is
+	// told once, for the rows it lacks (rex.tspTracker.resize), from its
+	// second kept frame on, the bounds being the last frame's, the live
+	// layout's with the dock's space on the first.
 	if sf.Closed {
 		if p.keptFrames == nil {
 			p.keptFrames = map[uint32]int{}
@@ -138,15 +169,9 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 			return
 		}
 	}
-	h, dockH := box.Bounds().H, float32(0)
-	if docked {
-		dockH = p.dockH[sf.Image]
-	}
-	if docked || sf.Closed {
-		h = content.Bounds().H + 8 - dockH
-	}
-	if h > 0 {
+	if h := content.Bounds().H + 8 - dockH; h > 0 {
 		size := tspSize{int(math.Ceil(float64(h/cell - 0.01))), int(math.Ceil(float64(dockH/cell - 0.01)))}
+		size.rows = min(size.rows, max(most-size.dock, 1))
 		if sf.Closed && size.rows <= sf.Rows {
 			return
 		}
@@ -159,6 +184,26 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 			go stream.TSPSize(id, size.rows, size.dock)
 		}
 	}
+}
+
+// tspScroller is how far an inline surface scrolls its content, and the
+// box it was drawn in and how tall a view of its content that is, as
+// the last frame laid it out.
+type tspScroller struct {
+	ui.ScrollState
+	box  ui.Rect
+	view float32
+}
+
+// scrolls reports whether the surface's content scrolls by dy, rather
+// than being at the end it goes toward.
+func (s *tspScroller) scrolls(dy float32) bool {
+	return dy < 0 && s.Y > 0 || dy > 0 && s.Y < s.MaxY
+}
+
+// scrollBy scrolls the surface's content by dy, within its ends.
+func (s *tspScroller) scrollBy(dy float32) {
+	s.Y = max(0, min(min(s.Y, s.MaxY)+dy, s.MaxY))
 }
 
 // tspSize is what a window measures a live inline surface to need: the
@@ -187,10 +232,16 @@ func tspDocked(sf *rex.Surface) bool {
 func (a *App) surfaceDock(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, dock *rex.TSPNode, x float32) {
 	pinned := ui.Column(c.Key(fmt.Sprintf("tsp-dock-%d", sf.Image))).Absolute().Left(x).Right(0).Bottom(0).
 		Background(k.bgBottom).Padding(4, 8).Gap(8).Font(tspFont)
-	term := p.term
+	// The wheel over the dock scrolls the surface's content, as over it,
+	// and the terminal past its ends.
+	term, st := p.term, p.tspScroll[sf.Image]
 	pinned.HandleInput(func(ev ui.InputEvent) bool {
 		if ev.Kind != ui.InputScroll {
 			return false
+		}
+		if st != nil && st.scrolls(ev.DY) {
+			st.scrollBy(ev.DY)
+			return true
 		}
 		return term.Scroll(ev)
 	})
