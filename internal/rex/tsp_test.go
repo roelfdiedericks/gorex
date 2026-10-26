@@ -136,19 +136,18 @@ func TestTSPTracker(t *testing.T) {
 		t.Errorf("off: %q %q", out, off.replies)
 	}
 
-	// A chunked body is reassembled; a flow surface is not kept, an
-	// inline one is, and gets an anchor in the output, in the first cell
-	// of its row, and one row.
+	// A chunked body is reassembled; an inline surface gets an anchor in
+	// the output, in the first cell of its row, and one row.
 	ch := tspTracker{on: true, cols: 50}
 	body := `{"id":"s2","mode":"screen"}`
 	ch.feed([]byte("\x1b_tsp;o;c=a;m=1;" + body[:10] + "\x1b\\" + "\x1b_tsp;o;c=a;" + body[10:] + "\x1b\\"))
 	if ch.surfaces["s2"] == nil || ch.surfaces["s2"].Image != 0 {
 		t.Errorf("a chunked screen open: %+v", ch.surfaces["s2"])
 	}
-	out = string(ch.feed([]byte("\x1b_tsp;o;{\"id\":\"s3\",\"mode\":\"flow\"}\x1b\\\x1b_tsp;o;{\"id\":\"s4\",\"mode\":\"inline\"}\x1b\\")))
+	out = string(ch.feed([]byte("\x1b_tsp;o;{\"id\":\"s4\",\"mode\":\"inline\"}\x1b\\")))
 	s4 := ch.surfaces["s4"]
-	if ch.surfaces["s3"] != nil || s4 == nil || s4.Image != TSPImageFirst || s4.Rows != 1 {
-		t.Fatalf("flow kept %v, inline %+v", ch.surfaces["s3"] != nil, s4)
+	if s4 == nil || s4.Image != TSPImageFirst || s4.Rows != 1 {
+		t.Fatalf("inline %+v", s4)
 	}
 	if out != anchor(TSPImageFirst)+"\r\n" {
 		t.Errorf("anchor: %q", out)
@@ -275,6 +274,18 @@ func TestTSPTracker(t *testing.T) {
 	}
 	if len(kp.surfaces) != 0 || len(kp.kept) != 0 {
 		t.Error("the screen surface stayed after a close with keep")
+	}
+
+	// A flow surface is laid out among the output as an inline one is,
+	// and stays when it closes, keep or not, as output does.
+	fl := tspTracker{on: true, cols: 50}
+	out = string(fl.feed([]byte("\x1b_tsp;o;{\"id\":\"p\",\"mode\":\"flow\",\"listen\":false}\x1b\\")))
+	if p := fl.surfaces["p"]; p == nil || p.Image != TSPImageFirst || out != anchor(TSPImageFirst)+"\r\n" {
+		t.Fatalf("flow open: %+v, output %q", fl.surfaces["p"], out)
+	}
+	fl.feed([]byte("\x1b_tsp;x;{\"id\":\"p\"}\x1b\\"))
+	if len(fl.kept) != 1 || fl.kept[0].ID != "p" || !fl.kept[0].Closed {
+		t.Errorf("flow close: kept %+v", fl.kept)
 	}
 }
 

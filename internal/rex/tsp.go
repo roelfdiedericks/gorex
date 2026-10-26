@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -341,10 +340,8 @@ func (t *tspTracker) message(verb string, params map[string]string, body []byte)
 		if o.Mode == "" {
 			o.Mode = "inline"
 		}
-		if o.Mode == "flow" {
-			log.Printf("tsp: a flow surface, which is not drawn yet")
-			return
-		}
+		// A flow surface is laid out among the output as an inline one
+		// is, and stays as output does (its close keeps it).
 		if t.surfaces == nil {
 			t.surfaces, t.nodes, t.parent = map[string]*Surface{}, map[string]map[string]*TSPNode{}, map[string]map[string]string{}
 		}
@@ -354,7 +351,7 @@ func (t *tspTracker) message(verb string, params map[string]string, body []byte)
 			t.order = append(t.order, o.ID)
 		}
 		sf := &Surface{ID: o.ID, Mode: o.Mode, Title: o.Title}
-		if o.Mode == "inline" {
+		if o.Mode == "inline" || o.Mode == "flow" {
 			// An anchor, and one row, until a window measures the
 			// surface.
 			t.nextImage++
@@ -410,7 +407,7 @@ func (t *tspTracker) message(verb string, params map[string]string, body []byte)
 			}
 		}
 		switch {
-		case x.Keep && sf.Image != 0:
+		case (x.Keep || sf.Mode == "flow") && sf.Image != 0:
 			// The last view stays where it is, drawn as it was, in the
 			// rows the anchor keeps, and the rows padded under them go
 			// (reclaim); the oldest kept goes when there are many.
@@ -910,8 +907,9 @@ func (t *tspTracker) helloReply() []byte {
 		// dock: a surface's dock region stays at the bottom of the pane;
 		// blobs: images come as blobs, which the session keeps; edit,
 		// undo, send: the windows edit the program's fields natively,
-		// telling it what changed.
-		"kinds": tspKinds, "features": []string{"dock", "blobs", "edit", "undo", "send"},
+		// telling it what changed; flow: flow surfaces stay among the
+		// output.
+		"kinds": tspKinds, "features": []string{"dock", "blobs", "edit", "undo", "send", "flow"},
 		"apc": tspAPC, "credits": tspCredits,
 		"cols": t.cols, "cell": map[string]int{"w": t.cellW, "h": t.cellH},
 		"dark": t.dark, "reduceMotion": false,
