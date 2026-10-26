@@ -109,7 +109,12 @@ func (a *App) tspField(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pan
 	caretRunes := &f.caretRunes
 	el.OnTextKey(func(tk ui.TextKey) bool {
 		switch {
-		case tk.Key == ui.KeyEnter && tk.Mods == 0 && (sendable || !area):
+		case tk.Key == ui.KeyEnter && tk.Mods == 0 && !area:
+			// A one-line input's Enter is its program's key (a picker
+			// takes the selected item).
+			term.Send([]byte{'\r'})
+			return true
+		case tk.Key == ui.KeyEnter && tk.Mods == 0 && sendable:
 			send(map[string]any{"ev": "send", "text": tk.Text()})
 			return true
 		case tk.Key == ui.KeyZ && tk.Mods&(ui.Ctrl|ui.Cmd) != 0 && tk.Mods&ui.Shift == 0:
@@ -127,10 +132,11 @@ func (a *App) tspField(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pan
 			}
 		case (tk.Key == ui.KeyUp || tk.Key == ui.KeyDown) && tk.Mods == 0:
 			// At the field's edges the program gets them (its history,
-			// its lists); inside, they move the caret.
+			// its lists); inside, they move the caret. A one-line input
+			// has no inside.
 			text := tk.Text()
 			at := runeByte(text, *caretRunes)
-			if (tk.Key == ui.KeyUp && !strings.Contains(text[:at], "\n")) || (tk.Key == ui.KeyDown && !strings.Contains(text[at:], "\n")) {
+			if !area || (tk.Key == ui.KeyUp && !strings.Contains(text[:at], "\n")) || (tk.Key == ui.KeyDown && !strings.Contains(text[at:], "\n")) {
 				term.Send(tspKeyBytes(tk.Key, 0))
 				return true
 			}
@@ -142,10 +148,17 @@ func (a *App) tspField(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pan
 	if el.Changed() {
 		// What the user typed, as the edit over the part that differs
 		// from what the program has, with the caret; the program's
-		// answer is awaited before its text is taken again.
+		// answer is awaited before its text is taken again. A one-line
+		// input gets it as keys, through the terminal: programs filter
+		// their lists as their fields take keys (omp's pickers apply an
+		// edit event to the field alone).
 		cur := runesToUTF16(f.text, s)
-		from, to, ins := textDelta(f.sent, f.text)
-		send(map[string]any{"ev": "edit", "from": from, "to": to, "text": ins, "cursor": cur, "len": utf16Len(f.sent)})
+		if area {
+			from, to, ins := textDelta(f.sent, f.text)
+			send(map[string]any{"ev": "edit", "from": from, "to": to, "text": ins, "cursor": cur, "len": utf16Len(f.sent)})
+		} else {
+			term.Send(tspEditKeys(f.sent, f.sentAt, f.text, cur))
+		}
 		f.sent, f.sentAt = f.text, cur
 		f.pending++
 	}
@@ -268,4 +281,31 @@ func textDelta(old, new string) (from, to int, text string) {
 	from = runesToUTF16(old, p)
 	to = runesToUTF16(old, len(o)-s)
 	return from, to, string(n[p : len(n)-s])
+}
+
+// tspEditKeys returns the keys that turn a field's old text, with the
+// caret at oldAt, into the new one with the caret at newAt (UTF-16
+// offsets): the caret moves to the end of the part that differs, Backspace
+// takes it out, its replacement is typed, and the caret moves to its
+// place, by characters, as a program's line editor counts them.
+func tspEditKeys(old string, oldAt int, new string, newAt int) []byte {
+	from, to, ins := textDelta(old, new)
+	var b []byte
+	move := func(at, to int) {
+		for ; at < to; at++ {
+			b = append(b, "\x1b[C"...)
+		}
+		for ; at > to; at-- {
+			b = append(b, "\x1b[D"...)
+		}
+	}
+	at := max(utf16ToRunes(old, oldAt), 0)
+	from, to = utf16ToRunes(old, from), utf16ToRunes(old, to)
+	move(at, to)
+	for range to - from {
+		b = append(b, 0x7f)
+	}
+	b = append(b, ins...)
+	move(from+utf8.RuneCountInString(ins), max(utf16ToRunes(new, newAt), 0))
+	return b
 }
