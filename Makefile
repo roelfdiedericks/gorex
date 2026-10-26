@@ -23,7 +23,12 @@ PAYLOADS ?= linux/amd64,linux/arm64,darwin/amd64,darwin/arm64
 # This machine's platform, as Go names it, e.g. windows-amd64.
 GOENV    := $(shell go env GOOS GOARCH)
 GOOS     := $(word 1,$(GOENV))
-PLATFORM := $(GOOS)-$(word 2,$(GOENV))
+GOARCH   := $(word 2,$(GOENV))
+PLATFORM := $(GOOS)-$(GOARCH)
+
+# On Windows the icon is in the executable: a resource object of it that
+# go build links in (tools/devicon), as mygo build does for its builds.
+ICON_SYSO := $(if $(filter windows,$(GOOS)),mygo_windows_$(GOARCH).syso)
 
 # The app's name, version and identifier, from mygo.json, which mygo build
 # links in too.
@@ -110,8 +115,11 @@ dev: $(EXE) $(DEV)/remote $(PLAT_RES) $(TOP_RES)
 run: dev
 	$(call run,./$(EXE))
 
-$(EXE): FORCE
+$(EXE): FORCE $(ICON_SYSO)
 	$(call run,go build -o $@ -ldflags "$(LDFLAGS)" .)
+
+$(ICON_SYSO): resources/icon.png tools/devicon/main.go
+	$(call run,go run ./tools/devicon -out $@ -arch $(GOARCH))
 
 $(DEV)/remote: FORCE
 	$(call run,go run ./tools/remotepayload -out $@ -targets $(PAYLOADS))
