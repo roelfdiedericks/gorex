@@ -98,6 +98,9 @@ stage() {
 	mkdir -p website/download website/updates
 	cp resources/icon.png website/icon.png
 	cp docs/screenshot.png website/screenshot.png
+	# mygo build names its installers in lower case, as
+	# gorex-setup-0.1.1-amd64.exe and gorex-0.1.1-arm64.dmg.
+	lname=$(echo "$NAME" | tr '[:upper:]' '[:lower:]')
 	for d in "$SITE_BUILD"/*/; do
 		t=$(basename "$d")
 		cp "$d"*.tar.gz "$d"update-*.json website/updates/
@@ -106,12 +109,12 @@ stage() {
 		done
 		case $t in
 		windows-amd64)
-			cp "$d$NAME Setup $VERSION amd64.exe" website/updates/
-			cp "$d$NAME Setup $VERSION amd64.exe" "website/download/$NAME-Setup-amd64.exe"
+			cp "$d$lname-setup-$VERSION-amd64.exe" website/updates/
+			cp "$d$lname-setup-$VERSION-amd64.exe" "website/download/$NAME-Setup-amd64.exe"
 			;;
 		darwin-arm64)
-			cp "$d$NAME $VERSION arm64.dmg" website/updates/
-			cp "$d$NAME $VERSION arm64.dmg" "website/download/$NAME-arm64.dmg"
+			cp "$d$lname-$VERSION-arm64.dmg" website/updates/
+			cp "$d$lname-$VERSION-arm64.dmg" "website/download/$NAME-arm64.dmg"
 			;;
 		linux-amd64)
 			cp "${d}install.sh" website/updates/
