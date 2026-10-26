@@ -4,7 +4,7 @@ The version of each release is its heading here, which `mygo.json`'s
 `version` must match: `make website` refuses to build otherwise, and
 refuses a version already published.
 
-## Unreleased
+## 0.1.2
 
 - A pane scrolls as one document with one scroll bar, the terminal's:
   a program's surface, such as omp's transcript, takes rows among the

@@ -1,7 +1,7 @@
 {
   "name": "GoRex",
   "identifier": "dev.gorex.app",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "copyright": "A replica of Superlogical's Rex, built with MyGo",
   "out": "build",
   "buildCommand": "go run ./tools/remotepayload",
