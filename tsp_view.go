@@ -721,6 +721,12 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		el = ui.Text(c, elapsedText(a.liveMS(c, p, sf, n.ID, age, stopped)/1000)).FontSize(12).TextColor(k.textMuted)
 	case "tool":
 		el = a.tspTool(c, key, k, t, p, sf, n)
+	case "picker":
+		// A modal sheet, drawn over the surface after it.
+		if !sf.Closed {
+			a.tspOverlays = append(a.tspOverlays, n)
+		}
+		return
 	case "rate":
 		value, _ := n.Props["value"].(float64)
 		unit, _ := n.Props["unit"].(string)
@@ -1104,6 +1110,10 @@ func (a *App) surfaceOverlays(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex
 	overlays := a.tspOverlays
 	a.tspOverlays = nil
 	for _, ov := range overlays {
+		if ov.Kind == "picker" {
+			a.tspPicker(c, k, t, p, sf, ov)
+			continue
+		}
 		if modal, _ := ov.Props["modal"].(bool); modal {
 			back := ui.Box(c.Key("tsp-back-" + ov.ID)).Absolute().Fill().Background(k.backdrop)
 			if back.Pressed() {

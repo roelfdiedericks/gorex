@@ -27,7 +27,7 @@ import (
 
 // tspKinds are the node kinds the windows draw: the hello reply says so,
 // and programs fall back for the others.
-var tspKinds = []string{"col", "row", "card", "section", "text", "md", "badge", "kv", "list", "item", "code", "table", "progress", "spinner", "status", "rule", "spacer", "kbd", "icon", "editor", "meter", "seg", "image", "elapsed", "rate", "ansi", "checklist", "tree", "overlay", "input", "diff", "chart", "agent", "toast", "tool"}
+var tspKinds = []string{"col", "row", "card", "section", "text", "md", "badge", "kv", "list", "item", "code", "table", "progress", "spinner", "status", "rule", "spacer", "kbd", "icon", "editor", "meter", "seg", "image", "elapsed", "rate", "ansi", "checklist", "tree", "overlay", "input", "diff", "chart", "agent", "toast", "tool", "picker"}
 
 const (
 	tspAPC     = 65536 // the largest body a message carries
@@ -757,6 +757,7 @@ func (t *tspTracker) apply(sf *Surface, raw json.RawMessage) {
 			}
 		}
 		index(&n, parent)
+		patchItems(n.Props)
 	case "set":
 		// ["set", id, props]: a null prop deletes it.
 		n := nodes[str(1)]
@@ -777,6 +778,7 @@ func (t *tspTracker) apply(sf *Surface, raw json.RawMessage) {
 				n.Props[k] = v
 			}
 		}
+		patchItems(n.Props)
 	case "text":
 		// ["text", id, "append"|"replace", text]
 		n := nodes[str(1)]
@@ -1008,4 +1010,47 @@ func plain(n *TSPNode) []string {
 		return []string{"[" + text + "]"}
 	}
 	return children()
+}
+
+// patchItems applies a picker's itemsAdd (upserts by id) and itemsDel
+// (removals by id) to its items, the catalogue a program sends once and
+// patches after, and drops them.
+func patchItems(props map[string]any) {
+	add, hasAdd := props["itemsAdd"].([]any)
+	del, hasDel := props["itemsDel"].([]any)
+	if !hasAdd && !hasDel {
+		return
+	}
+	delete(props, "itemsAdd")
+	delete(props, "itemsDel")
+	items, _ := props["items"].([]any)
+	id := func(v any) string {
+		m, _ := v.(map[string]any)
+		s, _ := m["id"].(string)
+		return s
+	}
+	gone := map[string]bool{}
+	for _, d := range del {
+		if s, ok := d.(string); ok {
+			gone[s] = true
+		}
+	}
+	at := map[string]int{}
+	out := make([]any, 0, len(items)+len(add))
+	for _, it := range items {
+		if s := id(it); !gone[s] {
+			at[s] = len(out)
+			out = append(out, it)
+		}
+	}
+	for _, it := range add {
+		s := id(it)
+		if i, ok := at[s]; ok {
+			out[i] = it
+		} else {
+			at[s] = len(out)
+			out = append(out, it)
+		}
+	}
+	props["items"] = out
 }

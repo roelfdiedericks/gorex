@@ -343,3 +343,32 @@ func TestSpliceUTF16(t *testing.T) {
 		}
 	}
 }
+
+// A picker's catalogue is sent once and patched by id: itemsAdd replaces
+// an item in its place or adds it at the end, itemsDel takes one out, and
+// neither stays among the props.
+func TestPickerItemsPatch(t *testing.T) {
+	tr := tspTracker{on: true}
+	tr.feed([]byte(`` + "\x1b_tsp;o;{\"id\":\"s\",\"mode\":\"screen\"}\x1b\\" +
+		"\x1b_tsp;f;{\"sf\":\"s\",\"s\":1,\"ops\":[[\"add\",\"p\",\"s\",null,{\"id\":\"p\",\"k\":\"picker\",\"p\":{\"items\":[{\"id\":\"a\",\"label\":\"A\"},{\"id\":\"b\",\"label\":\"B\"},{\"id\":\"c\",\"label\":\"C\"}]}}]]}\x1b\\" +
+		"\x1b_tsp;f;{\"sf\":\"s\",\"s\":2,\"ops\":[[\"set\",\"p\",{\"itemsAdd\":[{\"id\":\"b\",\"label\":\"B2\"},{\"id\":\"d\",\"label\":\"D\"}],\"itemsDel\":[\"a\"]}]]}\x1b\\"))
+	p := tr.nodes["s"]["p"]
+	if p == nil {
+		t.Fatal("no picker")
+	}
+	items, _ := p.Props["items"].([]any)
+	var got []string
+	for _, it := range items {
+		m := it.(map[string]any)
+		got = append(got, m["id"].(string)+"="+m["label"].(string))
+	}
+	if strings.Join(got, ",") != "b=B2,c=C,d=D" {
+		t.Errorf("items %v", got)
+	}
+	if _, ok := p.Props["itemsAdd"]; ok {
+		t.Error("itemsAdd kept")
+	}
+	if _, ok := p.Props["itemsDel"]; ok {
+		t.Error("itemsDel kept")
+	}
+}
