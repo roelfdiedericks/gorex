@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"math"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -34,9 +35,17 @@ const tspFont = "system-ui, " + symbolsFont
 // terminal's view fills.
 func (a *App) surfaces(c *ui.Context, k *colors, t *Tab, p *Pane) {
 	a.takeHints(c, p)
+	// The nodes the overlays were anchored at in the last frame record
+	// where they draw in this one (overlayAnchor).
+	p.tspAnchorWant, p.tspAnchorNext, p.tspAnchorAt = p.tspAnchorNext, nil, nil
+	if len(p.tspAnchorWant) > 0 {
+		p.tspAnchorAt = make(map[string]tspAnchorBox, len(p.tspAnchorWant))
+	}
 	var placements []terminal.AppPlacement
 	for i := range p.surfaces {
 		sf := &p.surfaces[i]
+		// The surface's colors: its program's palette over GoRex's.
+		k := a.surfaceColors(k, sf)
 		switch {
 		case sf.Mode == "screen":
 			a.screenSurface(c, k, t, p, sf)
@@ -52,17 +61,20 @@ func (a *App) surfaces(c *ui.Context, k *colors, t *Tab, p *Pane) {
 			}
 		}
 	}
+	a.tspPal = nil
 	a.surfaceZoom(c, k, t, p)
 }
 
 // screenSurface draws a screen surface over a pane's terminal, filling
 // the box it is in.
 func (a *App) screenSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface) {
+	a.tspOverlays = a.tspOverlays[:0]
 	s := ui.Scroll(c.Key("tsp-"+sf.ID)).Absolute().Fill().Background(k.bgBottom).Padding(12, 16).Font(tspFont)
 	s.Children(func() { a.surfaceContent(c, k, t, p, sf, false) })
 	if s.Pressed() {
 		a.surfacePressed(t, p)
 	}
+	a.surfaceOverlays(c, k, t, p, sf)
 }
 
 // inlineSurface draws an inline surface from its anchor's row, over the
@@ -80,7 +92,7 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 		return
 	}
 	cell := pl.Rect.H / float32(max(pl.Rows, 1))
-	box := ui.Box(c.Key(fmt.Sprintf("tsp-%d", sf.Image))).Absolute().Left(pl.Rect.X).Top(pl.Rect.Y).Right(0).Background(k.bgBottom).Padding(4, 8).Font(tspFont)
+	box := ui.Box(c.Key(fmt.Sprintf("tsp-%d", sf.Image))).Absolute().Left(pl.Rect.X).Top(pl.Rect.Y).Right(tspAside(p, sf, pl)).Background(k.bgBottom).Padding(4, 8).Font(tspFont)
 	docked := !sf.Closed && tspDocked(sf)
 	if sf.Closed {
 		box.Height(cell * float32(sf.Rows)).Clip()
@@ -285,6 +297,11 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		card := ui.Column(key).Gap(10).FillWidth()
 		if variant != "bare" && a.tspFlat == 0 {
 			card.Radius(cardR).Background(k.card).Border(1, k.cardBorder).Padding(12, 14)
+			if tone, _ := n.Props["tone"].(string); tone != "" {
+				if bg, ok := a.toneBg(k, tone); ok {
+					card.Background(bg)
+				}
+			}
 			if selected, _ := n.Props["selected"].(bool); selected {
 				card.Border(1, k.busy)
 			}
@@ -371,6 +388,9 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 					}
 					markdown.DefaultCodeBlock(c, b)
 				}},
+				Extensions: tspMDExtensions,
+				Math:       a.tspMDMath(k),
+				InlineMath: tspInlineMath(k),
 			})
 		})
 		el = box
@@ -690,6 +710,12 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		if alt == "" {
 			alt = builtin
 		}
+		if builtin == "omp" {
+			// omp's mark, which GoRex draws itself, as Tern ships it.
+			w, _ := n.Props["w"].(float64)
+			el = a.tspLogo(key, float32(w), alt)
+			break
+		}
 		blob, _ := n.Props["blob"].(string)
 		if bm := a.tspImages[blob]; bm != nil {
 			// The program's image as a thumbnail, its natural size
@@ -702,6 +728,13 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 			img := ui.Image(key, bm).Size(float32(w), float32(h)).Radius(4).Tooltip(alt)
 			if img.Clicked() {
 				a.tspZoom, a.tspZoomAlt, a.tspZoomPane = bm, alt, p
+				// The file it came from, which the viewer opens.
+				a.tspZoomPath = ""
+				if href, _ := n.Props["href"].(string); href != "" {
+					if u, err := url.Parse(href); err == nil && u.Scheme == "file" {
+						a.tspZoomPath = hostPathOf(u)
+					}
+				}
 			}
 			el = img
 			break
@@ -720,6 +753,28 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 			stopped = &s
 		}
 		el = ui.Text(c, elapsedText(a.liveMS(c, p, sf, n.ID, age, stopped)/1000)).FontSize(12).TextColor(k.textMuted)
+	case "media":
+		el = a.tspMedia(c, key, k, p, n)
+	case "tabs":
+		el = a.tspTabs(c, key, k, p, sf, n)
+	case "effort":
+		el = a.tspEffort(c, key, k, sf, n)
+	case "shimmer":
+		el = a.tspShimmer(c, key, k, sf, n)
+	case "rows":
+		el = a.tspRows(c, key, k, n)
+	case "prefs":
+		// In the layer region a sheet, drawn over the surface after it.
+		if a.tspPrefsQueued(sf, n) {
+			return
+		}
+		el = a.tspPrefs(c, key, k, t, p, sf, n)
+	case "math":
+		el = a.tspMath(c, key, k, n)
+	case "el":
+		// Drawn whole, its actions with its form's values (tsp_el.go).
+		a.tspEl(c, key, k, t, p, sf, n)
+		return
 	case "tool":
 		el = a.tspTool(c, key, k, t, p, sf, n)
 	case "picker":
@@ -817,6 +872,10 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		return
 	}
 	a.revealed(p, sf, n, el)
+	if p.tspAnchorWant[n.ID] {
+		// An overlay is anchored at it (overlayAnchor).
+		p.tspAnchorAt[n.ID] = tspAnchorBox{el.Bounds(), n.Kind}
+	}
 	if grow, _ := n.Props["grow"].(float64); grow > 0 {
 		el.Grow(float32(grow))
 	}
@@ -872,9 +931,12 @@ func (a *App) tspRich(c *ui.Context, k *colors, v any, size float32, bold bool) 
 				sp.Weight = 600
 			}
 			for _, tok := range strings.Fields(style) {
+				// A token's color: semantic, or one of the program's
+				// palette by name (statusLineModel).
+				if col, ok := a.spanColor(k, tok); ok {
+					sp.Color = col
+				}
 				switch tok {
-				case "muted", "dim":
-					sp.Color = k.textMuted
 				case "strong":
 					sp.Weight = 600
 				case "em":
@@ -884,16 +946,15 @@ func (a *App) tspRich(c *ui.Context, k *colors, v any, size float32, bold bool) 
 					sp.Font = symbolsFont
 				case "code", "mono", "path", "key", "num":
 					sp.Font = a.editorFont().Family
-				case "accent", "info", "link":
-					sp.Color = k.busy
-				case "success":
-					sp.Color = k.busy
-				case "warning", "error":
-					sp.Color = k.attention
 				case "del":
 					sp.Strikethrough = true
-				case "ins", "mark":
+				case "ins":
 					sp.Background = k.hover
+				case "mark":
+					sp.Background = k.hover
+					if col, ok := a.tspPal["selectedBg"]; ok {
+						sp.Background = tint(k.hover, col)
+					}
 				}
 			}
 			if href, _ := m["href"].(string); href != "" {
@@ -1112,6 +1173,10 @@ func (a *App) surfaceOverlays(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex
 	overlays := a.tspOverlays
 	a.tspOverlays = nil
 	for _, ov := range overlays {
+		if ov.Kind == "prefs" {
+			a.tspPrefsSheet(c, k, t, p, sf, ov)
+			continue
+		}
 		if ov.Kind == "picker" {
 			a.tspPicker(c, k, t, p, sf, ov)
 			continue
@@ -1122,23 +1187,38 @@ func (a *App) surfaceOverlays(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex
 				a.surfacePressed(t, p)
 			}
 		}
-		width := map[string]float32{"sm": 40, "md": 60, "lg": 80, "full": 100}[func() string {
-			s, _ := ov.Props["size"].(string)
-			return s
-		}()]
+		size, _ := ov.Props["size"].(string)
+		// Anchored at a node, or at a field's caret: placed beside it
+		// (tspOverlayAt), hidden while it is not drawn. Any other
+		// anchor centers it.
+		at, _ := ov.Props["anchor"].(map[string]any)
+		anchored := at["node"] != nil || at["caret"] != nil
+		var near ui.Rect
+		if anchored {
+			var ok bool
+			if near, ok = a.overlayAnchor(p, at); !ok {
+				continue
+			}
+		}
+		width := map[string]float32{"sm": 40, "md": 60, "lg": 80, "full": 100}[size]
 		if width == 0 {
 			width = 60
 		}
-		panel := ui.Scroll(c.Key("tsp-ov-"+ov.ID)).Absolute().LeftPercent((100-width)/2).WidthPercent(width).MaxHeightPercent(85).
+		panel := ui.Scroll(c.Key("tsp-ov-"+ov.ID)).Absolute().MaxHeightPercent(85).
 			Radius(cardR).Background(k.panel).Border(1, k.panelBorder).Padding(12, 14).Font(tspFont)
-		anchor, _ := ov.Props["anchor"].(string)
-		switch anchor {
-		case "top":
-			panel.Top(8)
-		case "bottom":
-			panel.Bottom(8)
-		default:
-			panel.TopPercent(8)
+		if anchored {
+			a.tspOverlayAt(panel, p, at, near, size)
+		} else {
+			panel.LeftPercent((100 - width) / 2).WidthPercent(width)
+			anchor, _ := ov.Props["anchor"].(string)
+			switch anchor {
+			case "top":
+				panel.Top(8)
+			case "bottom":
+				panel.Bottom(8)
+			default:
+				panel.TopPercent(8)
+			}
 		}
 		panel.Children(func() {
 			if head := ov.Props["head"]; head != nil {
@@ -1151,6 +1231,75 @@ func (a *App) surfaceOverlays(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex
 		if panel.Pressed() {
 			a.surfacePressed(t, p)
 		}
+	}
+}
+
+// tspAnchorBox is where a node an overlay is anchored at was drawn, and
+// its kind: a caret anchor needs a field.
+type tspAnchorBox struct {
+	r    ui.Rect
+	kind string
+}
+
+// overlayAnchor returns where the node an anchored overlay names was
+// drawn ({node} or {caret}), as the nodes drew this frame (tspNode
+// records those the overlays named the frame before); false while it
+// is not drawn, or names no field for a caret.
+func (a *App) overlayAnchor(p *Pane, at map[string]any) (ui.Rect, bool) {
+	caret, _ := at["caret"].(string)
+	id := caret
+	if id == "" {
+		id, _ = at["node"].(string)
+	}
+	if id == "" {
+		return ui.Rect{}, false
+	}
+	if p.tspAnchorNext == nil {
+		p.tspAnchorNext = map[string]bool{}
+	}
+	p.tspAnchorNext[id] = true
+	box, ok := p.tspAnchorAt[id]
+	if !ok || box.r.W <= 0 || caret != "" && box.kind != "editor" && box.kind != "input" {
+		return ui.Rect{}, false
+	}
+	return box.r, true
+}
+
+// tspOverlayAt places an anchored overlay beside what it is anchored at
+// (near, in the window): under a node, or above it with side above,
+// left-aligned with it; under a field, 10 DIPs left of it. It goes to
+// the other side when it does not fit and that side has more room, and
+// is kept 8 DIPs inside the pane, its height capped to the room it has.
+// Its width is the size's: sm 320, md 480, lg 720; full fills the pane.
+func (a *App) tspOverlayAt(panel ui.Element, p *Pane, at map[string]any, near ui.Rect, size string) {
+	host := p.hostBounds
+	if size == "full" {
+		panel.Left(8).Right(8).Top(8).Bottom(8)
+		return
+	}
+	w := map[string]float32{"md": 480, "lg": 720}[size]
+	if w == 0 {
+		w = 320
+	}
+	w = max(min(w, host.W-16), 0)
+	x := near.X - host.X
+	if _, caret := at["caret"]; caret {
+		x -= 10
+	}
+	x = max(8, min(x, host.W-w-8))
+	panel.Left(x).Width(w)
+	below := host.Y + host.H - (near.Y + near.H) - 12
+	above := near.Y - host.Y - 12
+	h := panel.Bounds().H
+	side, _ := at["side"].(string)
+	down := side != "above"
+	if down && h > below && above > below || !down && h > above && below > above {
+		down = !down
+	}
+	if down {
+		panel.Top(near.Y + near.H - host.Y + 4).MaxHeight(max(below, 40))
+	} else {
+		panel.Bottom(host.Y + host.H - near.Y + 4).MaxHeight(max(above, 40))
 	}
 }
 
@@ -1222,23 +1371,36 @@ func (a *App) tspChart(c *ui.Context, k *colors, key *ui.Context, n *rex.TSPNode
 }
 
 // surfaceZoom shows a surface's image whole over the pane, fitted to
-// it, with its name and size: a click or Escape closes it.
+// it, with its name and size, and an Open file button when it came
+// from a file of the host's: a click or Escape closes it.
 func (a *App) surfaceZoom(c *ui.Context, k *colors, t *Tab, p *Pane) {
 	bm := a.tspZoom
 	if bm == nil || a.tspZoomPane != p {
 		return
 	}
 	w, h := bm.Size()
+	open := false
 	view := ui.Column(c.Key("tsp-zoom")).Absolute().Fill().Background(ui.RGBA(0, 0, 0, 0.75)).
 		Center().Gap(8).Padding(16).Focusable().FocusRing(false).Focus().Font(tspFont)
 	view.Children(func() {
 		ui.Image(c, bm).MaxWidthPercent(100).MaxHeightPercent(90)
-		caption := fmt.Sprintf("%d×%d", w, h)
-		if a.tspZoomAlt != "" {
-			caption = a.tspZoomAlt + "  " + caption
-		}
-		ui.Text(c, caption).FontSize(12).TextColor(ui.RGB(230, 230, 230))
+		ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
+			caption := fmt.Sprintf("%d×%d", w, h)
+			if a.tspZoomAlt != "" {
+				caption = a.tspZoomAlt + "  " + caption
+			}
+			ui.Text(c, caption).FontSize(12).TextColor(ui.RGB(230, 230, 230))
+			if a.tspZoomPath != "" {
+				open = textButton(c, k, "Open file").Tooltip(a.tspZoomPath).Clicked()
+			}
+		})
 	})
+	if open {
+		path := a.tspZoomPath
+		a.tspZoom, a.tspZoomPane = nil, nil
+		a.update(func() { a.openPaneFile(p, path) })
+		return
+	}
 	if view.Clicked() || view.Shortcut(0, ui.KeyEscape) {
 		a.tspZoom, a.tspZoomPane = nil, nil
 		a.surfacePressed(t, p)

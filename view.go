@@ -41,6 +41,18 @@ func (a *App) view(c *ui.Context) {
 		a.dark = dark
 		a.previewThemeChanged()
 	}
+	// Programs are told whether the desktop asks for less motion, which
+	// the windows' surfaces follow.
+	if reduce := c.Preferences().ReduceMotion; reduce != a.reduceMotion {
+		a.reduceMotion = reduce
+		for _, t := range a.tabs {
+			for _, p := range t.panes() {
+				if stream := p.stream; stream != nil {
+					go stream.UseMotion(reduce)
+				}
+			}
+		}
+	}
 	// Over the window's material, the gradient goes translucent, so that
 	// the material shows and a tint still tells the host.
 	vibrant := c.Vibrancy()

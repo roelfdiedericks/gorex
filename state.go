@@ -88,6 +88,11 @@ type Pane struct {
 	// laid it out.
 	tspPending []tspPending
 	hostBounds ui.Rect
+	// tspAnchorWant are the nodes the surfaces' overlays were anchored
+	// at last frame, tspAnchorAt where they draw in this one, and
+	// tspAnchorNext those this frame's overlays name (overlayAnchor).
+	tspAnchorWant, tspAnchorNext map[string]bool
+	tspAnchorAt                  map[string]tspAnchorBox
 	// keptFrames counts the frames each kept surface was drawn, by
 	// anchor: its content is measured from the second.
 	keptFrames map[uint32]int
@@ -100,6 +105,9 @@ type Pane struct {
 	// folds is how the user folded a surface's collapsible nodes (by
 	// anchor and node id), over what the program said.
 	folds map[string]bool
+	// els is the state of the el nodes the pane draws: the user's flips
+	// of their controls (tsp_el.go).
+	els *tspEls
 	// dockH is how tall each live surface's pinned dock was drawn (by
 	// anchor), the space the surface keeps for it.
 	dockH map[uint32]float32
@@ -213,16 +221,19 @@ type App struct {
 	// reconnect, by path, until a pane takes them over.
 	keptEdits map[string]*editorState
 	// dark is whether the window's theme was dark in the last frame, k
-	// the palette it drew with, for what paints outside a frame.
-	dark bool
-	k    *colors
+	// the palette it drew with, for what paints outside a frame;
+	// reduceMotion whether the desktop asked for less motion.
+	dark         bool
+	k            *colors
+	reduceMotion bool
 
 	// focusReq asks the view to give the keyboard focus to a pane's
 	// terminal.
 	focusReq *Pane
 	// elapsedDue tells that a frame is due in a second, for the live
-	// timers of surfaces (tsp_view.go).
-	elapsedDue bool
+	// timers of surfaces (tsp_view.go); shimmerDue that one is due for
+	// the shimmers' next step (tsp_kinds.go).
+	elapsedDue, shimmerDue bool
 	// tspHead tells that a surface's head slot is being drawn, whose
 	// text is not selectable: a click on it folds.
 	tspHead bool
@@ -242,11 +253,13 @@ type App struct {
 	tspReveal map[string]string
 	tspFocus  string
 	// tspImages are the programs' blobs decoded, by id; tspZoom is the
-	// one shown whole over tspZoomPane, named tspZoomAlt.
+	// one shown whole over tspZoomPane, named tspZoomAlt, from the file
+	// tspZoomPath when the program said so.
 	tspImages   map[string]*ui.Bitmap
 	tspZoom     *ui.Bitmap
 	tspZoomAlt  string
 	tspZoomPane *Pane
+	tspZoomPath string
 	// ansiThemes are the terminal's themes by the appearance's names, for
 	// the colors of programs' output in surfaces (ansiPalette).
 	ansiThemes struct {
@@ -256,6 +269,11 @@ type App struct {
 	// tspSVGs are the SVGs surfaces show (charts), parsed for a theme,
 	// by theme and source.
 	tspSVGs map[string]*tspSVG
+	// tspPal is the palette of the surface being drawn, the variant for
+	// the window's appearance (surfaceColors); tspPalettes the programs'
+	// palettes parsed, by palette and appearance.
+	tspPal      tspPalette
+	tspPalettes map[tspPaletteKey]tspPalette
 
 	// The command palette, the host's popover and the tab being renamed.
 	paletteOpen  bool
@@ -413,6 +431,7 @@ func (a *App) attach(p *Pane, cols, rows int) {
 	client := a.client
 	p.stream = client.Stream(p.SID, cols, rows)
 	p.stream.OnData = func(int) { p.lastData.Store(time.Now().UnixNano()) }
+	p.stream.UseMotion(a.reduceMotion)
 	// The terminal's callbacks change the state on the main thread, in
 	// the window that made the pane, as long as it is open.
 	win := a.win
