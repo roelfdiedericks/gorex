@@ -66,6 +66,7 @@ func (a *App) applySettings() {
 			}
 			p.term.SetFont(termFont)
 			p.term.SetTheme(light, dark)
+			p.term.SetScrollbar(a.eff.Appearance.ScrollbarWidth, is(a.eff.Appearance.ScrollbarsAlways))
 		}
 	}
 	a.services.Invalidate()

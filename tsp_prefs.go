@@ -90,29 +90,32 @@ func (a *App) tspPrefsQueued(sf *rex.Surface, n *rex.TSPNode) bool {
 	return true
 }
 
-// tspAside is how far a live inline surface's right edge, placed at pl,
-// keeps from the pane's for the prefs sheet docked beside it: the sheet
-// with its margins where the transcript keeps tspPrefsRoom beside it,
-// else none, and the sheet lies over the transcript. The pane is as wide
-// as the terminal's columns from the view's left: the anchor's
-// placement is one cell wide, which gives a cell's width.
+// tspAside is how far an inline surface's right edge, placed at pl,
+// keeps from the pane's: the strip of the terminal's scroll bar, which
+// stays in sight and in reach beside every surface, and for a live one
+// the prefs sheet docked beside it, with its margins, where the
+// transcript keeps tspPrefsRoom beside it; else the sheet lies over the
+// transcript. The pane is as wide as the terminal's columns from the
+// view's left: the anchor's placement is one cell wide, which gives a
+// cell's width.
 func tspAside(p *Pane, sf *rex.Surface, pl terminal.AppPlacement) float32 {
+	strip := p.term.ScrollbarStrip()
 	cols, _ := p.term.Size()
 	cell := pl.Rect.W / float32(max(pl.Cols, 1))
 	width := pl.Rect.X + float32(cols-pl.Col)*cell
-	if sf.Closed || width < tspPrefsSheetW+16+tspPrefsRoom {
-		return 0
+	if sf.Closed || width < tspPrefsSheetW+16+tspPrefsRoom+strip {
+		return strip
 	}
 	layer := tspLayer(sf)
 	if layer == nil {
-		return 0
+		return strip
 	}
 	for _, n := range layer.Children {
 		if hidden, _ := n.Props["hidden"].(bool); n.Kind == "prefs" && !hidden {
-			return tspPrefsSheetW + 16
+			return strip + tspPrefsSheetW + 16
 		}
 	}
-	return 0
+	return strip
 }
 
 // newPrefsView reads a prefs node's props and sorts its children by role.
@@ -202,7 +205,7 @@ func (a *App) tspPrefsSheet(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 	if sf.Mode != "screen" && tspDocked(sf) {
 		bottom += p.dockH[sf.Image] + 8
 	}
-	sheet := ui.Column(c.Key("tsp-prefs-"+n.ID)).Absolute().Top(8).Right(8).Bottom(bottom).Width(tspPrefsSheetW).MaxWidthPercent(92).
+	sheet := ui.Column(c.Key("tsp-prefs-"+n.ID)).Absolute().Top(8).Right(p.term.ScrollbarStrip()+8).Bottom(bottom).Width(tspPrefsSheetW).MaxWidthPercent(92).
 		Radius(cardR).Background(k.panel).Border(1, k.panelBorder).Padding(10, 12).Gap(8).Font(tspFont).Clip()
 	sheet.Children(func() {
 		head := ui.Row(c.Key("brand")).Gap(8).AlignItems(ui.Center).FillWidth()

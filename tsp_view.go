@@ -246,7 +246,7 @@ func tspDocked(sf *rex.Surface) bool {
 // space as tall in its place, so that at the bottom the dock is where
 // it would be.
 func (a *App) surfaceDock(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, dock *rex.TSPNode, x float32) {
-	pinned := ui.Column(c.Key(fmt.Sprintf("tsp-dock-%d", sf.Image))).Absolute().Left(x).Right(0).Bottom(0).
+	pinned := ui.Column(c.Key(fmt.Sprintf("tsp-dock-%d", sf.Image))).Absolute().Left(x).Right(p.term.ScrollbarStrip()).Bottom(0).
 		Background(k.bgBottom).Padding(4, 8).Gap(8).Font(tspFont)
 	term := p.term
 	pinned.HandleInput(func(ev ui.InputEvent) bool {
@@ -256,9 +256,11 @@ func (a *App) surfaceDock(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Sur
 		return term.Scroll(ev)
 	})
 	pinned.Children(func() {
+		a.tspPinned = true
 		for _, ch := range dock.Children {
 			a.tspNode(c, k, t, p, sf, ch)
 		}
+		a.tspPinned = false
 	})
 	if pinned.Pressed() {
 		a.surfacePressed(t, p)
@@ -277,7 +279,9 @@ func (a *App) surfaceDock(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Sur
 // anywhere else on the surface, or on a control of the program's, gives
 // it back to the terminal (surfacePressed), as Escape does, which the
 // program gets too: the key most programs end a surface with. With
-// pin, the dock region is left as a space for surfaceDock to draw.
+// pin, the dock region is left as a space for surfaceDock to draw. With
+// the focus in an inline surface's text, Page Up and Page Down, Home and
+// End scroll the terminal it is drawn among, as over the terminal.
 func (a *App) surfaceContent(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, pin bool) ui.Element {
 	content := ui.Column(c).FillWidth().Gap(8)
 	content.Children(func() {
@@ -305,8 +309,19 @@ func (a *App) surfaceContent(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.
 			p.term.Send([]byte{0x1b})
 		}
 	}
+	if sf.Image != 0 {
+		for key, by := range tspPageKeys {
+			if content.Shortcut(0, key) {
+				a.scrollTerm(p, by)
+			}
+		}
+	}
 	return content
 }
+
+// tspPageKeys are the keys that scroll the terminal with the focus in an
+// inline surface's text, and how.
+var tspPageKeys = map[ui.Key]string{ui.KeyPageUp: "page-up", ui.KeyPageDown: "page-down", ui.KeyHome: "start", ui.KeyEnd: "end"}
 
 // surfacePressed takes a press on a surface's edge, or on a control of
 // the program's: the pane and its terminal get the focus, so that keys
@@ -1233,6 +1248,8 @@ func (a *App) tspFoldHead(h ui.Element, p *Pane, sf *rex.Surface, n *rex.TSPNode
 func (a *App) surfaceOverlays(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface) {
 	overlays := a.tspOverlays
 	a.tspOverlays = nil
+	a.tspPinned = true
+	defer func() { a.tspPinned = false }()
 	for _, ov := range overlays {
 		if ov.Kind == "prefs" {
 			a.tspPrefsSheet(c, k, t, p, sf, ov)
@@ -1334,20 +1351,22 @@ func (a *App) overlayAnchor(p *Pane, at map[string]any) (ui.Rect, bool) {
 // Its width is the size's: sm 320, md 480, lg 720; full fills the pane.
 func (a *App) tspOverlayAt(panel ui.Element, p *Pane, at map[string]any, near ui.Rect, size string) {
 	host := p.hostBounds
+	// Clear of the terminal's scroll bar at the right edge.
+	strip := p.term.ScrollbarStrip()
 	if size == "full" {
-		panel.Left(8).Right(8).Top(8).Bottom(8)
+		panel.Left(8).Right(8 + strip).Top(8).Bottom(8)
 		return
 	}
 	w := map[string]float32{"md": 480, "lg": 720}[size]
 	if w == 0 {
 		w = 320
 	}
-	w = max(min(w, host.W-16), 0)
+	w = max(min(w, host.W-16-strip), 0)
 	x := near.X - host.X
 	if _, caret := at["caret"]; caret {
 		x -= 10
 	}
-	x = max(8, min(x, host.W-w-8))
+	x = max(8, min(x, host.W-w-8-strip))
 	panel.Left(x).Width(w)
 	below := host.Y + host.H - (near.Y + near.H) - 12
 	above := near.Y - host.Y - 12

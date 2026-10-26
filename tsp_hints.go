@@ -1,6 +1,8 @@
 package main
 
 import (
+	"math"
+
 	"github.com/egoist/mygo/ui"
 
 	"gorex/internal/rex"
@@ -58,8 +60,11 @@ func (a *App) takeHints(c *ui.Context, p *Pane) {
 }
 
 // revealed acts on a reveal of node n, drawn as el: its scroll container
-// brings it into view, and the terminal's scrollback scrolls to it when
-// it is drawn among the terminal's rows outside the view.
+// brings it into view, and for a node of an inline surface's content the
+// terminal's scrollback scrolls to it when it is outside the view, the
+// dock pinned at the bottom left out of the view. A node of the dock or
+// of an overlay (tspPinned) shows where it is pinned, which the
+// scrollback does not move.
 func (a *App) revealed(p *Pane, sf *rex.Surface, n *rex.TSPNode, el ui.Element) {
 	at, ok := a.tspReveal[n.ID]
 	if !ok {
@@ -77,9 +82,12 @@ func (a *App) revealed(p *Pane, sf *rex.Surface, n *rex.TSPNode, el ui.Element) 
 			p.tspPending[i].frames = tspHintFrames
 		}
 	}
-	if sf.Image == 0 {
+	_, rows := p.term.Size()
+	if sf.Image == 0 || a.tspPinned || rows <= 0 {
 		return
 	}
+	cell := view.H / float32(rows)
+	view.H -= p.dockOver()
 	var dy float32
 	switch {
 	case at == "start" || (at != "end" && b.Y < view.Y):
@@ -87,25 +95,50 @@ func (a *App) revealed(p *Pane, sf *rex.Surface, n *rex.TSPNode, el ui.Element) 
 	case b.Y+b.H > view.Y+view.H || at == "end":
 		dy = b.Y + b.H - (view.Y + view.H)
 	}
-	if dy != 0 {
-		p.term.Scroll(ui.InputEvent{Kind: ui.InputScroll, X: view.W / 2, Y: view.H / 2, DY: dy, Precise: true})
+	// Whole rows, as far as shows all of it.
+	if dy < 0 {
+		p.term.ScrollRows(int(math.Floor(float64(dy / cell))))
+	} else if dy > 0 {
+		p.term.ScrollRows(int(math.Ceil(float64(dy / cell))))
 	}
 }
 
-// scrollTerm scrolls the pane's terminal by a line, a page or to an end.
+// scrollTerm scrolls the pane's scrollback by a line, a page or to an
+// end: a page is the view's rows less one, and less those the dock of a
+// live surface pinned at the bottom covers.
 func (a *App) scrollTerm(p *Pane, by string) {
 	_, rows := p.term.Size()
-	view := p.hostBounds
-	cell := float32(16)
-	if rows > 0 && view.H > 0 {
-		cell = view.H / float32(rows)
+	page := rows - 1
+	if view := p.hostBounds; rows > 0 && view.H > 0 {
+		page -= int(math.Ceil(float64(p.dockOver() / (view.H / float32(rows)))))
 	}
-	dy := map[string]float32{
-		"line-up": -cell, "line-down": cell,
-		"page-up": -(view.H - cell), "page-down": view.H - cell,
-		"start": -1e7, "end": 1e7,
-	}[by]
-	if dy != 0 {
-		p.term.Scroll(ui.InputEvent{Kind: ui.InputScroll, X: view.W / 2, Y: view.H / 2, DY: dy, Precise: true})
+	page = max(page, 1)
+	switch by {
+	case "line-up":
+		p.term.ScrollRows(-1)
+	case "line-down":
+		p.term.ScrollRows(1)
+	case "page-up":
+		p.term.ScrollRows(-page)
+	case "page-down":
+		p.term.ScrollRows(page)
+	case "start":
+		p.term.ScrollToTop()
+	case "end":
+		p.term.ScrollToBottom()
 	}
+}
+
+// dockOver is how tall the dock of the pane's live surface is where it
+// is pinned over the bottom of the view, its padding included; 0
+// without one.
+func (p *Pane) dockOver() float32 {
+	for i := range p.surfaces {
+		if sf := &p.surfaces[i]; !sf.Closed && sf.Image != 0 && tspDocked(sf) {
+			if h := p.dockH[sf.Image]; h > 0 {
+				return h + 8
+			}
+		}
+	}
+	return 0
 }

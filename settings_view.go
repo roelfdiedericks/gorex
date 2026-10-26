@@ -483,6 +483,8 @@ func (a *App) settingControl(c *ui.Context, k *colors, scope string, f field) {
 		stepper(c, k, &target, effv, 0.8, 1.6, 0.05, changed)
 	case "terminal.scrollback":
 		stepper(c, k, &target, effv, 500, 50000, 500, changed)
+	case "appearance.scrollbarWidth":
+		stepper(c, k, &target, effv, 4, 16, 1, changed)
 	case "terminal.images":
 		v := "Off"
 		if mb := effv.Int(); mb > 0 {

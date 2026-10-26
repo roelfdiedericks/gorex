@@ -4,6 +4,19 @@ The version of each release is its heading here, which `mygo.json`'s
 `version` must match: `make website` refuses to build otherwise, and
 refuses a version already published.
 
+## Unreleased
+
+- A pane scrolls as one document with one scroll bar, the terminal's:
+  a program's surface, such as omp's transcript, takes rows among the
+  output, and a long one is whole and its end in reach. Scrollback is
+  kept in lines at any width, as its setting says (it held a fraction
+  of them in wide panes), up to 50,000; a transcript longer than the
+  scrollback loses its start, as output does, never its end.
+- Surfaces and omp's composer leave the scroll bar clear at the pane's
+  edge.
+- Scroll bar width, and Always show scroll bars, in Settings, Defaults:
+  Appearance, for the terminal and everything else that scrolls.
+
 ## 0.1.1
 
 - Programs that speak the Tern Surface Protocol, such as the coding

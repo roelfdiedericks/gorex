@@ -225,10 +225,13 @@ type App struct {
 	keptEdits map[string]*editorState
 	// dark is whether the window's theme was dark in the last frame, k
 	// the palette it drew with, for what paints outside a frame;
-	// reduceMotion whether the desktop asked for less motion.
+	// reduceMotion whether the desktop asked for less motion; uiTheme
+	// the theme a frame draws with, MyGo's with the scroll bars the
+	// settings ask for.
 	dark         bool
 	k            *colors
 	reduceMotion bool
+	uiTheme      ui.Theme
 
 	// focusReq asks the view to give the keyboard focus to a pane's
 	// terminal.
@@ -246,8 +249,11 @@ type App struct {
 	tspList, tspSelected string
 	tspOverlays          []*rex.TSPNode
 	// tspDock is the dock region of the surface being drawn, which
-	// floats at the bottom of the pane after it.
-	tspDock *rex.TSPNode
+	// floats at the bottom of the pane after it; tspPinned tells that
+	// what is being drawn is pinned over the pane (the dock, overlays),
+	// where the scrollback does not move it.
+	tspDock   *rex.TSPNode
+	tspPinned bool
 	// tspFlat counts the tool bodies being drawn: the cards and tools in
 	// one are drawn bare, as sections of its frame.
 	tspFlat int
@@ -517,11 +523,13 @@ func (a *App) attach(p *Pane, cols, rows int) {
 		// The server's lines and more: a terminal drops whole pages
 		// of its oldest lines, so this one keeps every line the
 		// server's does (windowScrollback).
-		ScrollbackLines: windowScrollback(a.eff.Terminal.Scrollback),
-		OptionAsAlt:     is(a.eff.Terminal.OptionAsAlt),
-		CopyOnSelect:    copyOnSelectOf(&a.eff),
-		Keybinds:        keybindsOf(&a.eff),
-		RightClick:      rightClickOf(&a.eff),
+		ScrollbackLines:  windowScrollback(a.eff.Terminal.Scrollback),
+		OptionAsAlt:      is(a.eff.Terminal.OptionAsAlt),
+		CopyOnSelect:     copyOnSelectOf(&a.eff),
+		Keybinds:         keybindsOf(&a.eff),
+		RightClick:       rightClickOf(&a.eff),
+		ScrollbarWidth:   a.eff.Appearance.ScrollbarWidth,
+		ScrollbarsAlways: is(a.eff.Appearance.ScrollbarsAlways),
 		// Images of the Kitty graphics protocol, in the memory the
 		// settings give them.
 		ImageLimit: imageLimit(&a.eff),
