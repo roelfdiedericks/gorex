@@ -812,8 +812,8 @@ func (t *tspTracker) helloReply() []byte {
 		// blobs: images come as blobs, which the session keeps; edit,
 		// undo, send: the windows edit the program's fields natively,
 		// telling it what changed; flow: flow surfaces stay among the
-		// output.
-		"kinds": tspKinds, "features": []string{"dock", "blobs", "edit", "undo", "send", "flow"},
+		// output; scroll: the windows act on scroll ops.
+		"kinds": tspKinds, "features": []string{"dock", "blobs", "edit", "undo", "send", "flow", "scroll"},
 		"apc": tspAPC, "credits": tspCredits,
 		"cols": t.cols, "cell": map[string]int{"w": t.cellW, "h": t.cellH},
 		"dark": t.dark, "reduceMotion": false,

@@ -338,6 +338,7 @@ func (a *App) paneCard(c *ui.Context, k *colors, t *Tab, p *Pane) ui.Element {
 			// over it (tsp_view.go) share a box, so that a surface's
 			// place is relative to the view, and cut to it.
 			host := ui.Box(c).Grow(1).MinHeight(0).Clip()
+			p.hostBounds = host.Bounds()
 			host.Children(func() {
 				tv := terminal.View(c, p.term).Fill()
 				if a.focusReq == p && a.tab() == t {

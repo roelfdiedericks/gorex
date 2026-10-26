@@ -121,6 +121,11 @@ func (a *App) tspField(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pan
 		el = ui.TextInput(key, &f.text)
 	}
 	el.FillWidth().FontSize(13).TextColor(k.text).Placeholder(placeholder).ReadOnly(readonly || sf.Closed)
+	if a.tspFocus != "" && a.tspFocus == id {
+		// The program's focus op: this field takes the keys.
+		el.Focus()
+		a.tspFocus = ""
+	}
 	if placeCaret {
 		if runes := utf16ToRunes(f.text, cursor); runes >= 0 {
 			el.SetTextSelection(runes, runes)

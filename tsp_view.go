@@ -33,6 +33,7 @@ const tspFont = "system-ui, " + symbolsFont
 // surfaces draws the pane's surfaces over its terminal, in the box the
 // terminal's view fills.
 func (a *App) surfaces(c *ui.Context, k *colors, t *Tab, p *Pane) {
+	a.takeHints(c, p)
 	var placements []terminal.AppPlacement
 	for i := range p.surfaces {
 		sf := &p.surfaces[i]
@@ -815,6 +816,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 	default:
 		return
 	}
+	a.revealed(p, sf, n, el)
 	if grow, _ := n.Props["grow"].(float64); grow > 0 {
 		el.Grow(float32(grow))
 	}

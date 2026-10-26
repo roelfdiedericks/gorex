@@ -83,6 +83,11 @@ type Pane struct {
 	// (reveal, scroll, focus), for the next frame to act on.
 	mirror   rex.SurfaceMirror
 	tspHints []rex.SurfaceHint
+	// tspPending are the hints the pane acts on as it draws, waiting
+	// for their nodes; hostBounds the terminal's box, as the last frame
+	// laid it out.
+	tspPending []tspPending
+	hostBounds ui.Rect
 	// keptFrames counts the frames each kept surface was drawn, by
 	// anchor: its content is measured from the second.
 	keptFrames map[uint32]int
@@ -232,6 +237,10 @@ type App struct {
 	// tspFlat counts the tool bodies being drawn: the cards and tools in
 	// one are drawn bare, as sections of its frame.
 	tspFlat int
+	// tspReveal are the nodes the pane being drawn is to bring into
+	// view, by id, with where; tspFocus the field to focus.
+	tspReveal map[string]string
+	tspFocus  string
 	// tspImages are the programs' blobs decoded, by id; tspZoom is the
 	// one shown whole over tspZoomPane, named tspZoomAlt.
 	tspImages   map[string]*ui.Bitmap
