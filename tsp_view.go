@@ -74,7 +74,7 @@ func (a *App) screenSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 // nothing.
 func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, pl terminal.AppPlacement) {
 	_, screenRows := p.term.Size()
-	rows := max(sf.Rows, p.surfaceRows[sf.ID], 1)
+	rows := max(sf.Rows+sf.Dock, p.surfaceRows[sf.ID].rows+p.surfaceRows[sf.ID].dock, 1)
 	if pl.Row >= screenRows || pl.Row+rows <= 0 {
 		return
 	}
@@ -109,24 +109,30 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 	if sf.Closed || cell <= 0 {
 		return
 	}
-	// The rows the content takes, the box's padding included; a docked
-	// surface's box reaches further.
-	h := box.Bounds().H
+	// The rows the content takes, the box's padding included, and those
+	// of the dock's space under it, which the server pads while the
+	// surface is live and leaves when it is kept.
+	h, dockH := box.Bounds().H, float32(0)
 	if docked {
-		h = content.Bounds().H + 8
+		dockH = p.dockH[sf.Image]
+		h = content.Bounds().H + 8 - dockH
 	}
 	if h > 0 {
-		rows := int(math.Ceil(float64(h/cell - 0.01)))
-		if rows > 0 && rows != sf.Rows && rows != p.surfaceRows[sf.ID] {
+		size := tspSize{int(math.Ceil(float64(h/cell - 0.01))), int(math.Ceil(float64(dockH/cell - 0.01)))}
+		if size.rows > 0 && (size.rows != sf.Rows || size.dock != sf.Dock) && size != p.surfaceRows[sf.ID] {
 			if p.surfaceRows == nil {
-				p.surfaceRows = map[string]int{}
+				p.surfaceRows = map[string]tspSize{}
 			}
-			p.surfaceRows[sf.ID] = rows
+			p.surfaceRows[sf.ID] = size
 			stream, id := p.stream, sf.ID
-			go stream.TSPSize(id, rows)
+			go stream.TSPSize(id, size.rows, size.dock)
 		}
 	}
 }
+
+// tspSize is what a window measures a live inline surface to need: the
+// rows of its content, and of the dock pinned under it.
+type tspSize struct{ rows, dock int }
 
 // tspDocked reports whether a surface has a dock region, as the server
 // pads it for (rex.Surface.docked).
@@ -187,10 +193,16 @@ func (a *App) surfaceContent(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.
 			return
 		}
 		for _, region := range sf.Root.Children {
-			if pin && region.ID == "dock" {
-				a.tspDock = region
-				ui.Box(c.Key("dock-space")).Height(p.dockH[sf.Image])
-				continue
+			if region.ID == "dock" {
+				if sf.Closed {
+					// A program's composer and controls go with it.
+					continue
+				}
+				if pin {
+					a.tspDock = region
+					ui.Box(c.Key("dock-space")).Height(p.dockH[sf.Image])
+					continue
+				}
 			}
 			a.tspNode(c, k, t, p, sf, region)
 		}

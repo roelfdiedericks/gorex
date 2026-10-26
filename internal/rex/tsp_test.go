@@ -153,9 +153,10 @@ func TestTSPTracker(t *testing.T) {
 	if out != anchor(TSPImageFirst)+"\r\n" {
 		t.Errorf("anchor: %q", out)
 	}
-	// A window measured it at 6 rows, then 4: the surface has them.
-	if !ch.resize("s4", 6) || s4.Rows != 6 || !ch.resize("s4", 4) || s4.Rows != 4 {
-		t.Errorf("resize: rows %d", s4.Rows)
+	// A window measured it at 6 rows, then 4, with a dock of 2: the
+	// surface has them.
+	if !ch.resize("s4", 6, 0) || s4.Rows != 6 || !ch.resize("s4", 4, 2) || s4.Rows != 4 || s4.Dock != 2 || !ch.resize("s4", 4, 0) || s4.Dock != 0 {
+		t.Errorf("resize: rows %d dock %d", s4.Rows, s4.Dock)
 	}
 	// The terminal lacks lines under the anchor while the cursor is
 	// fewer rows below it than the surface has, and has some spare when
@@ -176,12 +177,18 @@ func TestTSPTracker(t *testing.T) {
 			t.Errorf("docked padding with the anchor at %d, the cursor at %d, %d rows: %d, want %d", c.anchor, c.cursor, c.screen, got, c.want)
 		}
 	}
+	// Its dock's rows count while it is live (4 + 3 on a screen too
+	// short to reach further), not once it is kept.
+	s4.Dock = 3
+	if got := ch.padding(map[uint32]int{TSPImageFirst: 10}, 11, 12); got != 6 {
+		t.Errorf("live padding with a dock: %d, want 6", got)
+	}
 	s4.Closed = true
 	if got := ch.padding(map[uint32]int{TSPImageFirst: 10}, 20, 40); got != -6 {
 		t.Errorf("closed docked padding: %d, want -6", got)
 	}
-	s4.Closed, s4.Root = false, nil
-	if ch.resize("s4", 4) || ch.resize("s2", 3) || ch.resize("s9", 3) {
+	s4.Closed, s4.Root, s4.Dock = false, nil, 0
+	if ch.resize("s4", 4, 0) || ch.resize("s2", 3, 0) || ch.resize("s9", 3, 0) {
 		t.Error("a resize to the same rows, of a screen surface or of none went through")
 	}
 	// After an upgrade, the anchors are placed again from the cursor,

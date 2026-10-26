@@ -516,11 +516,11 @@ func (s *session) clear() {
 }
 
 // tspSize takes the rows a window measured a live surface to need, and
-// feeds the terminal what moves the surface's anchor over them.
-func (s *session) tspSize(sf string, rows int) {
+// those of its dock, and feeds the terminal the lines for them.
+func (s *session) tspSize(sf string, rows, dock int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.exited || !s.tsp.resize(sf, rows) {
+	if s.exited || !s.tsp.resize(sf, rows, dock) {
 		return
 	}
 	s.tspPad()

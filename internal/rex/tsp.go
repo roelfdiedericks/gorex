@@ -92,6 +92,10 @@ type Surface struct {
 	// screen surface, drawn over the whole pane.
 	Image uint32 `json:"image,omitempty"`
 	Rows  int    `json:"rows,omitempty"`
+	// Dock is how many rows the dock region pinned under a live
+	// surface's content takes, which its rows reach over while it is
+	// live; kept, the surface has its content's rows only.
+	Dock int `json:"dock,omitempty"`
 	// Closed tells a surface kept after its program closed it: drawn as
 	// it was, taking no events.
 	Closed bool `json:"closed,omitempty"`
@@ -507,15 +511,15 @@ func (t *tspTracker) sweep(placements map[uint32]int) bool {
 	return true
 }
 
-// resize takes the rows a window measured a live surface to need. The
-// session's terminal gets the lines for them (padding). It reports
-// whether anything changed.
-func (t *tspTracker) resize(sf string, rows int) bool {
+// resize takes the rows a window measured a live surface to need, its
+// content and the dock pinned under it. The session's terminal gets the
+// lines for them (padding). It reports whether anything changed.
+func (t *tspTracker) resize(sf string, rows, dock int) bool {
 	s := t.surfaces[sf]
-	if s == nil || s.Image == 0 || rows <= 0 || rows == s.Rows {
+	if s == nil || s.Image == 0 || rows <= 0 || dock < 0 || rows == s.Rows && dock == s.Dock {
 		return false
 	}
-	s.Rows = rows
+	s.Rows, s.Dock = rows, dock
 	t.changed = true
 	return true
 }
@@ -545,10 +549,14 @@ func (t *tspTracker) padding(placements map[uint32]int, cursor, screen int) int 
 		return 0
 	}
 	rows := s.Rows
-	if !s.Closed && s.docked() {
-		// Down to the screen's last row, where the cursor stays: a row
-		// further would scroll, and the anchor with it, without end.
-		rows = max(rows, screen-1-row)
+	if !s.Closed {
+		rows += s.Dock
+		if s.docked() {
+			// Down to the screen's last row, where the cursor stays:
+			// a row further would scroll, and the anchor with it,
+			// without end.
+			rows = max(rows, screen-1-row)
+		}
 	}
 	n := rows - (cursor - row)
 	if n < 0 {

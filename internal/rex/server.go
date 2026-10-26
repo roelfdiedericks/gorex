@@ -351,7 +351,7 @@ func (s *Server) do(req Request) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		ss.tspSize(req.Surface, req.Rows)
+		ss.tspSize(req.Surface, req.Rows, req.Dock)
 		return nil, nil
 	case "clear":
 		ss, err := s.session(req.SID)

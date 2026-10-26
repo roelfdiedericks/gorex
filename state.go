@@ -75,9 +75,9 @@ type Pane struct {
 	// surfaces are the session's surfaces of the Tern Surface Protocol,
 	// as the server last sent them, drawn over the terminal
 	// (tsp_view.go); surfaceRows are the rows the window last told the
-	// server each live inline one needs.
+	// server each live inline one needs, and its dock's.
 	surfaces    []rex.Surface
-	surfaceRows map[string]int
+	surfaceRows map[string]tspSize
 	// surfacesLive is how many of them were open at the last frame: one
 	// more gives the terminal the focus.
 	surfacesLive int
@@ -409,10 +409,10 @@ func (a *App) attach(p *Pane, cols, rows int) {
 			p.surfaces = sfs
 			// The rows told for a surface stand until the server's
 			// anchor has them, or the surface is gone.
-			for id, rows := range p.surfaceRows {
+			for id, size := range p.surfaceRows {
 				live := false
 				for i := range sfs {
-					if sfs[i].ID == id && !sfs[i].Closed && sfs[i].Rows != rows {
+					if sfs[i].ID == id && !sfs[i].Closed && (sfs[i].Rows != size.rows || sfs[i].Dock != size.dock) {
 						live = true
 					}
 				}
