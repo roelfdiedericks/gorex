@@ -3,6 +3,7 @@
 package rex
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -115,7 +116,7 @@ func newSession(id string, o CreateOptions, emit func(Response)) (*session, erro
 	if dir == "" {
 		dir, _ = os.UserHomeDir()
 	}
-	env := sessionEnv(id, o.Identity, o.Env)
+	env := sessionEnv(id, o.Identity, o.TSP, o.Env)
 	p, err := startPTY(path, argv, dir, env, cols, rows)
 	if err != nil {
 		return nil, err
@@ -198,8 +199,8 @@ func (s *session) start(screen []byte) error {
 
 // sessionEnv returns the environment of a session's shell: the server's,
 // without what other terminals set, and what terminal apps set, with
-// TERM_PROGRAM by identity.
-func sessionEnv(id, identity string, extra []string) []string {
+// TERM_PROGRAM by identity; tsp tells that the session answers TSP.
+func sessionEnv(id, identity string, tsp bool, extra []string) []string {
 	var env []string
 	hasLang := false
 	for _, kv := range os.Environ() {
@@ -224,10 +225,13 @@ func sessionEnv(id, identity string, extra []string) []string {
 		"TERM_PROGRAM="+program,
 		"TERM_PROGRAM_VERSION="+version,
 		"GOREX_SESSION="+id,
-		// omp never tries TSP: GoRex draws only screen surfaces so far,
-		// and omp's UI is an inline one. The Tern SDK reads TERN_TSP.
-		"PI_TUI_NATIVE=0",
 	)
+	if !tsp {
+		// The session answers no TSP hello: omp, which would ask and
+		// wait for the reply, keeps its own renderer at once. With TSP,
+		// omp asks, and draws natively once the session answers.
+		env = append(env, "PI_TUI_NATIVE=0")
+	}
 	if !hasLang {
 		env = append(env, "LANG=en_US.UTF-8")
 	}
@@ -274,7 +278,9 @@ func (s *session) read() {
 				s.p.write(r)
 			}
 			s.mu.Lock()
+			erased := s.scrollbackAnchors(out)
 			s.vt.Feed(out)
+			s.dropAnchors(erased)
 			s.tspPad()
 			s.status.feed(out)
 			s.paste.feed(out)
@@ -349,6 +355,7 @@ func (s *session) attach(conn net.Conn, at Attach) {
 		if at.Cols > 0 && at.Rows > 0 {
 			s.resize(at.Cols, at.Rows, at.CellWidth, at.CellHeight)
 		}
+		s.motion(at.Reduce)
 	}
 	a.poke()
 	go s.serve(a)
@@ -366,6 +373,22 @@ func (s *session) attach(conn net.Conn, at Attach) {
 	delete(s.clients, a)
 	s.mu.Unlock()
 	a.finish()
+}
+
+// motion takes whether the window asks for reduced motion: the
+// session's program, told in its hello reply, is told when it changes.
+func (s *session) motion(reduce bool) {
+	s.mu.Lock()
+	var e []byte
+	if reduce != s.tsp.reduce {
+		s.tsp.reduce = reduce
+		e = s.tsp.moved()
+	}
+	exited := s.exited
+	s.mu.Unlock()
+	if e != nil && !exited {
+		s.p.write(e)
+	}
 }
 
 // frameRetry is how soon a frame a synchronized update held back is
@@ -532,8 +555,49 @@ func (s *session) resize(cols, rows, cellWidth, cellHeight int) {
 func (s *session) clear() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	erased := s.scrollbackAnchors([]byte(eraseScrollback))
 	if !s.exited && s.vt.ClearScreen() {
+		s.dropAnchors(erased)
+		s.tspPad()
 		s.wake()
+	}
+}
+
+// eraseScrollback is the sequence that erases the scrollback (ED 3).
+const eraseScrollback = "\x1b[3J"
+
+// scrollbackAnchors returns the anchors of kept surfaces in the
+// scrollback when what is to be fed erases it, as clear does: the
+// terminal keeps their placements, moved to the top of the screen,
+// where those surfaces would draw over the text that is there
+// (dropAnchors). A live surface's anchor stays, at the top: the surface
+// is the program's, drawn while it runs. s.mu held.
+func (s *session) scrollbackAnchors(fed []byte) []uint32 {
+	if len(s.tsp.kept) == 0 || !bytes.Contains(fed, []byte(eraseScrollback)) {
+		return nil
+	}
+	kept := map[uint32]bool{}
+	for _, sf := range s.tsp.kept {
+		kept[sf.Image] = true
+	}
+	var ids []uint32
+	for _, pl := range s.vt.AppPlacements() {
+		if pl.Row < 0 && kept[pl.Image] {
+			ids = append(ids, pl.Image)
+		}
+	}
+	return ids
+}
+
+// dropAnchors deletes anchors whose rows went, and so the surfaces drawn
+// from them, which the next sweep drops. s.mu held.
+func (s *session) dropAnchors(ids []uint32) {
+	var b []byte
+	for _, id := range ids {
+		b = append(b, deleteAnchor(id)...)
+	}
+	if len(b) > 0 {
+		s.vt.Feed(b)
 	}
 }
 

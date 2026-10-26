@@ -231,11 +231,14 @@ type SurfaceUpdate struct {
 	List   []Surface         `json:"list"`
 }
 
-// SurfaceFrame is the ops a program applied to one of its surfaces.
+// SurfaceFrame is the ops a program applied to one of its surfaces, or
+// the palette or a sheet it sent for it.
 type SurfaceFrame struct {
-	SF    string            `json:"sf"`
-	Image uint32            `json:"image,omitempty"`
-	Ops   []json.RawMessage `json:"ops"`
+	SF      string            `json:"sf"`
+	Image   uint32            `json:"image,omitempty"`
+	Ops     []json.RawMessage `json:"ops,omitempty"`
+	Palette *TSPPalette       `json:"palette,omitempty"`
+	Sheet   *TSPSheet         `json:"sheet,omitempty"`
 }
 
 // SurfaceHint is an op that keeps nothing, for a window to act on: a
@@ -294,6 +297,12 @@ func (m *SurfaceMirror) Update(u SurfaceUpdate) (hints []SurfaceHint, ok bool) {
 		if sf == nil {
 			continue
 		}
+		if f.Palette != nil {
+			sf.Palette = f.Palette
+		}
+		if f.Sheet != nil {
+			sf.setSheet(f.Sheet.Name, f.Sheet.CSS)
+		}
 		for _, op := range f.Ops {
 			if name, id, arg := m.doc.apply(sf, op); id != "" {
 				hints = append(hints, SurfaceHint{SF: f.SF, Image: f.Image, Op: name, ID: id, Arg: arg})
@@ -317,9 +326,9 @@ func (m *SurfaceMirror) relist(list []Surface) {
 		if sf == nil {
 			continue
 		}
-		root := sf.Root
+		root, palette, sheets := sf.Root, sf.Palette, sf.Sheets
 		*sf = meta
-		sf.Root = root
+		sf.Root, sf.Palette, sf.Sheets = root, palette, sheets
 		keep[key] = true
 		m.list = append(m.list, *sf)
 	}

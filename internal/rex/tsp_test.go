@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"slices"
 	"strings"
 	"testing"
 
@@ -432,6 +433,32 @@ func TestSurfaceMirror(t *testing.T) {
 	same(&m, "after a frame")
 	if len(hints) != 1 || hints[0].Op != "reveal" || hints[0].ID != "main.card" || hints[0].Arg != "end" || hints[0].SF != "s1" {
 		t.Errorf("hints %+v", hints)
+	}
+
+	// A palette and sheets, for the live surface when they name none: a
+	// replaced sheet keeps its place, an empty one goes; a bad name or
+	// too much CSS is refused, changing nothing.
+	v = m.Version()
+	tr.replies = nil
+	tr.feed([]byte("\x1b_tsp;t;{\"dark\":{\"accent\":\"#00b4ff\"},\"light\":{\"accent\":\"#0060a0\"}}\x1b\\" +
+		"\x1b_tsp;s;{\"sf\":\"s1\",\"name\":\"main\",\"css\":\".a{}\"}\x1b\\" +
+		"\x1b_tsp;s;{\"name\":\"x\",\"css\":\".b{}\"}\x1b\\" +
+		"\x1b_tsp;s;{\"name\":\"y\",\"css\":\".d{}\"}\x1b\\" +
+		"\x1b_tsp;s;{\"name\":\"main\",\"css\":\".c{}\"}\x1b\\" +
+		"\x1b_tsp;s;{\"name\":\"x\",\"css\":null}\x1b\\" +
+		"\x1b_tsp;s;{\"name\":\"bad name\",\"css\":\".e{}\"}\x1b\\" +
+		"\x1b_tsp;s;{\"name\":\"big\",\"css\":\"" + strings.Repeat("a", tspMaxCSS) + "\"}\x1b\\"))
+	update(&m, v)
+	same(&m, "after a palette and sheets")
+	sf := m.List()[0]
+	if sf.Palette == nil || sf.Palette.Dark["accent"] != "#00b4ff" || sf.Palette.Light["accent"] != "#0060a0" {
+		t.Errorf("palette %+v", sf.Palette)
+	}
+	if want := []TSPSheet{{"main", ".c{}"}, {"y", ".d{}"}}; !slices.Equal(sf.Sheets, want) {
+		t.Errorf("sheets %+v, want %+v", sf.Sheets, want)
+	}
+	if len(tr.replies) != 2 || !strings.Contains(string(tr.replies[0]), `"sheet":"bad name"`) || !strings.Contains(string(tr.replies[1]), `"sheet":"big"`) {
+		t.Errorf("replies %q", tr.replies)
 	}
 
 	// Kept, then the program runs again: s1 opens anew beside the kept

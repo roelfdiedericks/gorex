@@ -330,6 +330,13 @@ func (s *Server) do(req Request) (any, error) {
 			ss.vt.UseTheme(req.Theme)
 		}
 		return nil, nil
+	case "motion":
+		ss, err := s.session(req.SID)
+		if err != nil {
+			return nil, err
+		}
+		ss.motion(req.Reduce)
+		return nil, nil
 	case "tspEvent":
 		ss, err := s.session(req.SID)
 		if err != nil {
@@ -370,6 +377,8 @@ func (s *Server) do(req Request) (any, error) {
 		return readDir(req.Path)
 	case "readFile":
 		return readFile(req.Path, req.Max)
+	case "readGitFile":
+		return readGitFile(req.Path, req.Rev, req.Blob, req.Max)
 	case "writeFile":
 		return writeFile(req.Path, req.Data, req.IfModTime)
 	case "gitStatus":

@@ -102,3 +102,51 @@ func TestTSPEveryWindow(t *testing.T) {
 	waitFor(t, "the change in the first window", has("a", "clicked 0 times, tick 1"))
 	waitFor(t, "the change in the second window", has("b", "clicked 0 times, tick 1"))
 }
+
+// TestTSPMotion: a program is told when the window asks for reduced
+// motion, as it attaches and when the setting changes, once a surface
+// of its is live.
+func TestTSPMotion(t *testing.T) {
+	dir, err := os.MkdirTemp("/tmp", "rex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	t.Setenv("GOREX_DIR", dir)
+	go Serve()
+	for i := 0; i < 100; i++ {
+		if _, err := os.Stat(filepath.Join(dir, "server.sock")); err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	c, err := Connect(LocalDialer())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Shutdown()
+	// The program opens a surface, then writes what it reads to a file,
+	// a byte at a time as it comes (raw).
+	in := filepath.Join(dir, "in")
+	sh := func(s string) string { return strings.ReplaceAll(strings.ReplaceAll(s, `\`, `\\`), "\x1b", `\033`) }
+	script := "stty raw -echo; printf '" + sh(tspOpen) + "'; cat > " + in
+	info, err := c.Create(CreateOptions{Command: []string{"/bin/sh", "-c", script}, Dir: "/tmp", Cols: 80, Rows: 24, TSP: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Kill(info.ID)
+	read := func(want string) func() bool {
+		return func() bool {
+			b, _ := os.ReadFile(in)
+			return strings.Contains(string(b), want)
+		}
+	}
+	time.Sleep(300 * time.Millisecond) // the surface opens
+	s := c.Stream(info.ID, 80, 24)
+	defer s.Close()
+	s.UseMotion(true)
+	go io.Copy(io.Discard, s)
+	waitFor(t, "the motion as the window attaches", read(`{"ev":"motion","reduce":true}`))
+	s.UseMotion(false)
+	waitFor(t, "the motion as it changes", read(`{"ev":"motion","reduce":false}`))
+}

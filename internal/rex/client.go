@@ -286,6 +286,15 @@ func (c *Client) ReadFile(path string, max int64) (fd FileData, err error) {
 	return
 }
 
+// ReadGitFile reads a file of the host's as git has it at rev, a
+// commit-ish or :0 for the index, of at most max bytes (0 for no cap):
+// its bytes and their blob's id, or Unchanged alone when that is blob,
+// the id the client has ("" for none).
+func (c *Client) ReadGitFile(path, rev, blob string, max int64) (fd GitFileData, err error) {
+	err = c.call(Request{Op: "readGitFile", Path: path, Rev: rev, Blob: blob, Max: max}, &fd)
+	return
+}
+
 // WriteFile writes a file of the host's, refusing one modified since
 // ifModTime when that is set, and tells the time written.
 func (c *Client) WriteFile(path string, data []byte, ifModTime time.Time) (time.Time, error) {
@@ -327,10 +336,12 @@ type Stream struct {
 	r        *bufio.Reader
 	err      error
 	closed   bool
-	// fit is the size the terminal's view fits and theme its colors;
-	// sent and sentTheme are what the server was told last.
-	fit, sent        fit
-	theme, sentTheme *terminal.Theme
+	// fit is the size the terminal's view fits, theme its colors and
+	// reduce whether the window asks for reduced motion; sent, sentTheme
+	// and sentReduce are what the server was told last.
+	fit, sent          fit
+	theme, sentTheme   *terminal.Theme
+	reduce, sentReduce bool
 	// cols and rows are the session's size, as the server told it last,
 	// zero before; onSize takes it.
 	cols, rows int
@@ -375,11 +386,11 @@ func (s *Stream) attach() {
 		s.mu.Unlock()
 		return
 	}
-	f, theme := s.fit, s.theme
+	f, theme, reduce := s.fit, s.theme, s.reduce
 	s.mu.Unlock()
 	conn, err := s.c.dial()
 	if err == nil {
-		b, _ := json.Marshal(Attach{Op: "attach", SID: s.sid, Cols: f.cols, Rows: f.rows, CellWidth: f.cellWidth, CellHeight: f.cellHeight, Theme: theme})
+		b, _ := json.Marshal(Attach{Op: "attach", SID: s.sid, Cols: f.cols, Rows: f.rows, CellWidth: f.cellWidth, CellHeight: f.cellHeight, Theme: theme, Reduce: reduce})
 		if _, err = conn.Write(append(b, '\n')); err == nil {
 			err = readOK(conn)
 		}
@@ -398,25 +409,30 @@ func (s *Stream) attach() {
 	if err != nil {
 		s.err = err
 	} else {
-		s.conn, s.r, s.sent, s.sentTheme = conn, bufio.NewReaderSize(conn, 64<<10), f, theme
+		s.conn, s.r, s.sent, s.sentTheme, s.sentReduce = conn, bufio.NewReaderSize(conn, 64<<10), f, theme, reduce
 	}
 	s.cond.Broadcast()
 }
 
-// sync tells the server the terminal's size and colors, once attached,
-// when it was told others.
+// sync tells the server the terminal's size and colors and the window's
+// motion, once attached, when it was told others.
 func (s *Stream) sync() error {
 	s.mu.Lock()
 	if s.conn == nil {
 		s.mu.Unlock()
 		return nil
 	}
-	f, theme := s.fit, s.theme
-	resize, retheme := f != s.sent, theme != s.sentTheme
-	s.sent, s.sentTheme = f, theme
+	f, theme, reduce := s.fit, s.theme, s.reduce
+	resize, retheme, remotion := f != s.sent, theme != s.sentTheme, reduce != s.sentReduce
+	s.sent, s.sentTheme, s.sentReduce = f, theme, reduce
 	s.mu.Unlock()
 	if retheme {
 		if err := s.c.call(Request{Op: "theme", SID: s.sid, Theme: theme}, nil); err != nil {
+			return err
+		}
+	}
+	if remotion {
+		if err := s.c.call(Request{Op: "motion", SID: s.sid, Reduce: reduce}, nil); err != nil {
 			return err
 		}
 	}
@@ -624,6 +640,15 @@ func (s *Stream) ResizePixels(cols, rows, cellWidth, cellHeight int) error {
 func (s *Stream) UseTheme(theme *terminal.Theme) error {
 	s.mu.Lock()
 	s.theme = theme
+	s.mu.Unlock()
+	return s.sync()
+}
+
+// UseMotion tells the session whether the window asks for reduced
+// motion, which its programs are told, once attached.
+func (s *Stream) UseMotion(reduce bool) error {
+	s.mu.Lock()
+	s.reduce = reduce
 	s.mu.Unlock()
 	return s.sync()
 }

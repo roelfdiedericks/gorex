@@ -29,7 +29,7 @@ import (
 
 // tspKinds are the node kinds the windows draw: the hello reply says so,
 // and programs fall back for the others.
-var tspKinds = []string{"col", "row", "card", "section", "text", "md", "badge", "kv", "list", "item", "code", "table", "progress", "spinner", "status", "rule", "spacer", "kbd", "icon", "editor", "meter", "seg", "image", "elapsed", "rate", "ansi", "checklist", "tree", "overlay", "input", "diff", "chart", "agent", "toast", "tool", "picker"}
+var tspKinds = []string{"col", "row", "card", "section", "text", "md", "badge", "kv", "list", "item", "code", "table", "progress", "spinner", "status", "rule", "spacer", "kbd", "icon", "editor", "meter", "seg", "image", "elapsed", "rate", "ansi", "checklist", "tree", "overlay", "input", "diff", "chart", "agent", "toast", "tool", "picker", "media", "tabs", "effort", "shimmer", "rows", "prefs", "math", "el"}
 
 const (
 	tspAPC     = 65536 // the largest body a message carries
@@ -103,6 +103,81 @@ type Surface struct {
 	// once (resize).
 	Closed   bool `json:"closed,omitempty"`
 	closedAt time.Time
+	// NoListen tells a surface opened with listen:false, whose program
+	// reads no events: its controls are inert.
+	NoListen bool `json:"noListen,omitempty"`
+	// Palette is the program's colors (verb t) and Sheets its style
+	// sheets (verb s), in the order first sent; both stay with a kept
+	// surface. Windows get them with the document, not in the list.
+	Palette *TSPPalette `json:"palette,omitempty"`
+	Sheets  []TSPSheet  `json:"sheets,omitempty"`
+}
+
+// TSPPalette is a program's palette: its color tokens (accent,
+// toolSuccessBg, …) by name, as #rrggbb, for dark and light windows.
+type TSPPalette struct {
+	Dark  map[string]string `json:"dark,omitempty"`
+	Light map[string]string `json:"light,omitempty"`
+}
+
+// TSPSheet is one of a program's style sheets: CSS for its el nodes and
+// classes; an empty CSS in a frame removes the sheet.
+type TSPSheet struct {
+	Name string `json:"name"`
+	CSS  string `json:"css"`
+}
+
+// tspMaxCSS caps a surface's sheets, together.
+const tspMaxCSS = 256 << 10
+
+// target is the surface a palette or sheet names: sf, or the live one
+// (the last opened) when sf is empty.
+func (t *tspTracker) target(sf string) *Surface {
+	if sf == "" && len(t.order) > 0 {
+		sf = t.order[len(t.order)-1]
+	}
+	return t.surfaces[sf]
+}
+
+// setSheet installs, replaces (in its place) or, with an empty css,
+// removes a sheet; false when the surface's sheets would pass
+// tspMaxCSS.
+func (sf *Surface) setSheet(name, css string) bool {
+	i := slices.IndexFunc(sf.Sheets, func(s TSPSheet) bool { return s.Name == name })
+	if css == "" {
+		if i >= 0 {
+			sf.Sheets = slices.Delete(sf.Sheets, i, i+1)
+		}
+		return true
+	}
+	total := len(css)
+	for j, s := range sf.Sheets {
+		if j != i {
+			total += len(s.CSS)
+		}
+	}
+	if total > tspMaxCSS {
+		return false
+	}
+	if i >= 0 {
+		sf.Sheets[i].CSS = css
+	} else {
+		sf.Sheets = append(sf.Sheets, TSPSheet{name, css})
+	}
+	return true
+}
+
+// sheetName tells a valid sheet name: 1–64 of A–Z a–z 0–9 _ -.
+func sheetName(s string) bool {
+	if s == "" || len(s) > 64 {
+		return false
+	}
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 // TSPNode is a node of a surface's document: the kind, the props and the
@@ -152,9 +227,10 @@ type tspTracker struct {
 	pending SurfaceUpdate
 	updates []tspUpdate
 	// hello is the hello reply's terminal facts the session knows: its
-	// size, cell size and whether the window's theme is dark.
+	// size, cell size, whether the window's theme is dark and whether
+	// it asks for reduced motion.
 	cols, cellW, cellH int
-	dark               bool
+	dark, reduce       bool
 
 	// The message being read, across reads: opening is how much of
 	// tspOpener was read, in within the APC, with its body so far; over
@@ -337,6 +413,7 @@ func (t *tspTracker) message(verb string, params map[string]string, body []byte)
 	case "o":
 		var o struct {
 			ID, Mode, Title string
+			Listen          *bool
 		}
 		if json.Unmarshal(body, &o) != nil || o.ID == "" {
 			return
@@ -357,7 +434,7 @@ func (t *tspTracker) message(verb string, params map[string]string, body []byte)
 		} else {
 			t.order = append(t.order, o.ID)
 		}
-		sf := &Surface{ID: o.ID, Mode: o.Mode, Title: o.Title}
+		sf := &Surface{ID: o.ID, Mode: o.Mode, Title: o.Title, NoListen: o.Listen != nil && !*o.Listen}
 		if o.Mode == "inline" || o.Mode == "flow" {
 			// An anchor, and one row, until a window measures the
 			// surface.
@@ -396,6 +473,46 @@ func (t *tspTracker) message(verb string, params map[string]string, body []byte)
 		// Acked whether the surface is drawn or not, so that a program
 		// whose surface is not never stalls.
 		t.replies = append(t.replies, []byte(fmt.Sprintf("\x1b_tsp;e;{\"ev\":\"ack\",\"sf\":%q,\"s\":%d}\x1b\\", f.SF, f.S)))
+	case "t":
+		var m struct {
+			SF string `json:"sf"`
+			TSPPalette
+		}
+		if json.Unmarshal(body, &m) != nil {
+			return
+		}
+		sf := t.target(m.SF)
+		if sf == nil {
+			t.reject(m.SF, "", "palette for no live surface")
+			return
+		}
+		sf.Palette = &TSPPalette{Dark: m.Dark, Light: m.Light}
+		t.pending.Frames = append(t.pending.Frames, SurfaceFrame{SF: sf.ID, Image: sf.Image, Palette: sf.Palette})
+		t.changed = true
+	case "s":
+		var m struct {
+			SF   string `json:"sf"`
+			Name string `json:"name"`
+			CSS  any    `json:"css"`
+		}
+		if json.Unmarshal(body, &m) != nil {
+			return
+		}
+		sf := t.target(m.SF)
+		css, isString := m.CSS.(string)
+		switch {
+		case sf == nil:
+			t.reject(m.SF, m.Name, "sheet for no live surface")
+		case !sheetName(m.Name):
+			t.reject(sf.ID, m.Name, "bad sheet name")
+		case m.CSS != nil && !isString:
+			t.reject(sf.ID, m.Name, "css is not a string")
+		case !sf.setSheet(m.Name, css):
+			t.reject(sf.ID, m.Name, "the surface's sheets pass 256 KiB")
+		default:
+			t.pending.Frames = append(t.pending.Frames, SurfaceFrame{SF: sf.ID, Image: sf.Image, Sheet: &TSPSheet{m.Name, css}})
+			t.changed = true
+		}
 	case "x":
 		var x struct {
 			ID   string `json:"id"`
@@ -443,6 +560,17 @@ func (t *tspTracker) message(verb string, params map[string]string, body []byte)
 		t.spare, t.under = 0, 0
 		t.changed = true
 	}
+}
+
+// reject tells the program a message of its was refused: an error event
+// naming the surface and, for a sheet, the sheet.
+func (t *tspTracker) reject(sf, sheet, msg string) {
+	e := map[string]string{"ev": "error", "sf": sf, "msg": msg}
+	if sheet != "" {
+		e["sheet"] = sheet
+	}
+	b, _ := json.Marshal(e)
+	t.replies = append(t.replies, append(append([]byte("\x1b_tsp;e;"), b...), "\x1b\\"...))
 }
 
 // Anchors: an inline surface takes rows of the terminal, as the output
@@ -695,6 +823,15 @@ func (t *tspTracker) themed() [][]byte {
 	return out
 }
 
+// moved returns what tells the program the windows' reduced motion,
+// after it changed: one motion event, when it has a live surface.
+func (t *tspTracker) moved() []byte {
+	if len(t.order) == 0 {
+		return nil
+	}
+	return []byte(fmt.Sprintf("\x1b_tsp;e;{\"ev\":\"motion\",\"reduce\":%v}\x1b\\", t.reduce))
+}
+
 // live returns the open surfaces, in the order opened, for a server
 // upgrade to carry.
 func (t *tspTracker) live() []*Surface {
@@ -745,7 +882,7 @@ func (t *tspTracker) commit() uint64 {
 	u.List = make([]Surface, 0, len(t.kept)+len(t.order))
 	for _, sf := range t.list() {
 		meta := *sf
-		meta.Root = nil
+		meta.Root, meta.Palette, meta.Sheets = nil, nil, nil
 		u.List = append(u.List, meta)
 	}
 	t.pending = SurfaceUpdate{}
@@ -814,11 +951,13 @@ func (t *tspTracker) helloReply() []byte {
 		// blobs: images come as blobs, which the session keeps; edit,
 		// undo, send: the windows edit the program's fields natively,
 		// telling it what changed; flow: flow surfaces stay among the
-		// output; scroll: the windows act on scroll ops.
-		"kinds": tspKinds, "features": []string{"dock", "blobs", "edit", "undo", "send", "flow", "scroll"},
+		// output; scroll: the windows act on scroll ops; program-palette:
+		// a surface's palette colors it; reduce-motion: reduceMotion is
+		// the windows' setting, and motion events tell its changes.
+		"kinds": tspKinds, "features": []string{"dock", "blobs", "edit", "undo", "send", "flow", "scroll", "program-palette", "reduce-motion", "aside", "styles"},
 		"apc": tspAPC, "credits": tspCredits,
 		"cols": t.cols, "cell": map[string]int{"w": t.cellW, "h": t.cellH},
-		"dark": t.dark, "reduceMotion": false,
+		"dark": t.dark, "reduceMotion": t.reduce,
 	}
 	b, _ := json.Marshal(r)
 	return append(append([]byte("\x1b_tsp;r;"), b...), "\x1b\\"...)

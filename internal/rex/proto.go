@@ -44,6 +44,9 @@ type Request struct {
 	// Theme is the window's colors, for theme: the session's terminal
 	// answers programs that ask the colors with them.
 	Theme *terminal.Theme `json:"theme,omitempty"`
+	// Reduce tells, for motion, that the window asks for reduced
+	// motion, which the session's programs are told.
+	Reduce bool `json:"reduce,omitempty"`
 	// Event is a TSP event of a window, for tspEvent: what the user did
 	// on a surface, which the session's program gets. Surface names a
 	// surface for tspSize, which Rows measures, and Dock the rows of the
@@ -63,6 +66,12 @@ type Request struct {
 	Data      []byte    `json:"data,omitempty"`
 	Max       int64     `json:"max,omitempty"`
 	IfModTime time.Time `json:"ifModTime,omitzero"`
+	// Rev is the git revision readGitFile reads Path at, a commit-ish or
+	// :0 for the index; Max caps it as it does readFile. Blob, when set,
+	// is the object id the client has of it: the same one answers
+	// Unchanged, without the bytes.
+	Rev  string `json:"rev,omitempty"`
+	Blob string `json:"blob,omitempty"`
 }
 
 // FileInfo describes a file of the host's, as stat and readDir report.
@@ -79,6 +88,15 @@ type FileInfo struct {
 type FileData struct {
 	Data    []byte    `json:"data,omitempty"`
 	ModTime time.Time `json:"modTime"`
+}
+
+// GitFileData is a file's bytes at a revision as readGitFile answers,
+// with the object id of the blob they are; Unchanged, without the
+// bytes, when that is the Blob asked with.
+type GitFileData struct {
+	Data      []byte `json:"data,omitempty"`
+	Blob      string `json:"blob"`
+	Unchanged bool   `json:"unchanged,omitempty"`
 }
 
 // ErrTooLarge is readFile's error for a file over the cap asked.
@@ -216,8 +234,8 @@ type HostInfo struct {
 }
 
 // Attach is the first line of a connection attaching to a session, with
-// the size the window's pane fits and the window's colors, as for resize
-// and theme.
+// the size the window's pane fits, the window's colors and whether it
+// asks for reduced motion, as for resize, theme and motion.
 type Attach struct {
 	Op         string          `json:"op"` // "attach"
 	SID        string          `json:"sid"`
@@ -226,6 +244,7 @@ type Attach struct {
 	CellWidth  int             `json:"cellWidth,omitempty"`
 	CellHeight int             `json:"cellHeight,omitempty"`
 	Theme      *terminal.Theme `json:"theme,omitempty"`
+	Reduce     bool            `json:"reduce,omitempty"`
 }
 
 // What the server sends an attached connection, after its answer: a
