@@ -228,14 +228,14 @@ type App struct {
 	// one shown whole over tspZoomPane, named tspZoomAlt.
 	tspImages   map[string]*ui.Bitmap
 	tspZoom     *ui.Bitmap
+	tspZoomAlt  string
+	tspZoomPane *Pane
 	// ansiThemes are the terminal's themes by the appearance's names, for
 	// the colors of programs' output in surfaces (ansiPalette).
 	ansiThemes struct {
 		key         string
 		light, dark *terminal.Theme
 	}
-	tspZoomAlt  string
-	tspZoomPane *Pane
 	// tspSVGs are the SVGs surfaces show (charts), parsed for a theme,
 	// by theme and source.
 	tspSVGs map[string]*tspSVG
