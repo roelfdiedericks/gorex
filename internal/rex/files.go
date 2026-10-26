@@ -156,17 +156,27 @@ func gitStatus(path string) (any, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	top := exec.CommandContext(ctx, git, "-C", path, "rev-parse", "--show-toplevel")
+	top := exec.CommandContext(ctx, git, "-C", path, "rev-parse", "--show-toplevel", "--show-prefix")
 	hideWindow(top)
 	out, err := top.Output()
 	if err != nil {
 		return GitStatus{}, nil
 	}
-	root := strings.TrimSpace(string(out))
-	if root == "" {
+	lines := strings.SplitN(string(out), "\n", 3)
+	if len(lines) < 2 || strings.TrimSpace(lines[0]) == "" {
 		return GitStatus{}, nil
 	}
-	root = filepath.FromSlash(root)
+	// Git names the toplevel with links resolved (macOS's /tmp is
+	// /private/tmp), under which the window finds none of its paths: the
+	// root is the asked path itself, up as many directories as git's
+	// prefix of it has. A link within the repository to a directory at
+	// another depth miscounts them.
+	root := path
+	if prefix := strings.Trim(strings.TrimSuffix(lines[1], "\r"), "/"); prefix != "" {
+		for range strings.Count(prefix, "/") + 1 {
+			root = filepath.Dir(root)
+		}
+	}
 	st := exec.CommandContext(ctx, git, "-C", root, "status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignored=matching")
 	hideWindow(st)
 	out, err = st.Output()
