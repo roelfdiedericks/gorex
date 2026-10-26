@@ -4,6 +4,12 @@ The version of each release is its heading here, which `mygo.json`'s
 `version` must match: `make website` refuses to build otherwise, and
 refuses a version already published.
 
+## 0.1.3
+
+- The file browser marks the files git sees as changed in a repository
+  reached through a link, as macOS's /tmp, /var and /etc are, or a
+  project folder of the user's that links elsewhere: it marked none.
+
 ## 0.1.2
 
 - A pane scrolls as one document with one scroll bar, the terminal's:
