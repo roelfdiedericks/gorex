@@ -743,9 +743,14 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		unit, _ := n.Props["unit"].(string)
 		el = ui.Text(c, fmt.Sprintf("%.0f %s", value, unit)).FontSize(12).TextColor(k.textMuted)
 	case "ansi":
-		// A program's terminal output, its colors dropped for now, cut
-		// to the preview it asks for.
-		lines := strings.Split(stripSGR(text), "\n")
+		// A program's terminal output in its colors (the terminal's
+		// palette), cut to the preview it asks for.
+		th := a.ansiPalette()
+		font := a.editorFont().Family
+		lines := ansiLines(ansiSpans(text, ui.Span{Font: font, Size: 12, Color: k.text}, &th.Palette, k.bgLow))
+		for len(lines) > 1 && len(lines[len(lines)-1]) == 0 {
+			lines = lines[:len(lines)-1]
+		}
 		more := 0
 		if pv, ok := n.Props["preview"].(map[string]any); ok {
 			if l, ok := pv["lines"].(float64); ok && int(l) < len(lines) {
@@ -754,9 +759,18 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 				more, lines = len(lines)-int(t), lines[len(lines)-int(t):]
 			}
 		}
+		var spans []ui.Span
+		for i, line := range lines {
+			if i > 0 {
+				spans = append(spans, ui.Span{Text: "\n", Font: font, Size: 12})
+			}
+			spans = append(spans, line...)
+		}
 		block := ui.Column(key).Radius(6).Background(k.bgLow).FillWidth().Padding(6, 10).Clip()
 		block.Children(func() {
-			ui.Text(c, strings.Join(lines, "\n")).Font(a.editorFont().Family).FontSize(12).TextColor(k.text).NoWrap().Selectable()
+			if len(spans) > 0 {
+				ui.RichText(c, spans...).NoWrap().Selectable()
+			}
 			if more > 0 {
 				ui.Text(c, fmt.Sprintf("… %d more lines", more)).FontSize(11).TextColor(k.textMuted)
 			}
@@ -1051,27 +1065,6 @@ func elapsedText(secs float64) string {
 		return fmt.Sprintf("%dm %02ds", s/60, s%60)
 	}
 	return fmt.Sprintf("%dh %02dm", s/3600, s%3600/60)
-}
-
-// stripSGR drops the escape sequences of styled terminal output,
-// leaving its text.
-func stripSGR(s string) string {
-	if !strings.Contains(s, "\x1b") {
-		return s
-	}
-	var b strings.Builder
-	for i := 0; i < len(s); i++ {
-		if s[i] == 0x1b && i+1 < len(s) && s[i+1] == '[' {
-			j := i + 2
-			for j < len(s) && (s[j] < 0x40 || s[j] > 0x7e) {
-				j++
-			}
-			i = j
-			continue
-		}
-		b.WriteByte(s[i])
-	}
-	return b.String()
 }
 
 // elapsedStart is a live timer as the window first saw it: the age the
