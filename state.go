@@ -523,13 +523,11 @@ func (a *App) attach(p *Pane, cols, rows int) {
 		// The server's lines and more: a terminal drops whole pages
 		// of its oldest lines, so this one keeps every line the
 		// server's does (windowScrollback).
-		ScrollbackLines:  windowScrollback(a.eff.Terminal.Scrollback),
-		OptionAsAlt:      is(a.eff.Terminal.OptionAsAlt),
-		CopyOnSelect:     copyOnSelectOf(&a.eff),
-		Keybinds:         keybindsOf(&a.eff),
-		RightClick:       rightClickOf(&a.eff),
-		ScrollbarWidth:   a.eff.Appearance.ScrollbarWidth,
-		ScrollbarsAlways: is(a.eff.Appearance.ScrollbarsAlways),
+		ScrollbackLines: windowScrollback(a.eff.Terminal.Scrollback),
+		OptionAsAlt:     is(a.eff.Terminal.OptionAsAlt),
+		CopyOnSelect:    copyOnSelectOf(&a.eff),
+		Keybinds:        keybindsOf(&a.eff),
+		RightClick:      rightClickOf(&a.eff),
 		// Images of the Kitty graphics protocol, in the memory the
 		// settings give them.
 		ImageLimit: imageLimit(&a.eff),

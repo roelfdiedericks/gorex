@@ -12,8 +12,11 @@ refuses a version already published.
   kept in lines at any width, as its setting says (it held a fraction
   of them in wide panes), up to 50,000; a transcript longer than the
   scrollback loses its start, as output does, never its end.
-- Surfaces and omp's composer leave the scroll bar clear at the pane's
-  edge.
+- The terminal's scroll bar is the one everything else in the window
+  has: 10 DIPs wide, the same under the pointer and dragged, shown while
+  the pointer is over the pane or the view is scrolled up; a click on
+  its track scrolls a page. Surfaces and omp's composer leave it clear
+  at the pane's edge.
 - Scroll bar width, and Always show scroll bars, in Settings, Defaults:
   Appearance, for the terminal and everything else that scrolls.
 
