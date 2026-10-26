@@ -217,6 +217,36 @@ func TestTSPTracker(t *testing.T) {
 	if out := string(ch.feed([]byte("\x1b_tsp;x;{\"id\":\"s5\"}\x1b\\"))); out != reclaim(5)+deleteAnchor(TSPImageFirst+1) {
 		t.Errorf("close without keep: %q", out)
 	}
+	// Just after its close a kept surface grows once, when a window
+	// measures it taller (its rows were a frame old): the terminal gets
+	// the rows inserted under it, the screen scrolled first when they
+	// would go past its end; not smaller, not later, not twice.
+	k := ch.kept[0]
+	if ch.resize("s4", 3, 0) || k.Rows != 4 {
+		t.Error("a kept surface shrank")
+	}
+	if !ch.resize("s4", 6, 0) || k.Rows != 6 || len(ch.growing) != 1 {
+		t.Errorf("a kept surface did not grow: rows %d, growing %v", k.Rows, ch.growing)
+	}
+	// Anchor at 10, its 4 old rows end at 14, the cursor at 16 on a
+	// 40-row screen: 2 rows inserted at 14, the cursor to 18.
+	if got := ch.grow(map[uint32]int{TSPImageFirst: 10}, 16, 40); got != "\x1b[15;1H\x1b[2L\x1b[19;1H" {
+		t.Errorf("grow: %q", got)
+	}
+	if ch.resize("s4", 8, 0) {
+		t.Error("a kept surface grew twice")
+	}
+	// Near the screen's end the screen scrolls first: cursor at 38 of
+	// 40, 2 rows to insert, one over.
+	ch.growing = []tspGrowth{{TSPImageFirst, 2}}
+	if got := ch.grow(map[uint32]int{TSPImageFirst: 10}, 38, 40); got != "\x1b[40;1H\n\x1b[14;1H\x1b[2L\x1b[40;1H" {
+		t.Errorf("grow at the end: %q", got)
+	}
+	// An end above the screen, or an anchor gone: nothing.
+	ch.growing = []tspGrowth{{TSPImageFirst, 2}, {TSPImageFirst + 7, 1}}
+	if got := ch.grow(map[uint32]int{TSPImageFirst: -6}, 5, 40); got != "" || len(ch.growing) != 0 {
+		t.Errorf("grow above the screen: %q", got)
+	}
 	// A kept surface whose anchor the terminal lost, as after a clear,
 	// goes; one scrolled into the scrollback stays.
 	ch.changed = false

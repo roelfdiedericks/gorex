@@ -540,16 +540,23 @@ func (s *session) anchorRows() (map[uint32]int, int) {
 
 // tspPad feeds the terminal the lines the last opened inline surface
 // lacks under its anchor, or takes back those it has spare
-// (tspTracker.padding), and drops the kept surfaces whose anchors are
-// gone, as after a clear (sweep). The lines fed are erased as they come:
-// they are the surface's, and what a program printed there before, as a
-// shell's last words, would show through. s.mu held.
+// (tspTracker.padding), inserts the rows kept surfaces are to get
+// (grow), and drops the kept surfaces whose anchors are gone, as after
+// a clear (sweep). The lines fed are erased as they come: they are the
+// surface's, and what a program printed there before, as a shell's last
+// words, would show through. s.mu held.
 func (s *session) tspPad() {
 	if len(s.tsp.order) == 0 && len(s.tsp.kept) == 0 {
 		return
 	}
 	rows, cursor := s.anchorRows()
 	s.tsp.sweep(rows)
+	if len(s.tsp.growing) > 0 {
+		if g := s.tsp.grow(rows, cursor, s.rows); g != "" {
+			s.vt.Feed([]byte(g))
+			rows, cursor = s.anchorRows()
+		}
+	}
 	switch n := s.tsp.padding(rows, cursor, s.rows); {
 	case n > 0:
 		s.vt.Feed([]byte(strings.Repeat("\r\n\x1b[2K", n)))

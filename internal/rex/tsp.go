@@ -10,6 +10,7 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/plugins/terminal"
 )
@@ -97,8 +98,10 @@ type Surface struct {
 	// live; kept, the surface has its content's rows only.
 	Dock int `json:"dock,omitempty"`
 	// Closed tells a surface kept after its program closed it: drawn as
-	// it was, taking no events.
-	Closed bool `json:"closed,omitempty"`
+	// it was, taking no events; closedAt is when, for its rows to grow
+	// once (resize).
+	Closed   bool `json:"closed,omitempty"`
+	closedAt time.Time
 }
 
 // TSPNode is a node of a surface's document: the kind, the props and the
@@ -138,6 +141,8 @@ type tspTracker struct {
 	// surface's content, and under its rows anchor: told by the session
 	// before each read, for a close to take them back (reclaim).
 	spare, under int
+	// growing are the rows kept surfaces are to get (resize, grow).
+	growing []tspGrowth
 	// changed tells that a surface changed since the windows were told.
 	changed bool
 	// hello is the hello reply's terminal facts the session knows: its
@@ -406,7 +411,7 @@ func (t *tspTracker) message(verb string, params map[string]string, body []byte)
 			// The last view stays where it is, drawn as it was, in the
 			// rows the anchor keeps, and the rows padded under them go
 			// (reclaim); the oldest kept goes when there are many.
-			sf.Closed = true
+			sf.Closed, sf.closedAt = true, time.Now()
 			t.kept = append(t.kept, sf)
 			t.inject = append(t.inject, reclaim(t.spare)...)
 			if len(t.kept) > tspMaxKept {
@@ -511,17 +516,81 @@ func (t *tspTracker) sweep(placements map[uint32]int) bool {
 	return true
 }
 
-// resize takes the rows a window measured a live surface to need, its
-// content and the dock pinned under it. The session's terminal gets the
-// lines for them (padding). It reports whether anything changed.
+// resize takes the rows a window measured a surface to need, its content
+// and the dock pinned under it. The session's terminal gets the lines
+// for a live one (padding). A kept one grows once, when a window
+// measures it taller just after its close: its program's last frame
+// and its close come in one write, before any window measured the
+// frame, so the rows it was kept with are a frame old; the terminal
+// gets the rows it lacks inserted under it (grow). It reports whether
+// anything changed.
 func (t *tspTracker) resize(sf string, rows, dock int) bool {
 	s := t.surfaces[sf]
-	if s == nil || s.Image == 0 || rows <= 0 || dock < 0 || rows == s.Rows && dock == s.Dock {
+	if s == nil {
+		for _, k := range t.kept {
+			if k.ID == sf && rows > k.Rows && time.Since(k.closedAt) < tspGrowFor {
+				t.growing = append(t.growing, tspGrowth{k.Image, rows - k.Rows})
+				k.Rows = rows
+				k.closedAt = time.Time{}
+				t.changed = true
+				return true
+			}
+		}
+		return false
+	}
+	if s.Image == 0 || rows <= 0 || dock < 0 || rows == s.Rows && dock == s.Dock {
 		return false
 	}
 	s.Rows, s.Dock = rows, dock
 	t.changed = true
 	return true
+}
+
+// tspGrowth is rows a kept surface is to get under its anchor.
+type tspGrowth struct {
+	image uint32
+	rows  int
+}
+
+// tspGrowFor is how long after its close a kept surface may grow.
+const tspGrowFor = 2 * time.Second
+
+// grow returns what inserts the rows kept surfaces are to get under
+// their anchors, given where the anchors are, the cursor's row and the
+// screen's rows, and leaves the cursor as many rows further down: the
+// rows between the surface's end and the cursor move down, and the
+// screen scrolls first when they would go past its end. Right after a
+// close nothing is under the cursor, which the close erased, so nothing
+// is lost. A surface whose end is above the screen does not grow.
+func (t *tspTracker) grow(placements map[uint32]int, cursor, screen int) string {
+	var b strings.Builder
+	for _, g := range t.growing {
+		row, ok := placements[g.image]
+		var s *Surface
+		for _, k := range t.kept {
+			if k.Image == g.image {
+				s = k
+			}
+		}
+		if !ok || s == nil {
+			continue
+		}
+		end := row + s.Rows - g.rows
+		if end < 0 || end > cursor {
+			continue
+		}
+		if over := cursor + g.rows - (screen - 1); over > 0 {
+			fmt.Fprintf(&b, "\x1b[%d;1H%s", screen, strings.Repeat("\n", over))
+			end, cursor = end-over, cursor-over
+			if end < 0 {
+				continue
+			}
+		}
+		fmt.Fprintf(&b, "\x1b[%d;1H\x1b[%dL\x1b[%d;1H", end+1, g.rows, cursor+g.rows+1)
+		cursor += g.rows
+	}
+	t.growing = nil
+	return b.String()
 }
 
 // padding returns how many lines the terminal needs fed for the last

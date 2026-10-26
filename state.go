@@ -78,6 +78,9 @@ type Pane struct {
 	// server each live inline one needs, and its dock's.
 	surfaces    []rex.Surface
 	surfaceRows map[string]tspSize
+	// keptFrames counts the frames each kept surface was drawn, by
+	// anchor: its content is measured from the second.
+	keptFrames map[uint32]int
 	// surfacesLive is how many of them were open at the last frame: one
 	// more gives the terminal the focus.
 	surfacesLive int

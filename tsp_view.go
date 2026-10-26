@@ -106,19 +106,37 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 		a.surfaceDock(c, k, t, p, sf, dock, pl.Rect.X)
 	}
 	a.surfaceOverlays(c, k, t, p, sf)
-	if sf.Closed || cell <= 0 {
+	if cell <= 0 {
 		return
 	}
 	// The rows the content takes, the box's padding included, and those
 	// of the dock's space under it, which the server pads while the
-	// surface is live and leaves when it is kept.
+	// surface is live and leaves when it is kept. A kept surface's box
+	// is cut to its rows: its content measured taller is told once, for
+	// the rows it lacks (rex.tspTracker.resize), from its second kept
+	// frame on, the bounds being the last frame's, the live layout's
+	// with the dock's space on the first.
+	if sf.Closed {
+		if p.keptFrames == nil {
+			p.keptFrames = map[uint32]int{}
+		}
+		p.keptFrames[sf.Image]++
+		if p.keptFrames[sf.Image] < 2 {
+			return
+		}
+	}
 	h, dockH := box.Bounds().H, float32(0)
 	if docked {
 		dockH = p.dockH[sf.Image]
+	}
+	if docked || sf.Closed {
 		h = content.Bounds().H + 8 - dockH
 	}
 	if h > 0 {
 		size := tspSize{int(math.Ceil(float64(h/cell - 0.01))), int(math.Ceil(float64(dockH/cell - 0.01)))}
+		if sf.Closed && size.rows <= sf.Rows {
+			return
+		}
 		if size.rows > 0 && (size.rows != sf.Rows || size.dock != sf.Dock) && size != p.surfaceRows[sf.ID] {
 			if p.surfaceRows == nil {
 				p.surfaceRows = map[string]tspSize{}
