@@ -602,13 +602,60 @@ const (
 // the cursor's row, transmitting the image's pixel first, and leaves the
 // cursor there.
 func anchor(image uint32) string {
-	return fmt.Sprintf("\r\x1b_Ga=t,f=32,s=1,v=1,i=%d,q=2;AAAAAA==\x1b\\\x1b_Ga=p,i=%d,p=1,c=1,r=1,C=1,q=2\x1b\\", image, image)
+	return transmitAnchor(image) + placeStart(image)
+}
+
+// placeStart returns what places an anchor's image, transmitted before,
+// as the anchor: in the first cell of the cursor's row, which it leaves
+// there.
+func placeStart(image uint32) string {
+	return fmt.Sprintf("\r\x1b_Ga=p,i=%d,p=1,c=1,r=1,C=1,q=2\x1b\\", image)
+}
+
+// transmitAnchor returns what transmits an anchor's image, its pixel, at
+// the start of the cursor's row.
+func transmitAnchor(image uint32) string {
+	return fmt.Sprintf("\r\x1b_Ga=t,f=32,s=1,v=1,i=%d,q=2;AAAAAA==\x1b\\", image)
+}
+
+// endMarker returns what places the end marker of a surface, on the last
+// row of its content: a second placement of its anchor's image, 2 cells
+// wide where the anchor is 1, which a window's terminal keeps too
+// (placement ids do not go through a Mirror). A surface whose anchor
+// went with the oldest lines of the scrollback keeps its end, which it
+// is drawn up from, as the end of output stays when its start goes. It
+// goes in the first cell of the cursor's row, and leaves the cursor
+// there.
+func endMarker(image uint32) string {
+	return fmt.Sprintf("\r\x1b_Ga=p,i=%d,p=2,c=2,r=1,C=1,q=2\x1b\\", image)
 }
 
 // deleteAnchor returns what deletes an anchor's image, and so its
-// placement; its rows stay, blank.
+// placements, the end marker's too; its rows stay, blank.
 func deleteAnchor(image uint32) string {
 	return fmt.Sprintf("\x1b_Ga=d,d=I,i=%d,q=2\x1b\\", image)
+}
+
+// deleteStart returns what deletes an anchor's placement alone, leaving
+// its surface's end marker.
+func deleteStart(image uint32) string {
+	return fmt.Sprintf("\x1b_Ga=d,d=i,i=%d,p=1,q=2\x1b\\", image)
+}
+
+// byImage returns the inline surface, live or kept, whose anchor's image
+// is image; nil for none.
+func (t *tspTracker) byImage(image uint32) *Surface {
+	for _, s := range t.kept {
+		if s.Image == image {
+			return s
+		}
+	}
+	for _, s := range t.surfaces {
+		if s.Image == image {
+			return s
+		}
+	}
+	return nil
 }
 
 // reclaim returns what takes back n blank rows above the cursor: up over
@@ -1133,17 +1180,18 @@ func patchItems(props map[string]any) {
 	props["items"] = out
 }
 
-// placeAnchors puts the anchors of surfaces back into a terminal's
-// snapshot, which carries no images: rows maps each anchor's image id to
-// its row from the screen's top, negative in the scrollback, and screen
-// is the screen's rows. A snapshot writes its rows one after the other,
-// each ending with "\r\n", up to the cursor's placing (Terminal.Snapshot),
-// so an anchor in the scrollback goes at the start of its row, which the
-// rows after it scroll up; one on the screen comes back as what places
-// it at its row after the snapshot (onScreen). Anchors whose rows the
-// snapshot no longer has are dropped.
-func placeAnchors(snap []byte, rows map[uint32]int, screen int) (out []byte, onScreen string) {
-	if len(rows) == 0 {
+// placeAnchors puts the markers of surfaces back into a terminal's
+// snapshot, which carries no images: starts maps each anchor's image id
+// to its row from the screen's top, negative in the scrollback, ends
+// each end marker's, and screen is the screen's rows. A snapshot writes
+// its rows one after the other, each ending with "\r\n", up to the
+// cursor's placing (Terminal.Snapshot), so a marker in the scrollback
+// goes at the start of its row, which the rows after it scroll up; one
+// on the screen comes back as what places it at its row after the
+// snapshot (onScreen). Each image is transmitted with its first marker
+// placed. Markers whose rows the snapshot no longer has are dropped.
+func placeAnchors(snap []byte, starts, ends map[uint32]int, screen int) (out []byte, onScreen string) {
+	if len(starts) == 0 && len(ends) == 0 {
 		return snap, ""
 	}
 	// The rows end where the snapshot places the cursor: its last CUP.
@@ -1165,26 +1213,52 @@ func placeAnchors(snap []byte, rows map[uint32]int, screen int) (out []byte, onS
 		end = len(snap)
 	}
 	// Where each row starts.
-	starts := []int{0}
+	rowStarts := []int{0}
 	for i := 0; i+1 < end; i++ {
 		if snap[i] == '\r' && snap[i+1] == '\n' {
-			starts = append(starts, i+2)
+			rowStarts = append(rowStarts, i+2)
 		}
 	}
-	scrollback := max(0, len(starts)-screen)
+	scrollback := max(0, len(rowStarts)-screen)
+	// Each image's markers by row, the anchor first on a row with both.
+	type marker struct {
+		row   int
+		place string
+	}
+	images := map[uint32][]marker{}
+	for image, row := range starts {
+		images[image] = append(images[image], marker{row, placeStart(image)})
+	}
+	for image, row := range ends {
+		images[image] = append(images[image], marker{row, endMarker(image)})
+	}
 	type insert struct {
 		at  int
 		seq string
 	}
 	var inserts []insert
 	var b strings.Builder
-	for image, row := range rows {
-		if row >= 0 {
-			fmt.Fprintf(&b, "\x1b7\x1b[%d;1H%s\x1b8", row+1, anchor(image))
-			continue
-		}
-		if at := scrollback + row; at >= 0 && at < len(starts) {
-			inserts = append(inserts, insert{starts[at], anchor(image)})
+	for image, ms := range images {
+		slices.SortStableFunc(ms, func(x, y marker) int { return x.row - y.row })
+		sent := false
+		for i := 0; i < len(ms); i++ {
+			seq := ms[i].place
+			for i+1 < len(ms) && ms[i+1].row == ms[i].row {
+				i++
+				seq += ms[i].place
+			}
+			row := ms[i].row
+			if row < 0 && (scrollback+row < 0 || scrollback+row >= len(rowStarts)) {
+				continue
+			}
+			if !sent {
+				seq, sent = transmitAnchor(image)+seq, true
+			}
+			if row >= 0 {
+				fmt.Fprintf(&b, "\x1b7\x1b[%d;1H%s\x1b8", row+1, seq)
+			} else {
+				inserts = append(inserts, insert{rowStarts[scrollback+row], seq})
+			}
 		}
 	}
 	sort.Slice(inserts, func(i, j int) bool { return inserts[i].at > inserts[j].at })

@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -574,38 +575,38 @@ func (s *session) clear() {
 // eraseScrollback is the sequence that erases the scrollback (ED 3).
 const eraseScrollback = "\x1b[3J"
 
-// scrollbackAnchors returns the anchors of kept surfaces in the
+// scrollbackAnchors returns what deletes the markers of surfaces in the
 // scrollback when what is to be fed erases it, as clear does: the
-// terminal keeps their placements, moved to the top of the screen,
-// where those surfaces would draw over the text that is there
-// (dropAnchors). A live surface's anchor stays, at the top: the surface
-// is the program's, drawn while it runs. s.mu held.
-func (s *session) scrollbackAnchors(fed []byte) []uint32 {
-	if len(s.tsp.kept) == 0 || !bytes.Contains(fed, []byte(eraseScrollback)) {
+// terminal keeps their placements, moved to the top of the screen, where
+// those surfaces would draw over the text that is there (dropAnchors). A
+// kept surface whose end is in the scrollback goes whole; one whose
+// anchor alone is there, live or kept, keeps its end, drawn up from it.
+// A live surface without an end keeps its anchor, at the top: the
+// surface is the program's, drawn while it runs. s.mu held.
+func (s *session) scrollbackAnchors(fed []byte) []byte {
+	if !bytes.Contains(fed, []byte(eraseScrollback)) {
 		return nil
 	}
-	kept := map[uint32]bool{}
-	for _, sf := range s.tsp.kept {
-		kept[sf.Image] = true
-	}
-	var ids []uint32
-	for _, pl := range s.vt.AppPlacements() {
-		if pl.Row < 0 && kept[pl.Image] {
-			ids = append(ids, pl.Image)
+	var b []byte
+	for image, mk := range s.markerRows() {
+		sf := s.tsp.byImage(image)
+		switch {
+		case sf == nil:
+		case sf.Closed && (!mk.hasEnd || mk.end < 0) && (!mk.hasStart || mk.start < 0):
+			b = append(b, deleteAnchor(image)...)
+		case mk.hasStart && mk.start < 0 && mk.hasEnd && mk.end >= 0:
+			b = append(b, deleteStart(image)...)
 		}
 	}
-	return ids
+	return b
 }
 
-// dropAnchors deletes anchors whose rows went, and so the surfaces drawn
-// from them, which the next sweep drops. s.mu held.
-func (s *session) dropAnchors(ids []uint32) {
-	var b []byte
-	for _, id := range ids {
-		b = append(b, deleteAnchor(id)...)
-	}
-	if len(b) > 0 {
-		s.vt.Feed(b)
+// dropAnchors feeds the terminal the deletes of markers whose rows went
+// (scrollbackAnchors); the next sweep drops the surfaces left without
+// any. s.mu held.
+func (s *session) dropAnchors(deletes []byte) {
+	if len(deletes) > 0 {
+		s.vt.Feed(deletes)
 	}
 }
 
@@ -621,24 +622,81 @@ func (s *session) tspSize(sf string, rows, dock int) {
 	s.wake()
 }
 
-// anchorRows returns the rows of the anchors in the terminal (image id →
-// row, negative in the scrollback) and the cursor's row. s.mu held.
+// markers are where an inline surface's anchor (start) and end marker
+// are in the terminal, from the screen's top, negative in the
+// scrollback, and which of them there are.
+type markers struct {
+	start, end       int
+	hasStart, hasEnd bool
+}
+
+// markerRows returns the surfaces' markers in the terminal, by image id.
+// s.mu held.
+func (s *session) markerRows() map[uint32]markers {
+	m := map[uint32]markers{}
+	for _, pl := range s.vt.AppPlacements() {
+		mk := m[pl.Image]
+		if pl.Cols == 2 {
+			mk.end, mk.hasEnd = pl.Row, true
+		} else {
+			mk.start, mk.hasStart = pl.Row, true
+		}
+		m[pl.Image] = mk
+	}
+	return m
+}
+
+// anchorRows returns the rows of the surfaces' anchors (image id → row,
+// negative in the scrollback) and the cursor's row: where the anchor is,
+// or for one the scrollback dropped, where it was, its surface's rows up
+// from its end marker. s.mu held.
 func (s *session) anchorRows() (map[uint32]int, int) {
 	rows := map[uint32]int{}
-	for _, pl := range s.vt.AppPlacements() {
-		rows[pl.Image] = pl.Row
+	for image, mk := range s.markerRows() {
+		switch sf := s.tsp.byImage(image); {
+		case mk.hasStart:
+			rows[image] = mk.start
+		case mk.hasEnd && sf != nil:
+			rows[image] = mk.end - (max(sf.Rows, 1) - 1)
+		}
 	}
 	_, cursor := s.vt.Cursor()
 	return rows, cursor
 }
 
+// placeEnds places the end markers of surfaces whose content ends on
+// another row than their marker, or that have none yet: just after a
+// surface's rows changed, live or kept, when that row is on the screen,
+// above the cursor, which it puts back. A surface whose anchor went has
+// its end where it stays. s.mu held.
+func (s *session) placeEnds() {
+	var b strings.Builder
+	col, cursor := s.vt.Cursor()
+	for image, mk := range s.markerRows() {
+		sf := s.tsp.byImage(image)
+		if sf == nil || !mk.hasStart {
+			continue
+		}
+		end := mk.start + max(sf.Rows, 1) - 1
+		if mk.hasEnd && mk.end == end || end < 0 || end >= cursor {
+			continue
+		}
+		fmt.Fprintf(&b, "\x1b[%d;1H%s", end+1, endMarker(image))
+	}
+	if b.Len() > 0 {
+		fmt.Fprintf(&b, "\x1b[%d;%dH", cursor+1, col+1)
+		s.vt.Feed([]byte(b.String()))
+	}
+}
+
 // tspPad feeds the terminal the lines the last opened inline surface
 // lacks under its anchor, or takes back those it has spare
 // (tspTracker.padding), inserts the rows kept surfaces are to get
-// (grow), and drops the kept surfaces whose anchors are gone, as after
-// a clear (sweep). The lines fed are erased as they come: they are the
-// surface's, and what a program printed there before, as a shell's last
-// words, would show through. s.mu held.
+// (grow), drops the kept surfaces whose markers are gone, as after a
+// clear (sweep), and places the end markers where the surfaces' content
+// ends now (placeEnds). The lines fed are erased as they come: they are
+// the surface's, and what a program printed there before, as a shell's
+// last words, would show through. s.mu held.
 func (s *session) tspPad() {
 	if len(s.tsp.order) == 0 && len(s.tsp.kept) == 0 {
 		return
@@ -658,6 +716,7 @@ func (s *session) tspPad() {
 		// Up over the spare rows, which are blank, and clear them.
 		s.vt.Feed([]byte(reclaim(-n)))
 	}
+	s.placeEnds()
 }
 
 // kill hangs up the session and waits a little for it to end.

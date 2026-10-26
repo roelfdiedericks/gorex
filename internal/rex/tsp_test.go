@@ -528,17 +528,25 @@ func newAnchorTerm(t *testing.T) *terminal.Terminal {
 	return vt
 }
 
-func anchorRows(vt *terminal.Terminal) map[uint32]int {
+// anchorRows returns the rows of the anchors in vt by image id, and
+// endRows those of the end markers.
+func anchorRows(vt *terminal.Terminal) map[uint32]int { return markerRowsOf(vt, 1) }
+func endRows(vt *terminal.Terminal) map[uint32]int    { return markerRowsOf(vt, 2) }
+
+func markerRowsOf(vt *terminal.Terminal, cols int) map[uint32]int {
 	rows := map[uint32]int{}
 	for _, pl := range vt.AppPlacements() {
-		rows[pl.Image] = pl.Row
+		if pl.Cols == cols {
+			rows[pl.Image] = pl.Row
+		}
 	}
 	return rows
 }
 
-// An upgrade's snapshot, with the anchors put back, places them in a new
-// terminal where they were: up in the scrollback, on the screen, and a
-// row long gone dropped.
+// An upgrade's snapshot, with the markers put back, places them in a new
+// terminal where they were: anchors and end markers up in the scrollback
+// and on the screen, an end whose anchor went, and a row long gone
+// dropped.
 func TestPlaceAnchors(t *testing.T) {
 	vt := newAnchorTerm(t)
 	var b strings.Builder
@@ -546,40 +554,48 @@ func TestPlaceAnchors(t *testing.T) {
 		switch i {
 		case 3:
 			b.WriteString(anchor(TSPImageFirst))
+		case 5:
+			b.WriteString(endMarker(TSPImageFirst))
 		case 12:
 			b.WriteString(anchor(TSPImageFirst + 1))
+		case 26:
+			b.WriteString(endMarker(TSPImageFirst + 1))
 		case 27:
-			b.WriteString(anchor(TSPImageFirst + 2))
+			b.WriteString(anchor(TSPImageFirst+2) + endMarker(TSPImageFirst+2))
 		}
 		fmt.Fprintf(&b, "line %d\r\n", i)
 	}
 	b.WriteString("$ ")
 	vt.Feed([]byte(b.String()))
-	want := anchorRows(vt)
-	if len(want) != 3 || want[TSPImageFirst] >= 0 || want[TSPImageFirst+2] < 0 {
-		t.Fatalf("anchors placed at %v", want)
+	want, wantEnds := anchorRows(vt), endRows(vt)
+	if len(want) != 3 || len(wantEnds) != 3 || want[TSPImageFirst] >= 0 || want[TSPImageFirst+1] >= 0 || wantEnds[TSPImageFirst+1] < 0 || want[TSPImageFirst+2] < 0 {
+		t.Fatalf("anchors placed at %v, ends at %v", want, wantEnds)
 	}
 	snap := vt.Snapshot()
 
-	out, onScreen := placeAnchors(snap, want, 6)
-	got := newAnchorTerm(t)
-	got.Feed(out)
-	got.Feed([]byte(onScreen))
-	if rows := anchorRows(got); !maps.Equal(rows, want) {
-		t.Errorf("anchors at %v, want %v", rows, want)
+	place := func(starts, ends map[uint32]int) *terminal.Terminal {
+		out, onScreen := placeAnchors(snap, starts, ends, 6)
+		got := newAnchorTerm(t)
+		got.Feed(out)
+		got.Feed([]byte(onScreen))
+		return got
+	}
+	got := place(want, wantEnds)
+	if rows, ends := anchorRows(got), endRows(got); !maps.Equal(rows, want) || !maps.Equal(ends, wantEnds) {
+		t.Errorf("anchors at %v, ends at %v; want %v, %v", rows, ends, want, wantEnds)
 	}
 	if got.Text() != vt.Text() {
 		t.Errorf("text %q, want %q", got.Text(), vt.Text())
 	}
 
-	// A row the snapshot no longer has.
-	gone := maps.Clone(want)
-	gone[TSPImageFirst+3] = -1000
-	out, onScreen = placeAnchors(snap, gone, 6)
-	got = newAnchorTerm(t)
-	got.Feed(out)
-	got.Feed([]byte(onScreen))
-	if rows := anchorRows(got); !maps.Equal(rows, want) {
-		t.Errorf("with a row gone, anchors at %v, want %v", rows, want)
+	// An end whose anchor went with the oldest lines, and a row the
+	// snapshot no longer has.
+	starts := maps.Clone(want)
+	delete(starts, TSPImageFirst+1)
+	starts[TSPImageFirst+3] = -1000
+	got = place(starts, wantEnds)
+	delete(starts, TSPImageFirst+3)
+	if rows, ends := anchorRows(got), endRows(got); !maps.Equal(rows, starts) || !maps.Equal(ends, wantEnds) {
+		t.Errorf("with an anchor and a row gone, anchors at %v, ends at %v; want %v, %v", rows, ends, starts, wantEnds)
 	}
 }

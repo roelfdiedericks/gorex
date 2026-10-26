@@ -53,11 +53,27 @@ func (a *App) surfaces(c *ui.Context, k *colors, t *Tab, p *Pane) {
 			if placements == nil {
 				placements = p.term.AppPlacements()
 			}
-			for _, pl := range placements {
-				if pl.Image == sf.Image {
-					a.inlineSurface(c, k, t, p, sf, pl)
-					break
+			// Its anchor (one cell) and its end marker (two): from the
+			// anchor, or when the scrollback dropped it, up from the end,
+			// its head cut.
+			var start, end *terminal.AppPlacement
+			for i := range placements {
+				switch pl := &placements[i]; {
+				case pl.Image != sf.Image:
+				case pl.Cols == 2:
+					end = pl
+				default:
+					start = pl
 				}
+			}
+			switch {
+			case start != nil:
+				a.inlineSurface(c, k, t, p, sf, *start, false)
+			case end != nil:
+				pl, up := *end, max(sf.Rows, 1)-1
+				pl.Row -= up
+				pl.Rect.Y -= pl.Rect.H / float32(max(pl.Rows, 1)) * float32(up)
+				a.inlineSurface(c, k, t, p, sf, pl, true)
 			}
 		}
 	}
@@ -85,9 +101,10 @@ func (a *App) screenSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 // pinned, over the rows the server pads it with (tspTracker.padding):
 // no terminal shows between them. A surface takes no more rows than the
 // scrollback keeps (rex.Surface.Most): content taller shows its end, its
-// head cut, as a terminal's oldest lines go first. Scrolled out of the
-// viewport it draws nothing.
-func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, pl terminal.AppPlacement) {
+// head cut, as a terminal's oldest lines go first; so does a surface
+// whose anchor the scrollback dropped (headless), placed up from its end
+// marker. Scrolled out of the viewport it draws nothing.
+func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, pl terminal.AppPlacement, headless bool) {
 	_, screenRows := p.term.Size()
 	docked := !sf.Closed && tspDocked(sf)
 	// A live surface with a dock reaches the pane's bottom whatever rows
@@ -106,7 +123,7 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 			most = sf.Most
 		}
 	}
-	cut := most > 0 && p.tspNeed[sf.Image] > most
+	cut := headless || most > 0 && p.tspNeed[sf.Image] > most
 	box := ui.Box(c.Key(fmt.Sprintf("tsp-%d", sf.Image))).Absolute().Left(pl.Rect.X).Top(pl.Rect.Y).Right(tspAside(p, sf, pl)).Background(k.bgBottom).Font(tspFont)
 	switch {
 	case sf.Closed:

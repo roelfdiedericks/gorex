@@ -49,11 +49,13 @@ type sessionState struct {
 	// image id and Blobs the program's blobs, oldest first, which it
 	// sent once and does not again. Anchors are the rows of the
 	// surfaces' anchors, by image id, from the screen's top (negative
-	// in the scrollback), which the snapshot carries no image of.
+	// in the scrollback), and Ends of their end markers, which the
+	// snapshot carries no image of.
 	TSP        bool           `json:"tsp,omitempty"`
 	Surfaces   []*Surface     `json:"surfaces,omitempty"`
 	Kept       []*Surface     `json:"kept,omitempty"`
 	Anchors    map[uint32]int `json:"anchors,omitempty"`
+	Ends       map[uint32]int `json:"ends,omitempty"`
 	NextImage  uint32         `json:"nextImage,omitempty"`
 	Blobs      []*TSPBlob     `json:"blobs,omitempty"`
 	Exited     bool           `json:"exited,omitempty"`
@@ -125,11 +127,16 @@ func (s *Server) upgrade(exe string) error {
 		}
 		if !ses.Exited {
 			ses.Screen = ss.vt.Snapshot()
-			for _, pl := range ss.vt.AppPlacements() {
+			for image, mk := range ss.markerRows() {
 				if ses.Anchors == nil {
-					ses.Anchors = map[uint32]int{}
+					ses.Anchors, ses.Ends = map[uint32]int{}, map[uint32]int{}
 				}
-				ses.Anchors[pl.Image] = pl.Row
+				if mk.hasStart {
+					ses.Anchors[image] = mk.start
+				}
+				if mk.hasEnd {
+					ses.Ends[image] = mk.end
+				}
 			}
 			if title := ss.vt.Title(); title != "" {
 				ses.Screen = append([]byte("\x1b]2;"+title+"\x07"), ses.Screen...)
@@ -308,7 +315,7 @@ func resumeSession(st sessionState, emit func(Response)) (*session, error) {
 	// it, at the starts of their rows, and those on the screen are
 	// placed at their rows after it. A state without the anchors' rows
 	// has the live surfaces' placed from the cursor (reanchor).
-	screen, onScreen := placeAnchors(st.Screen, st.Anchors, st.Rows)
+	screen, onScreen := placeAnchors(st.Screen, st.Anchors, st.Ends, st.Rows)
 	if err := s.start(screen); err != nil {
 		s.p.hangup()
 		return nil, err
