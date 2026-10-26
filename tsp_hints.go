@@ -58,23 +58,14 @@ func (a *App) takeHints(c *ui.Context, p *Pane) {
 }
 
 // revealed acts on a reveal of node n, drawn as el: its scroll container
-// brings it into view, at the start or end of the view when the reveal
-// says so; for an inline surface, whose box scrolls its content, the
-// terminal's scrollback then scrolls to the box when it is outside the
-// view.
+// brings it into view, and the terminal's scrollback scrolls to it when
+// it is drawn among the terminal's rows outside the view.
 func (a *App) revealed(p *Pane, sf *rex.Surface, n *rex.TSPNode, el ui.Element) {
 	at, ok := a.tspReveal[n.ID]
 	if !ok {
 		return
 	}
-	var st *tspScroller
-	if sf.Image != 0 {
-		st = p.tspScroll[sf.Image]
-	}
-	inline := st != nil && st.box.H > 0
-	if !inline || at != "start" && at != "end" {
-		el.ScrollIntoView()
-	}
+	el.ScrollIntoView()
 	b, view := el.Bounds(), p.hostBounds
 	if b.H == 0 || view.H == 0 {
 		return
@@ -86,34 +77,22 @@ func (a *App) revealed(p *Pane, sf *rex.Surface, n *rex.TSPNode, el ui.Element) 
 			p.tspPending[i].frames = tspHintFrames
 		}
 	}
-	if !inline {
+	if sf.Image == 0 {
 		return
 	}
-	// Where the node is in the content, as the last frame laid it out,
-	// under the box's padding.
-	y := b.Y - st.box.Y - 4 + min(st.Y, st.MaxY)
-	switch at {
-	case "start":
-		st.scrollBy(y - min(st.Y, st.MaxY))
-	case "end":
-		st.scrollBy(y + b.H - st.view - min(st.Y, st.MaxY))
-	}
-	box := st.box
 	var dy float32
 	switch {
-	case box.Y < view.Y:
-		dy = box.Y - view.Y
-	case box.Y+box.H > view.Y+view.H:
-		dy = box.Y + box.H - (view.Y + view.H)
+	case at == "start" || (at != "end" && b.Y < view.Y):
+		dy = b.Y - view.Y
+	case b.Y+b.H > view.Y+view.H || at == "end":
+		dy = b.Y + b.H - (view.Y + view.H)
 	}
 	if dy != 0 {
 		p.term.Scroll(ui.InputEvent{Kind: ui.InputScroll, X: view.W / 2, Y: view.H / 2, DY: dy, Precise: true})
 	}
 }
 
-// scrollTerm scrolls by a line, a page or to an end the content of the
-// pane's live inline surface, the last opened, or without one the
-// pane's terminal.
+// scrollTerm scrolls the pane's terminal by a line, a page or to an end.
 func (a *App) scrollTerm(p *Pane, by string) {
 	_, rows := p.term.Size()
 	view := p.hostBounds
@@ -121,26 +100,12 @@ func (a *App) scrollTerm(p *Pane, by string) {
 	if rows > 0 && view.H > 0 {
 		cell = view.H / float32(rows)
 	}
-	page := view.H - cell
-	var st *tspScroller
-	for i := len(p.surfaces) - 1; i >= 0 && st == nil; i-- {
-		if sf := &p.surfaces[i]; !sf.Closed && sf.Image != 0 {
-			st = p.tspScroll[sf.Image]
-		}
-	}
-	if st != nil {
-		page = st.view - cell
-	}
 	dy := map[string]float32{
 		"line-up": -cell, "line-down": cell,
-		"page-up": -page, "page-down": page,
+		"page-up": -(view.H - cell), "page-down": view.H - cell,
 		"start": -1e7, "end": 1e7,
 	}[by]
-	switch {
-	case dy == 0:
-	case st != nil:
-		st.scrollBy(dy)
-	default:
+	if dy != 0 {
 		p.term.Scroll(ui.InputEvent{Kind: ui.InputScroll, X: view.W / 2, Y: view.H / 2, DY: dy, Precise: true})
 	}
 }

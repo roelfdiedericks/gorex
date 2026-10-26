@@ -111,9 +111,6 @@ type Pane struct {
 	// dockH is how tall each live surface's pinned dock was drawn (by
 	// anchor), the space the surface keeps for it.
 	dockH map[uint32]float32
-	// tspScroll is how far each inline surface scrolls its content (by
-	// anchor), and the box it was drawn in.
-	tspScroll map[uint32]*tspScroller
 	// fields are the programs' text fields the pane draws natively, by
 	// anchor and node id (tsp_field.go).
 	fields map[string]*tspField
@@ -480,12 +477,6 @@ func (a *App) attach(p *Pane, cols, rows int) {
 				}
 				if !live {
 					delete(p.surfaceRows, id)
-				}
-			}
-			// A surface gone takes where it was scrolled with it.
-			for image := range p.tspScroll {
-				if !slices.ContainsFunc(sfs, func(sf rex.Surface) bool { return sf.Image == image }) {
-					delete(p.tspScroll, image)
 				}
 			}
 			a.changed()
