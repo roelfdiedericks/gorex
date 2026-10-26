@@ -224,6 +224,9 @@ type App struct {
 	// tspDock is the dock region of the surface being drawn, which
 	// floats at the bottom of the pane after it.
 	tspDock *rex.TSPNode
+	// tspFlat counts the tool bodies being drawn: the cards and tools in
+	// one are drawn bare, as sections of its frame.
+	tspFlat int
 	// tspImages are the programs' blobs decoded, by id; tspZoom is the
 	// one shown whole over tspZoomPane, named tspZoomAlt.
 	tspImages   map[string]*ui.Bitmap

@@ -27,7 +27,7 @@ import (
 
 // tspKinds are the node kinds the windows draw: the hello reply says so,
 // and programs fall back for the others.
-var tspKinds = []string{"col", "row", "card", "section", "text", "md", "badge", "kv", "list", "item", "code", "table", "progress", "spinner", "status", "rule", "spacer", "kbd", "icon", "editor", "meter", "seg", "image", "elapsed", "rate", "ansi", "checklist", "tree", "overlay", "input", "diff", "chart", "agent", "toast"}
+var tspKinds = []string{"col", "row", "card", "section", "text", "md", "badge", "kv", "list", "item", "code", "table", "progress", "spinner", "status", "rule", "spacer", "kbd", "icon", "editor", "meter", "seg", "image", "elapsed", "rate", "ansi", "checklist", "tree", "overlay", "input", "diff", "chart", "agent", "toast", "tool"}
 
 const (
 	tspAPC     = 65536 // the largest body a message carries

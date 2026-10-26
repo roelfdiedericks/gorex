@@ -282,7 +282,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		variant, _ := n.Props["variant"].(string)
 		head, body, collapsed := a.tspFold(p, sf, n)
 		card := ui.Column(key).Gap(10).FillWidth()
-		if variant != "bare" {
+		if variant != "bare" && a.tspFlat == 0 {
 			card.Radius(cardR).Background(k.card).Border(1, k.cardBorder).Padding(12, 14)
 			if selected, _ := n.Props["selected"].(bool); selected {
 				card.Border(1, k.busy)
@@ -714,30 +714,13 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		// A live timer: the program says how long so far, in ms, and
 		// the window keeps counting from when it heard, until stopped.
 		age, _ := n.Props["age"].(float64)
-		ms := age
-		id := fmt.Sprintf("%d/%s", sf.Image, n.ID)
-		if stopped, ok := n.Props["stopped"].(float64); ok {
-			ms = stopped
-			delete(p.elapsed, id)
-		} else if !sf.Closed {
-			st, ok := p.elapsed[id]
-			if !ok || st.age != age {
-				st = elapsedStart{age: age, at: time.Now()}
-				if p.elapsed == nil {
-					p.elapsed = map[string]elapsedStart{}
-				}
-				p.elapsed[id] = st
-			}
-			ms = age + float64(time.Since(st.at)/time.Millisecond)
-			if !a.elapsedDue {
-				a.elapsedDue = true
-				time.AfterFunc(time.Second, func() {
-					a.elapsedDue = false
-					c.Invalidate()
-				})
-			}
+		var stopped *float64
+		if s, ok := n.Props["stopped"].(float64); ok {
+			stopped = &s
 		}
-		el = ui.Text(c, elapsedText(ms/1000)).FontSize(12).TextColor(k.textMuted)
+		el = ui.Text(c, elapsedText(a.liveMS(c, p, sf, n.ID, age, stopped)/1000)).FontSize(12).TextColor(k.textMuted)
+	case "tool":
+		el = a.tspTool(c, key, k, t, p, sf, n)
 	case "rate":
 		value, _ := n.Props["value"].(float64)
 		unit, _ := n.Props["unit"].(string)
