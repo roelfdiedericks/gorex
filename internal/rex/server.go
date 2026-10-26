@@ -57,6 +57,7 @@ func Serve() error { return serve("") }
 func Resume(state string) error { return serve(state) }
 
 func serve(state string) error {
+	libraryBeside()
 	dir := Dir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
@@ -468,7 +469,7 @@ func newID() string {
 // Spawn starts a server in the background, as a process of its own that
 // outlives the app: the executable run with -server.
 func Spawn() error {
-	exe, err := os.Executable()
+	exe, err := selfPath()
 	if err != nil {
 		return err
 	}

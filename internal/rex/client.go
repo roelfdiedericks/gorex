@@ -9,7 +9,9 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -90,7 +92,7 @@ func Connect(dial Dialer) (*Client, error) {
 // Executable returns the path of the running executable and when it was
 // modified last.
 func Executable() (string, time.Time) {
-	exe, err := os.Executable()
+	exe, err := selfPath()
 	if err != nil {
 		return "", time.Time{}
 	}
@@ -102,6 +104,55 @@ func Executable() (string, time.Time) {
 		return exe, time.Time{}
 	}
 	return exe, st.ModTime()
+}
+
+// selfPath is the path of the running executable. Run by a dynamic
+// loader, as gcompat runs a glibc program on musl (Alpine, Home
+// Assistant's ssh add-on: ld-musl-x86_64.so.1 gorex …), the process's
+// executable is the loader: then it is the program the loader runs, its
+// first argument, as the shell started it.
+func selfPath() (string, error) {
+	exe, err := os.Executable()
+	if err != nil || !dynamicLoader(filepath.Base(exe)) {
+		return exe, err
+	}
+	arg := os.Args[0]
+	if !strings.Contains(arg, "/") {
+		if arg, err = exec.LookPath(arg); err != nil {
+			return exe, nil
+		}
+	}
+	if abs, err := filepath.Abs(arg); err == nil {
+		arg = abs
+	}
+	if st, err := os.Stat(arg); err != nil || !st.Mode().IsRegular() || dynamicLoader(filepath.Base(arg)) {
+		return exe, nil
+	}
+	return arg, nil
+}
+
+// dynamicLoader tells the file name of a dynamic loader:
+// ld-linux-x86-64.so.2, ld-musl-x86_64.so.1.
+func dynamicLoader(name string) bool {
+	return strings.HasPrefix(name, "ld-") && strings.Contains(name, ".so")
+}
+
+// libraryBeside has the terminal load the libghostty-vt beside the
+// program when a dynamic loader runs it (selfPath): the terminal looks
+// for it beside the process's executable, which is then the loader.
+func libraryBeside() {
+	exe, err := os.Executable()
+	if err != nil || !dynamicLoader(filepath.Base(exe)) || os.Getenv("MYGO_GHOSTTY_VT") != "" {
+		return
+	}
+	self, err := selfPath()
+	if err != nil || self == exe {
+		return
+	}
+	p := filepath.Join(filepath.Dir(self), "libghostty-vt.so")
+	if _, err := os.Stat(p); err == nil {
+		os.Setenv("MYGO_GHOSTTY_VT", p)
+	}
 }
 
 // Restart shuts the server down, ending its sessions, and connects to a
