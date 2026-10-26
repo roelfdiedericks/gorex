@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>GoRex</title>
+  <!-- GoRex's icon, the master of resources/icon.png, which mkicon draws
+       from it (make icon). It is beside the tool, not in resources/,
+       whose files ship with the app. mkicon reads rect and path elements,
+       paths of M, L and Z, groups with translate and scale, fill, stroke,
+       stroke-width and stroke-miterlimit, with mitred joins and butt ends. -->
+  <!-- The tile: macOS's icon grid, 824 square inset by 100, corner 185. -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#1F2430"/>
+  <!-- The mark, drawn on the sketch's 784x1168 grid, scaled 0.95 about
+       its centre (392,571) to the tile's centre. One line width, 30. -->
+  <g transform="translate(139.6 -30.45) scale(0.95)" fill="none" stroke="#7DDCFF" stroke-width="30" stroke-linejoin="miter" stroke-miterlimit="4">
+    <!-- neck -->
+    <path d="M102 765 L102 578 L168 512"/>
+    <!-- skull, brow and snout -->
+    <path d="M165 510 L165 426 L272 322 L385 322 L636 472 L682 518 L682 592 L656 617 L492 617"/>
+    <!-- cheek and the upper jaw's underside -->
+    <path d="M155 511 L252 511 L340 596 L432 596 L452 577 L550 577"/>
+    <!-- mouth -->
+    <path d="M432 598 L535 692"/>
+    <!-- eye socket -->
+    <path d="M340 432 L370 398 L505 455 L505 498 L460 538 L372 538 L340 508 Z"/>
+    <!-- nostril: > -->
+    <path d="M604 508 L638 542 L604 576"/>
+    <!-- throat: < > -->
+    <path d="M180 610 L147 643 L180 676"/>
+    <path d="M222 610 L255 643 L222 676"/>
+    <!-- lower jaw, and its teeth back along its top -->
+    <path d="M309 605 L309 668 L461 820 L574 820 L602 793 L602 760 L560 760 L545 775 L460 690 L418 690 L418 660 L390 660 L390 630 L355 630"/>
+  </g>
+  <g transform="translate(139.6 -30.45) scale(0.95)" fill="#7DDCFF">
+    <!-- brow slash -->
+    <path d="M222 413 L283 355 L316 355 L256 413 Z"/>
+    <!-- mask beside the eye -->
+    <path d="M202 472 L252 428 L330 428 L330 486 L277 486 L263 472 Z"/>
+    <!-- pupil -->
+    <path d="M374 442 L407 442 L465 465 L465 492 L387 492 L374 478 Z"/>
+  </g>
+</svg>

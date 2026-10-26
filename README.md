@@ -130,7 +130,7 @@ make release         # go tool mygo build: the app and its installer, in build/
 go tool mygo dev     # GoRex Dev, rebuilt and restarted as the code changes
 go test ./...        # the server, and the view without a window
 go tool mygo build   # build/darwin-arm64/GoRex.app and a .dmg
-go run ./tools/mkicon  # redraw resources/icon.png
+make icon            # redraw resources/icon.png from tools/mkicon/icon.svg
 go run ./tools/remotepayload  # the servers for ssh hosts, in resources/remote (mygo build runs it)
 ```
 

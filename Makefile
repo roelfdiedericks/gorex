@@ -8,6 +8,7 @@
 #   make website       the site's installer and signed updates, in website/
 #   make website-sync  what website built, published to gorex.goclaw.org
 #   make publish       website, then website-sync
+#   make icon          resources/icon.png, redrawn from tools/mkicon/icon.svg
 #   make test, vet, clean
 #
 # A release's version is the top "## X.Y.Z" of CHANGELOG.md, which
@@ -101,7 +102,7 @@ total = @echo "[make] $@: total $$(( $$($(now)) - $(START) )) ms since make star
 $(info [make] goals: $(or $(MAKECMDGOALS),dev) (make $(MAKE_VERSION), $(PLATFORM)))
 $(info [make] app: $(NAME) $(VERSION) ($(IDENT)) -> $(EXE))
 
-.PHONY: dev run release version website website-sync publish test vet clean FORCE
+.PHONY: dev run release version website website-sync publish icon test vet clean FORCE
 
 dev: $(EXE) $(DEV)/remote $(PLAT_RES) $(TOP_RES)
 	$(total)
@@ -156,6 +157,14 @@ test:
 vet:
 	$(call run,go vet ./...)
 	$(total)
+
+# icon redraws the app's icon, from which mygo build makes every
+# platform's, from its master, tools/mkicon/icon.svg.
+icon: resources/icon.png
+	$(total)
+
+resources/icon.png: tools/mkicon/icon.svg tools/mkicon/main.go
+	$(call run,go run ./tools/mkicon)
 
 clean:
 	$(call run,rm -rf $(DEV))
