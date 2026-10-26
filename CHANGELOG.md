@@ -17,8 +17,10 @@ refuses a version already published.
   the pointer is over the pane or the view is scrolled up; a click on
   its track scrolls a page. Surfaces and omp's composer leave it clear
   at the pane's edge.
-- Scroll bar width, and Always show scroll bars, in Settings, Defaults:
-  Appearance, for the terminal and everything else that scrolls.
+- Scroll bar width, Scroll handle length (at least; 48 DIPs built in, so
+  a long scrollback's handle is no sliver), and Always show scroll bars,
+  in Settings, Defaults: Appearance, for the terminal and everything
+  else that scrolls.
 
 ## 0.1.1
 

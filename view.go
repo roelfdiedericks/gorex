@@ -26,7 +26,8 @@ func (a *App) view(c *ui.Context) {
 	a.runPosted()
 	// The scroll bars the settings ask for, in everything that scrolls.
 	a.uiTheme = *c.Theme()
-	a.uiTheme.ScrollbarWidth, a.uiTheme.ScrollbarsAlways = a.eff.Appearance.ScrollbarWidth, is(a.eff.Appearance.ScrollbarsAlways)
+	ap := &a.eff.Appearance
+	a.uiTheme.ScrollbarWidth, a.uiTheme.ScrollbarMinLength, a.uiTheme.ScrollbarsAlways = ap.ScrollbarWidth, ap.ScrollbarMinLength, is(ap.ScrollbarsAlways)
 	c.SetTheme(&a.uiTheme)
 	a.postMu.Lock()
 	toasts := a.toastQueue

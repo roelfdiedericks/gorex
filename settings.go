@@ -68,10 +68,13 @@ type Appearance struct {
 	// ScrollbarWidth is how wide scroll bars are, in DIPs, through MyGo's
 	// theme: the terminal's, and those of what scrolls in the window
 	// (surfaces, editors, settings, lists), one bar for all;
-	// ScrollbarsAlways shows them whenever what they scroll overflows,
-	// rather than only while the pointer is over it.
-	ScrollbarWidth   float32 `json:"scrollbarWidth,omitempty" kind:"pc" label:"Scroll bar width" group:"Scroll bars"`
-	ScrollbarsAlways *bool   `json:"scrollbarsAlways,omitempty" kind:"pc" label:"Always show scroll bars" group:"Scroll bars"`
+	// ScrollbarMinLength how long their handles are at least, as a long
+	// scrollback's would be a sliver; ScrollbarsAlways shows them
+	// whenever what they scroll overflows, rather than only while the
+	// pointer is over it.
+	ScrollbarWidth     float32 `json:"scrollbarWidth,omitempty" kind:"pc" label:"Scroll bar width" group:"Scroll bars"`
+	ScrollbarMinLength float32 `json:"scrollbarMinLength,omitempty" kind:"pc" label:"Scroll handle length, at least" group:"Scroll bars"`
+	ScrollbarsAlways   *bool   `json:"scrollbarsAlways,omitempty" kind:"pc" label:"Always show scroll bars" group:"Scroll bars"`
 }
 
 type Terminal struct {
@@ -171,7 +174,7 @@ const defaultFontSize = 11.6
 // builtin are the values of fields set in neither layer.
 var builtin = Settings{
 	V:          settingsVersion,
-	Appearance: Appearance{Theme: "GoRex", ThemeLight: "GoRex", Tint: "gorex", Transparent: on, WindowTitle: "host", ScrollbarWidth: 10, ScrollbarsAlways: off},
+	Appearance: Appearance{Theme: "GoRex", ThemeLight: "GoRex", Tint: "gorex", Transparent: on, WindowTitle: "host", ScrollbarWidth: 10, ScrollbarMinLength: 48, ScrollbarsAlways: off},
 	Terminal: Terminal{
 		Font: "JetBrains Mono", Size: defaultFontSize, Weight: 400, LineHeight: 1, Ligatures: on, Thicken: off,
 		Cursor: "block", Blink: on, Scrollback: 10000, Images: 320, CopyOnSelect: off, OptionAsAlt: off, Bell: "mark", Identity: "ghostty", StatusNotify: on,
