@@ -145,3 +145,14 @@ func readUntil(t *testing.T, s *Stream, want string) string {
 	}
 	return out.String()
 }
+
+// A state from a server that kept the scrollback in bytes, 256 a line,
+// comes back in lines: the number the session asked for, the default
+// for the 8 MiB it had without one.
+func TestKeptLines(t *testing.T) {
+	for _, c := range []struct{ keep, want int }{{2_560_000, 10000}, {500 * 256, 500}, {8 << 20, ScrollbackLines}, {0, ScrollbackLines}} {
+		if got := keptLines(c.keep); got != c.want {
+			t.Errorf("keptLines(%d) = %d, want %d", c.keep, got, c.want)
+		}
+	}
+}

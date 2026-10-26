@@ -98,6 +98,12 @@ type Surface struct {
 	// surface's content takes, which its rows reach over while it is
 	// live; kept, the surface has its content's rows only.
 	Dock int `json:"dock,omitempty"`
+	// Most is the most rows the surface takes, its dock's with its
+	// content's: those the session's scrollback keeps for sure and the
+	// screen's but the cursor's, so that its anchor stays. A window draws
+	// content taller than that from its end, its head cut. 0 when
+	// unknown.
+	Most int `json:"most,omitempty"`
 	// Closed tells a surface kept after its program closed it: drawn as
 	// it was, taking no events; closedAt is when, for its rows to grow
 	// once (resize).
@@ -231,6 +237,8 @@ type tspTracker struct {
 	// it asks for reduced motion.
 	cols, cellW, cellH int
 	dark, reduce       bool
+	// most is Surface.Most, as the session sets it (setMost).
+	most int
 
 	// The message being read, across reads: opening is how much of
 	// tspOpener was read, in within the APC, with its body so far; over
@@ -442,7 +450,7 @@ func (t *tspTracker) message(verb string, params map[string]string, body []byte)
 			if t.nextImage < TSPImageFirst || t.nextImage > TSPImageLast {
 				t.nextImage = TSPImageFirst
 			}
-			sf.Image, sf.Rows = t.nextImage, 1
+			sf.Image, sf.Rows, sf.Most = t.nextImage, 1, t.most
 			t.inject = append(t.inject, (anchor(sf.Image) + "\r\n")...)
 		}
 		// The surface is a column of the nodes added to it: its root,
@@ -655,16 +663,19 @@ func (t *tspTracker) sweep(placements map[uint32]int) bool {
 }
 
 // resize takes the rows a window measured a surface to need, its content
-// and the dock pinned under it. The session's terminal gets the lines
-// for a live one (padding). A kept one grows once, when a window
-// measures it taller just after its close: its program's last frame
-// and its close come in one write, before any window measured the
-// frame, so the rows it was kept with are a frame old; the terminal
-// gets the rows it lacks inserted under it (grow). It reports whether
-// anything changed.
+// and the dock pinned under it, at most Surface.Most together. The
+// session's terminal gets the lines for a live one (padding). A kept one
+// grows once, when a window measures it taller just after its close: its
+// program's last frame and its close come in one write, before any
+// window measured the frame, so the rows it was kept with are a frame
+// old; the terminal gets the rows it lacks inserted under it (grow). It
+// reports whether anything changed.
 func (t *tspTracker) resize(sf string, rows, dock int) bool {
 	s := t.surfaces[sf]
 	if s == nil {
+		if t.most > 0 {
+			rows = min(rows, t.most)
+		}
 		for _, k := range t.kept {
 			if k.ID == sf && rows > k.Rows && time.Since(k.closedAt) < tspGrowFor {
 				t.growing = append(t.growing, tspGrowth{k.Image, rows - k.Rows})
@@ -676,12 +687,36 @@ func (t *tspTracker) resize(sf string, rows, dock int) bool {
 		}
 		return false
 	}
+	if t.most > 0 {
+		dock = min(dock, t.most-1)
+		rows = min(rows, t.most-dock)
+	}
 	if s.Image == 0 || rows <= 0 || dock < 0 || rows == s.Rows && dock == s.Dock {
 		return false
 	}
 	s.Rows, s.Dock = rows, dock
 	t.changed = true
 	return true
+}
+
+// setMost sets Surface.Most for the surfaces there are, those an upgrade
+// restored among them, and those to come, as the session's scrollback,
+// screen or width changed. A live surface's rows over it go as a window
+// measures it again (resize); a kept one's stay.
+func (t *tspTracker) setMost(most int) {
+	t.most = most
+	stamp := func(s *Surface) {
+		if s.Image != 0 && s.Most != most {
+			s.Most = most
+			t.changed = true
+		}
+	}
+	for _, s := range t.kept {
+		stamp(s)
+	}
+	for _, s := range t.surfaces {
+		stamp(s)
+	}
 }
 
 // tspGrowth is rows a kept surface is to get under its anchor.

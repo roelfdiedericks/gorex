@@ -482,7 +482,7 @@ func (a *App) settingControl(c *ui.Context, k *colors, scope string, f field) {
 	case "terminal.lineHeight":
 		stepper(c, k, &target, effv, 0.8, 1.6, 0.05, changed)
 	case "terminal.scrollback":
-		stepper(c, k, &target, effv, 500, 200000, 500, changed)
+		stepper(c, k, &target, effv, 500, 50000, 500, changed)
 	case "terminal.images":
 		v := "Off"
 		if mb := effv.Int(); mb > 0 {

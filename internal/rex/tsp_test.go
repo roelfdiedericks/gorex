@@ -25,6 +25,35 @@ const (
 	tspClose  = "\x1b_tsp;x;{\"id\":\"s1\",\"keep\":false}\x1b\\"
 )
 
+// A surface takes no more rows than Surface.Most, so that the
+// scrollback keeps its anchor: a live one its content's and its dock's
+// together, a kept one's growth. The surfaces there are and those opened
+// after carry it.
+func TestTSPMost(t *testing.T) {
+	ch := tspTracker{on: true, cols: 50}
+	ch.setMost(30)
+	ch.feed([]byte("\x1b_tsp;o;{\"id\":\"s1\",\"mode\":\"inline\"}\x1b\\"))
+	s := ch.surfaces["s1"]
+	if s == nil || s.Most != 30 {
+		t.Fatalf("opened: %+v", s)
+	}
+	if !ch.resize("s1", 100, 5) || s.Rows != 25 || s.Dock != 5 {
+		t.Errorf("content and dock over Most: rows %d dock %d", s.Rows, s.Dock)
+	}
+	if !ch.resize("s1", 100, 50) || s.Rows != 1 || s.Dock != 29 {
+		t.Errorf("a dock over Most: rows %d dock %d", s.Rows, s.Dock)
+	}
+	ch.changed = false
+	if ch.setMost(40); s.Most != 40 || !ch.changed {
+		t.Errorf("Most set again: %d, changed %v", s.Most, ch.changed)
+	}
+	ch.resize("s1", 10, 0)
+	ch.feed([]byte("\x1b_tsp;x;{\"id\":\"s1\",\"keep\":true}\x1b\\"))
+	if len(ch.kept) != 1 || !ch.resize("s1", 500, 0) || ch.kept[0].Rows != 40 {
+		t.Errorf("a kept surface grew past Most: %+v", ch.kept)
+	}
+}
+
 func TestTSPTracker(t *testing.T) {
 	tr := tspTracker{on: true, cols: 100, cellW: 8, cellH: 16, dark: true}
 	// The hello is answered, before what follows it, and the messages

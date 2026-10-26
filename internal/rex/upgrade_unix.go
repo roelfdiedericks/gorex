@@ -34,7 +34,8 @@ type sessionState struct {
 	Created    time.Time `json:"created"`
 	PID        int       `json:"pid"`
 	FD         int       `json:"fd"` // the terminal's master; -1 once it ended
-	Keep       int       `json:"keep"`
+	Lines      int       `json:"lines,omitempty"`
+	Keep       int       `json:"keep,omitempty"` // Lines as a server before it saved it: bytes, 256 a line
 	Images     int64     `json:"images,omitempty"`
 	Cols       int       `json:"cols"`
 	Rows       int       `json:"rows"`
@@ -116,7 +117,7 @@ func (s *Server) upgrade(exe string) error {
 		ss.mu.Lock()
 		defer ss.mu.Unlock()
 		ses := sessionState{
-			ID: ss.id, Shell: ss.shell, Created: ss.created, PID: ss.p.pid(), FD: -1, Keep: ss.keep, Images: ss.images,
+			ID: ss.id, Shell: ss.shell, Created: ss.created, PID: ss.p.pid(), FD: -1, Lines: ss.lines, Images: ss.images,
 			Cols: ss.cols, Rows: ss.rows, CellWidth: ss.cellWidth, CellHeight: ss.cellHeight, Paste: ss.paste.on, TSP: ss.tsp.on,
 			Surfaces: ss.tsp.live(), Kept: ss.tsp.kept, NextImage: ss.tsp.nextImage, Blobs: ss.tsp.blobList(),
 			Exited: ss.exited || !paused[i], Code: ss.code, Output: ss.output,
@@ -269,8 +270,12 @@ func (s *Server) resume(st *upgradeState) {
 }
 
 func resumeSession(st sessionState, emit func(Response)) (*session, error) {
+	lines := st.Lines
+	if lines == 0 {
+		lines = keptLines(st.Keep)
+	}
 	s := &session{
-		id: st.ID, shell: st.Shell, created: st.Created, p: &pty{}, keep: st.Keep, images: st.Images, emit: emit,
+		id: st.ID, shell: st.Shell, created: st.Created, p: &pty{}, lines: lines, images: st.Images, emit: emit,
 		cols: st.Cols, rows: st.Rows, cellWidth: st.CellWidth, cellHeight: st.CellHeight, paste: pasteTracker{on: st.Paste},
 		tsp:    tspTracker{on: st.TSP, cols: st.Cols, cellW: st.CellWidth, cellH: st.CellHeight, nextImage: st.NextImage},
 		output: st.Output, lastOutput: st.LastOutput, lastInput: st.LastInput,
@@ -280,7 +285,7 @@ func resumeSession(st sessionState, emit func(Response)) (*session, error) {
 		// An ended session keeps its exit code, as it did.
 		pr, pw := io.Pipe()
 		pw.Close()
-		vt, err := terminal.New(terminal.Options{Conn: vtConn{pr, s.p}, Scrollback: s.keep})
+		vt, err := terminal.New(terminal.Options{Conn: vtConn{pr, s.p}, ScrollbackLines: s.lines})
 		if err != nil {
 			return nil, err
 		}
@@ -315,6 +320,7 @@ func resumeSession(st sessionState, emit func(Response)) (*session, error) {
 		}
 		s.tsp.restore(st.Surfaces)
 		s.tsp.kept = st.Kept
+		s.tsp.setMost(s.tsp.most)
 		if st.Anchors != nil {
 			s.vt.Feed([]byte(onScreen))
 		} else if len(st.Surfaces) > 0 {
@@ -326,4 +332,14 @@ func resumeSession(st sessionState, emit func(Response)) (*session, error) {
 		s.mu.Unlock()
 	}
 	return s, nil
+}
+
+// keptLines is the lines a server before sessionState.Lines meant by the
+// bytes of scrollback it kept: 256 a line, 8 MiB when the session asked
+// for no number, which is the default now too.
+func keptLines(keep int) int {
+	if keep <= 0 || keep == 8<<20 {
+		return ScrollbackLines
+	}
+	return keep / 256
 }

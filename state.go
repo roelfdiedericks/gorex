@@ -111,6 +111,9 @@ type Pane struct {
 	// dockH is how tall each live surface's pinned dock was drawn (by
 	// anchor), the space the surface keeps for it.
 	dockH map[uint32]float32
+	// tspNeed is how many rows each inline surface's content took in the
+	// last frame (by anchor), more than it has when its head is cut.
+	tspNeed map[uint32]int
 	// fields are the programs' text fields the pane draws natively, by
 	// anchor and node id (tsp_field.go).
 	fields map[string]*tspField
@@ -504,18 +507,21 @@ func (a *App) attach(p *Pane, cols, rows int) {
 		ResizeByConn: true,
 		// The anchors of programs' surfaces, which the server places and
 		// its Mirror carries here (tsp_view.go).
-		AppImages:    struct{ First, Last uint32 }{rex.TSPImageFirst, rex.TSPImageLast},
-		Font:         termFont,
-		Theme:        light,
-		DarkTheme:    dark,
-		Transparent:  is(a.eff.Appearance.Transparent),
-		Cursor:       cursorOf(&a.eff),
-		NoBlink:      !is(a.eff.Terminal.Blink),
-		Scrollback:   a.eff.Terminal.Scrollback * 256,
-		OptionAsAlt:  is(a.eff.Terminal.OptionAsAlt),
-		CopyOnSelect: copyOnSelectOf(&a.eff),
-		Keybinds:     keybindsOf(&a.eff),
-		RightClick:   rightClickOf(&a.eff),
+		AppImages:   struct{ First, Last uint32 }{rex.TSPImageFirst, rex.TSPImageLast},
+		Font:        termFont,
+		Theme:       light,
+		DarkTheme:   dark,
+		Transparent: is(a.eff.Appearance.Transparent),
+		Cursor:      cursorOf(&a.eff),
+		NoBlink:     !is(a.eff.Terminal.Blink),
+		// The server's lines and more: a terminal drops whole pages
+		// of its oldest lines, so this one keeps every line the
+		// server's does (windowScrollback).
+		ScrollbackLines: windowScrollback(a.eff.Terminal.Scrollback),
+		OptionAsAlt:     is(a.eff.Terminal.OptionAsAlt),
+		CopyOnSelect:    copyOnSelectOf(&a.eff),
+		Keybinds:        keybindsOf(&a.eff),
+		RightClick:      rightClickOf(&a.eff),
 		// Images of the Kitty graphics protocol, in the memory the
 		// settings give them.
 		ImageLimit: imageLimit(&a.eff),

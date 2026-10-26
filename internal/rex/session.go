@@ -18,14 +18,10 @@ import (
 	"github.com/egoist/mygo/plugins/terminal"
 )
 
-// scrollback is about how many bytes of output a session keeps above its
+// ScrollbackLines is how many lines of output a session keeps above its
 // screen, for the windows that attach to it, when the session asks for
-// no particular number of lines; scrollbackLine is about what a line
-// takes, to size the buffer from a number of lines.
-const (
-	scrollback     = 8 << 20
-	scrollbackLine = 256
-)
+// no particular number.
+const ScrollbackLines = 10000
 
 // session is a pseudo-terminal of the server and its shell.
 type session struct {
@@ -33,9 +29,9 @@ type session struct {
 	shell   string
 	created time.Time
 	p       *pty
-	// keep is how many bytes of scrollback the screen keeps, and images
+	// lines is how many lines of scrollback the screen keeps, and images
 	// the most bytes its images take (terminal.Options.ImageLimit).
-	keep   int
+	lines  int
 	images int64
 	// emit sends the server's control connections an event.
 	emit func(Response)
@@ -121,11 +117,11 @@ func newSession(id string, o CreateOptions, emit func(Response)) (*session, erro
 	if err != nil {
 		return nil, err
 	}
-	keep := scrollback
+	lines := ScrollbackLines
 	if o.Scrollback > 0 {
-		keep = o.Scrollback * scrollbackLine
+		lines = o.Scrollback
 	}
-	s := &session{id: id, shell: name, created: time.Now(), p: p, keep: keep, images: o.ImageLimit, cols: cols, rows: rows, emit: emit}
+	s := &session{id: id, shell: name, created: time.Now(), p: p, lines: lines, images: o.ImageLimit, cols: cols, rows: rows, emit: emit}
 	s.tsp.on, s.tsp.cols = o.TSP, cols
 	if err := s.start(nil); err != nil {
 		p.hangup()
@@ -143,9 +139,9 @@ func (s *session) start(screen []byte) error {
 	s.pauseAck, s.pauseEnd = make(chan struct{}), make(chan struct{})
 	pr, pw := io.Pipe()
 	vt, err := terminal.New(terminal.Options{
-		Conn:       vtConn{pr, s.p},
-		Scrollback: s.keep,
-		ImageLimit: s.images,
+		Conn:            vtConn{pr, s.p},
+		ScrollbackLines: s.lines,
+		ImageLimit:      s.images,
 		// Programs' reads of the clipboard go on to a window, which
 		// answers them as it would its own program's.
 		ClipboardRead: terminal.ClipboardForward,
@@ -165,6 +161,7 @@ func (s *session) start(screen []byte) error {
 	}
 	s.vt = vt
 	vt.ResizePixels(s.cols, s.rows, s.cellWidth, s.cellHeight)
+	s.tsp.setMost(s.tspMost())
 	if len(screen) > 0 {
 		vt.Feed(screen)
 	}
@@ -537,6 +534,7 @@ func (s *session) resize(cols, rows, cellWidth, cellHeight int) {
 	exited := s.exited
 	if changed {
 		s.vt.ResizePixels(cols, rows, cellWidth, cellHeight)
+		s.tsp.setMost(s.tspMost())
 		s.wake()
 	}
 	s.mu.Unlock()
@@ -548,6 +546,16 @@ func (s *session) resize(cols, rows, cellWidth, cellHeight int) {
 			s.p.write(e)
 		}
 	}
+}
+
+// tspMost is the most rows a surface takes (Surface.Most): the lines the
+// scrollback keeps for sure, which is its limit less a page of the
+// terminal's, which goes whole (some 380 KB, of 8-byte cells and an 8-byte
+// head a row), and the screen's but the cursor's row. s.mu held, or the
+// session not started.
+func (s *session) tspMost() int {
+	page := 380_000/(8*(s.cols+1)) + 1
+	return max(s.lines-page, 0) + s.rows - 1
 }
 
 // clear clears the screen as the user asked in a window, and has the

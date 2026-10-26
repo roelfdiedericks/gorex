@@ -78,8 +78,9 @@ type Terminal struct {
 	Cursor string `json:"cursor,omitempty" kind:"look" label:"Cursor" group:"Cursor"`
 	Blink  *bool  `json:"blink,omitempty" kind:"look" label:"Cursor blinks" group:"Cursor"`
 	// Scrollback is in lines, for the session's buffer on the server and
-	// the window's.
-	Scrollback int `json:"scrollback,omitempty" kind:"host" label:"Scrollback" group:"Buffer"`
+	// the window's: as many at any width (a line of a wider terminal
+	// takes more memory, some 8 bytes a column).
+	Scrollback int `json:"scrollback,omitempty" kind:"host" label:"Scrollback lines" group:"Buffer"`
 	// Images is the memory, in MB, for the images programs show with the
 	// Kitty graphics protocol, in the session's buffer on the server and
 	// in the window's; -1 for none, which refuses them.
@@ -422,4 +423,17 @@ func imageLimit(s *Settings) int64 {
 		return -1
 	}
 	return int64(s.Terminal.Images) << 20
+}
+
+// windowScrollback is how many lines a window's terminal keeps of a
+// session whose scrollback is lines (rex.ScrollbackLines when 0): a page
+// of the terminal's more, which it drops whole, as the server's does, so
+// that the window keeps every line the server still has. A page is a few
+// hundred lines, more the narrower the terminal; 2,048 covers one down
+// to about 20 columns.
+func windowScrollback(lines int) int {
+	if lines <= 0 {
+		lines = rex.ScrollbackLines
+	}
+	return lines + 2048
 }
