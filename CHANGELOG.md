@@ -4,7 +4,7 @@ The version of each release is its heading here, which `mygo.json`'s
 `version` must match: `make website` refuses to build otherwise, and
 refuses a version already published.
 
-## Unreleased
+## 0.1.5
 
 - `gorex ssh -A user@host` forwards the ssh agent to the host for that
   window, and `-a` doesn't, as ssh's own -A and -a, over the host's
