@@ -4,6 +4,20 @@ The version of each release is its heading here, which `mygo.json`'s
 `version` must match: `make website` refuses to build otherwise, and
 refuses a version already published.
 
+## Unreleased
+
+- omp's dock floats over its transcript as Tern's does: centered and at
+  most 800 DIPs wide, its composer a card with the context meter a
+  hairline along its top edge (the share used over the fill's end, the
+  window's size at the right; a glow sweeps it while a turn runs), the
+  working row above the card (a star, the time, the label on one line,
+  and the todo list as a pill at the right that shows the whole plan when
+  clicked), and in the card the session's title as the input's
+  placeholder, the model as a pill, the rate, the pane's folder, the git
+  branch on one line, the cost, and a round send or stop button. Empty
+  parts of a program's surface take no room: a band of blank space sat
+  over the context meter.
+
 ## 0.1.5
 
 - `gorex ssh -A user@host` forwards the ssh agent to the host for that

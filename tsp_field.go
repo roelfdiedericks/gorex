@@ -102,7 +102,27 @@ func (a *App) tspField(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pan
 		cursor = int(v)
 	}
 	placeCaret := f.hear(text, cursor)
+	// A placeholder in spans (omp's session title, quoted in italics) is
+	// painted on the empty field: Placeholder takes plain text.
 	placeholder, _ := n.Props["placeholder"].(string)
+	var richPlaceholder []ui.Span
+	if spans, ok := n.Props["placeholder"].([]any); ok {
+		for _, s := range spans {
+			m, _ := s.(map[string]any)
+			text, _ := m["t"].(string)
+			style, _ := m["s"].(string)
+			sp := ui.Span{Text: text, Size: 13, Color: k.textMuted}
+			for _, tok := range strings.Fields(style) {
+				switch tok {
+				case "em":
+					sp.Italic = true
+				case "strong":
+					sp.Weight = 600
+				}
+			}
+			richPlaceholder = append(richPlaceholder, sp)
+		}
+	}
 	readonly, _ := n.Props["readonly"].(bool)
 	sendable, _ := n.Props["sendable"].(bool)
 	stream := p.stream
@@ -121,6 +141,22 @@ func (a *App) tspField(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pan
 		el = ui.TextInput(key, &f.text)
 	}
 	el.FillWidth().FontSize(13).TextColor(k.text).Placeholder(placeholder).ReadOnly(readonly || sf.Closed)
+	padX, padY := float32(10), float32(6)
+	if a.tspFieldBare {
+		// The composer's card is the field's box; it starts at one line,
+		// as Lines asks, without a text area's least height.
+		el.Background(ui.Transparent).Border(0, ui.Transparent).FocusRing(false).Padding(0).MinHeight(0)
+		padX, padY = 0, 0
+	}
+	if richPlaceholder != nil {
+		el.Draw(func(pt *ui.Painter, r ui.Rect) {
+			if f.text != "" {
+				return
+			}
+			l := ui.ShapeRichText(richPlaceholder, ui.Font{Family: tspFont, Size: 13}, max(r.W-2*padX, 1))
+			pt.Clip(r, 0, func() { pt.TextLayout(l, r.X+padX, r.Y+padY, k.textMuted) })
+		})
+	}
 	if a.tspFocus != "" && a.tspFocus == id {
 		// The program's focus op: this field takes the keys.
 		el.Focus()

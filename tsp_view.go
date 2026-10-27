@@ -244,33 +244,347 @@ func tspDocked(sf *rex.Surface) bool {
 // and status bar) pinned to the bottom of the pane, where the user
 // types whatever part of the output they look at; the surface keeps a
 // space as tall in its place, so that at the bottom the dock is where
-// it would be.
+// it would be. As Tern draws it, it floats over the output: centered,
+// no wider than tspDockWidth, with no band of its own behind it.
 func (a *App) surfaceDock(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, dock *rex.TSPNode, x float32) {
+	// The pinned strip passes the pointer through beside the dock, to the
+	// output under it.
 	pinned := ui.Column(c.Key(fmt.Sprintf("tsp-dock-%d", sf.Image))).Absolute().Left(x).Right(p.term.ScrollbarStrip()).Bottom(0).
-		Background(k.bgBottom).Padding(4, 8).Gap(8).Font(tspFont)
+		Padding(tspDockPadTop, 16, tspDockPadBottom, 16).AlignItems(ui.Center).Font(tspFont).PassThrough()
 	term := p.term
-	pinned.HandleInput(func(ev ui.InputEvent) bool {
+	var inner ui.Element
+	pinned.Children(func() {
+		inner = ui.Column(c).Gap(8).FillWidth().MaxWidth(tspDockWidth).Children(func() {
+			a.tspPinned = true
+			for _, ch := range dock.Children {
+				a.tspNode(c, k, t, p, sf, ch)
+			}
+			a.tspPinned = false
+		})
+	})
+	inner.HandleInput(func(ev ui.InputEvent) bool {
 		if ev.Kind != ui.InputScroll {
 			return false
 		}
 		return term.Scroll(ev)
 	})
-	pinned.Children(func() {
-		a.tspPinned = true
-		for _, ch := range dock.Children {
-			a.tspNode(c, k, t, p, sf, ch)
-		}
-		a.tspPinned = false
-	})
-	if pinned.Pressed() {
+	if inner.Pressed() {
 		a.surfacePressed(t, p)
 	}
-	if h := pinned.Bounds().H - 8; h > 0 && h != p.dockH[sf.Image] {
+	if h := pinned.Bounds().H - tspDockPadTop - tspDockPadBottom; h > 0 && h != p.dockH[sf.Image] {
 		if p.dockH == nil {
 			p.dockH = map[uint32]float32{}
 		}
 		p.dockH[sf.Image] = h
 	}
+}
+
+// The dock's width at most, and the room around it, in DIPs.
+const (
+	tspDockWidth     = 800
+	tspDockPadTop    = 6
+	tspDockPadBottom = 10
+)
+
+// tspComposer draws a program's composer in the dock (omp's role
+// omp.editor) as Tern does: a card around the input and the bar under
+// it, its context meter a hairline along the card's top edge, filled to
+// what is used, with the share used over the fill's end and the window's
+// size over the line's (tspEdgeLabels, tspEdgeLine). What the dock has above the
+// composer (omp's activity row) floats over the output, outside the card.
+func (a *App) tspComposer(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, n *rex.TSPNode) ui.Element {
+	var meter *rex.TSPNode
+	var rest []*rex.TSPNode
+	for _, ch := range n.Children {
+		if hidden, _ := ch.Props["hidden"].(bool); ch.Kind == "meter" && meter == nil && !hidden {
+			meter = ch
+		} else {
+			rest = append(rest, ch)
+		}
+	}
+	col := ui.Column(key).FillWidth()
+	col.Children(func() {
+		var labels ui.Element
+		if meter != nil {
+			labels = a.tspEdgeLabels(c, k, meter)
+		}
+		// The panel's color is translucent: over the window's own, so
+		// that the output under the card does not show through.
+		ui.Column(c).FillWidth().Radius(16).Background(k.bgBottom).Shadow(0, 10, 28, -8, ui.RGBA(0, 0, 0, 0.22)).Children(func() {
+			ui.Column(c).Gap(8).FillWidth().Radius(16).Background(k.panel).Border(1, k.panelBorder).Padding(12, 14, 10, 14).Children(func() {
+				a.tspFieldBare = true
+				for _, ch := range rest {
+					a.tspNode(c, k, t, p, sf, ch)
+				}
+				a.tspFieldBare = false
+			})
+		})
+		if meter != nil {
+			// Over the card's top border, inside its corners; omp's tone
+			// pending says a turn runs.
+			tone, _ := n.Props["tone"].(string)
+			line := a.tspEdgeLine(c, k, meter, tone == "pending").Absolute().Top(tspEdgeLabelsH).Left(16).Right(16)
+			a.tspClick(t, p, sf, meter, labels)
+			a.tspClick(t, p, sf, meter, line)
+			if title, _ := meter.Props["title"].(string); title != "" {
+				labels.Tooltip(title)
+				line.Tooltip(title)
+			}
+		}
+	})
+	return col
+}
+
+// tspEdgeLabelsH is the height of the labels over a composer's edge meter.
+const tspEdgeLabelsH = 15
+
+// tspEdgeLabels draws the labels of a composer's edge meter, over the
+// card: the share used ending where the fill ends, and the total at the
+// right end.
+func (a *App) tspEdgeLabels(c *ui.Context, k *colors, n *rex.TSPNode) ui.Element {
+	value, _ := n.Props["value"].(float64)
+	value = max(0, min(1, value))
+	label, _ := n.Props["label"].(string)
+	total, _ := n.Props["total"].(string)
+	row := ui.Row(c.Key("edge-labels")).FillWidth().Height(tspEdgeLabelsH).Padding(0, 16).AlignItems(ui.End)
+	row.Children(func() {
+		ui.Row(c).Grow(float32(value)).Basis(0).MinWidth(0).Justify(ui.End).Children(func() {
+			if label != "" {
+				ui.Text(c, label).FontSize(10.5).TextColor(k.textFaint).SingleLine()
+			}
+		})
+		ui.Row(c).Grow(float32(1 - value)).Basis(0).MinWidth(0).Justify(ui.End).Children(func() {
+			if total != "" {
+				ui.Text(c, total).FontSize(10.5).TextColor(k.textFaint).SingleLine()
+			}
+		})
+	})
+	return row
+}
+
+// tspEdgeSweep is how long the glow of a running turn takes to cross a
+// composer's edge meter.
+const tspEdgeSweep = 1600 * time.Millisecond
+
+// tspEdgeLine draws a composer's edge meter: a hairline, filled to the
+// share used, with its marks (omp's auto-compact threshold). While a turn
+// runs, a glow sweeps the fill from left to right, as in Tern.
+func (a *App) tspEdgeLine(c *ui.Context, k *colors, n *rex.TSPNode, running bool) ui.Element {
+	value, has := n.Props["value"].(float64)
+	value = max(0, min(1, value))
+	marks, _ := n.Props["marks"].([]any)
+	fill := tspMeterFill(k, n)
+	line := ui.Box(c.Key("edge-line")).Height(2)
+	var sweep float32 = -1
+	if running && has && value > 0 {
+		sweep = line.Loop("sweep", tspEdgeSweep, ui.EaseInOut)
+	}
+	line.Draw(func(pt *ui.Painter, r ui.Rect) {
+		pt.Fill(r, k.track, 1)
+		if !has {
+			return
+		}
+		used := ui.Rect{X: r.X, Y: r.Y, W: r.W * float32(value), H: r.H}
+		pt.Fill(used, fill, 1)
+		if sweep >= 0 {
+			// A white glow, a quarter of the line wide, from before the
+			// fill's start to past its end, seen within the fill.
+			w := max(48, r.W/4)
+			x := used.X - w + sweep*(used.W+w)
+			pt.Clip(used, 1, func() {
+				pt.FillGradient(ui.Rect{X: x, Y: r.Y, W: w, H: r.H}, ui.LinearGradient{Angle: 90, Stops: []ui.GradientStop{
+					{Color: ui.RGBA(255, 255, 255, 0), At: 0},
+					{Color: ui.RGBA(255, 255, 255, 0.95), At: 0.8},
+					{Color: ui.RGBA(255, 255, 255, 0), At: 1},
+				}}, 1)
+			})
+		}
+		for _, m := range marks {
+			m, _ := m.(map[string]any)
+			at, _ := m["at"].(float64)
+			pt.Fill(ui.Rect{X: r.X + r.W*float32(max(0, min(1, at))), Y: r.Y, W: 1, H: r.H}, k.textMuted, 0)
+		}
+	})
+	return line
+}
+
+// tspSubmit draws omp's send and stop controls in the composer
+// (omp.composer.send, a keycap of Enter, and omp.composer.stop, the
+// word) as Tern does: a round button, a return arrow on it, or a square
+// while a turn runs. Muted (a draft held by dictation), it is faint.
+func (a *App) tspSubmit(c *ui.Context, key *ui.Context, k *colors, n *rex.TSPNode, stop bool) ui.Element {
+	bg := k.text
+	if tone, _ := n.Props["tone"].(string); tone == "muted" {
+		bg = bg.Alpha(0.3)
+	}
+	b := ui.Box(key).Size(30, 30).Radius(15).Center().Background(bg).Shrink(0).Cursor(ui.CursorPointer).Role(ui.RoleButton)
+	if b.Hovered() {
+		b.Background(bg.Alpha(0.8))
+	}
+	b.Children(func() {
+		if stop {
+			ui.Box(c).Size(10, 10).Radius(2.5).Background(k.bgBottom)
+		} else {
+			ui.Icon(c, icon("corner-down-left")).Size(16, 16).TextColor(k.bgBottom)
+		}
+	})
+	return b
+}
+
+// tspStarburst are the frames of omp's working glyph (spinner style
+// starburst); text stars only, as ✳ and ✴ draw as emoji.
+var tspStarburst = []string{"✢", "✣", "✶", "✻", "✽", "✻", "✶", "✣"}
+
+// tspComposerBar draws the composer's bar (omp.composer.bar) with, as
+// Tern has, the pane's directory after the model, effort and rate: omp
+// leaves the path to the terminal.
+func (a *App) tspComposerBar(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, n *rex.TSPNode) {
+	dir := shortDir(p.info.Dir)
+	for _, ch := range n.Children {
+		role, _ := ch.Props["role"].(string)
+		if dir != "" && role != "omp.composer.model" && role != "omp.composer.effort" && role != "omp.composer.rate" {
+			ui.Row(c.Key("cwd")).Gap(5).AlignItems(ui.Center).Shrink(0).Tooltip(p.info.Dir).Children(func() {
+				ui.Icon(c, icon("folder")).Size(13, 13).TextColor(k.textMuted)
+				ui.Text(c, dir).Font(a.editorFont().Family).FontSize(12).TextColor(k.textMuted).SingleLine()
+			})
+			dir = ""
+		}
+		a.tspNode(c, k, t, p, sf, ch)
+	}
+}
+
+// tspChecklist draws a checklist whole: its phases, each item with its
+// status and note.
+func (a *App) tspChecklist(c *ui.Context, key *ui.Context, k *colors, n *rex.TSPNode, phases []any) ui.Element {
+	cl := ui.Column(key).Gap(3).FillWidth()
+	cl.Children(func() {
+		for pi, ph := range phases {
+			ph, _ := ph.(map[string]any)
+			if title := ph["title"]; title != nil {
+				a.tspRich(c.Key(pi), k, title, 12, true)
+			}
+			items, _ := ph["items"].([]any)
+			for i, it := range items {
+				it, _ := it.(map[string]any)
+				status, _ := it["status"].(string)
+				row := ui.Row(c.Key(fmt.Sprintf("%d.%d", pi, i))).Gap(6).AlignItems(ui.Baseline).FillWidth()
+				row.Children(func() {
+					glyph, color := "☐", k.textMuted
+					switch status {
+					case "active":
+						glyph, color = "◉", k.busy
+					case "done":
+						glyph, color = "☑", k.busy
+					case "dropped":
+						glyph = "⊘"
+					case "blocked":
+						glyph, color = "⊗", k.attention
+					}
+					ui.Text(c, glyph).FontSize(13).TextColor(color)
+					t := a.tspRich(c, k, it["text"], 13, false)
+					if status == "done" || status == "dropped" {
+						t.TextColor(k.textMuted)
+					}
+				})
+				if note := it["note"]; note != nil {
+					a.tspRich(c, k, note, 12, false).TextColor(k.textMuted).Padding(0, 0, 0, 20)
+				}
+			}
+		}
+		if note := n.Props["note"]; note != nil {
+			a.tspRich(c, k, note, 12, false).TextColor(k.textMuted)
+		}
+	})
+	return cl
+}
+
+// tspChecklistPill draws a checklist HUD (mode hud) as Tern does: a pill
+// of a ring filled to the share done, the item at work (or the next) and
+// the count, whose click shows the whole plan in a popover.
+func (a *App) tspChecklistPill(c *ui.Context, key *ui.Context, k *colors, p *Pane, sf *rex.Surface, n *rex.TSPNode, phases []any) ui.Element {
+	done, total := 0, 0
+	var current, next any
+	for _, ph := range phases {
+		ph, _ := ph.(map[string]any)
+		items, _ := ph["items"].([]any)
+		for _, it := range items {
+			it, _ := it.(map[string]any)
+			total++
+			switch status, _ := it["status"].(string); status {
+			case "done", "dropped":
+				done++
+			case "active":
+				if current == nil {
+					current = it["text"]
+				}
+			default:
+				if next == nil {
+					next = it["text"]
+				}
+			}
+		}
+	}
+	if current == nil {
+		current = next
+	}
+	if p.hudOpen == nil {
+		p.hudOpen = map[string]*bool{}
+	}
+	openKey := strconvImage(sf.Image) + ":" + n.ID
+	open := p.hudOpen[openKey]
+	if open == nil {
+		open = new(bool)
+		p.hudOpen[openKey] = open
+	}
+	pill := ui.Row(key).Gap(7).AlignItems(ui.Center).Padding(3, 8).Radius(12).MinWidth(0).MaxWidth(360).Cursor(ui.CursorPointer)
+	if pill.Hovered() || *open {
+		pill.Background(k.hover)
+	}
+	share := float32(0)
+	if total > 0 {
+		share = float32(done) / float32(total)
+	}
+	pill.Children(func() {
+		ui.Box(c).Size(14, 14).Shrink(0).Draw(func(pt *ui.Painter, r ui.Rect) {
+			pt.FillConicGradient(r, ui.ConicGradient{Stops: []ui.GradientStop{
+				{Color: k.busy, At: 0}, {Color: k.busy, At: share}, {Color: k.track, At: share}, {Color: k.track, At: 1},
+			}}, r.W/2)
+			hole := ui.Rect{X: r.X + 2.5, Y: r.Y + 2.5, W: r.W - 5, H: r.H - 5}
+			pt.Fill(hole, k.bgBottom, hole.W/2)
+		})
+		if current != nil {
+			a.tspRich(c, k, current, 12.5, false).TextColor(k.text).SingleLine().MinWidth(0)
+		}
+		ui.Text(c, fmt.Sprintf("%d/%d", done, total)).FontSize(12).TextColor(k.textMuted).SingleLine().Shrink(0)
+	})
+	if pill.Clicked() {
+		*open = !*open
+	}
+	ui.Popover(c, pill, open, func() {
+		ui.Scroll(c).MaxHeight(420).Width(420).Padding(10, 12).Children(func() {
+			a.tspChecklist(c, c.Key("plan"), k, n, phases)
+		})
+	})
+	return pill
+}
+
+// tspBlank reports whether n is a container that draws nothing: a col or
+// row whose children are all hidden or blank themselves, as the empty
+// placeholders a program keeps (omp's dock has one per HUD). It takes no
+// room, nor the gap beside it.
+func tspBlank(n *rex.TSPNode) bool {
+	if n.Kind != "col" && n.Kind != "row" {
+		return false
+	}
+	if _, ok := n.Props["actions"]; ok {
+		return false
+	}
+	for _, ch := range n.Children {
+		if hidden, _ := ch.Props["hidden"].(bool); !hidden && !tspBlank(ch) {
+			return false
+		}
+	}
+	return true
 }
 
 // surfaceContent draws a surface's document. Its paragraphs are
@@ -336,7 +650,13 @@ func (a *App) surfacePressed(t *Tab, p *Pane) {
 
 // tspNode draws a node and its children.
 func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, n *rex.TSPNode) {
-	if hidden, _ := n.Props["hidden"].(bool); hidden {
+	if hidden, _ := n.Props["hidden"].(bool); hidden || tspBlank(n) {
+		return
+	}
+	role, _ := n.Props["role"].(string)
+	if a.tspPinned && role == "omp.working.stop" {
+		// Tern leaves the working row's Esc Stop out: the composer's
+		// round button stops the turn.
 		return
 	}
 	key := c.Key("n-" + n.ID)
@@ -351,9 +671,38 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 	var el ui.Element
 	switch n.Kind {
 	case "col":
-		el = ui.Column(key).Gap(8).FillWidth().Children(children)
+		if a.tspPinned && strings.HasPrefix(role, "omp.editor") {
+			el = a.tspComposer(c, key, k, t, p, sf, n)
+			break
+		}
+		col := ui.Column(key).Gap(8)
+		if a.tspPinned && role == "omp.hud.status" {
+			// The working rows, beside the todo HUD on their line.
+			col.Grow(1).MinWidth(0)
+		} else {
+			col.FillWidth()
+		}
+		el = col.Children(children)
 	case "row":
-		row := ui.Row(key).Gap(8).AlignItems(ui.Center).FillWidth()
+		row := ui.Row(key).Gap(8).AlignItems(ui.Center)
+		switch {
+		case !a.tspPinned:
+			row.FillWidth()
+		case role == "omp.composer.model":
+			// Tern's model chip: an outlined pill.
+			row.Gap(6).Padding(4, 10, 4, 8).Radius(14).Border(1, k.cardBorder).Shrink(0).Cursor(ui.CursorPointer)
+			if row.Hovered() {
+				row.Background(k.hover)
+			}
+		case role == "omp.composer.mode":
+			// The shell-mode chip before the input.
+			row.Gap(4).Padding(1, 8).Radius(10).Background(k.hover).Shrink(0)
+		case strings.HasPrefix(role, "omp.composer.") && role != "omp.composer.bar" && role != "omp.composer.line":
+			// The composer's other controls take their content's width.
+			row.Shrink(0)
+		default:
+			row.FillWidth()
+		}
 		if wrap, _ := n.Props["wrap"].(bool); wrap {
 			row.Wrap()
 		}
@@ -364,6 +713,15 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 			row.Justify(ui.SpaceBetween)
 		case "center":
 			row.Justify(ui.Center)
+		}
+		if a.tspPinned && role == "omp.hud.activity" {
+			// The todo pill keeps the right end, with the working row
+			// beside it during a turn or without it after.
+			row.Justify(ui.End)
+		}
+		if a.tspPinned && role == "omp.composer.bar" {
+			el = row.Children(func() { a.tspComposerBar(c, k, t, p, sf, n) })
+			break
 		}
 		el = row.Children(children)
 	case "card":
@@ -440,10 +798,25 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		})
 		el = sec
 	case "text":
+		if a.tspPinned && role == "omp.composer.stop" {
+			el = a.tspSubmit(c, key, k, n, true)
+			break
+		}
+		if a.tspPinned && role == "omp.working.sep" {
+			// Tern divides the time from the label with a rule.
+			el = ui.Box(key).Size(1, 14).Background(k.cardBorder).Margin(0, 2)
+			break
+		}
 		if spans, ok := n.Props["spans"]; ok {
 			el = a.tspRich(c, k, spans, 13, false)
 		} else {
 			el = ui.Text(c, text).FontSize(13).TextColor(k.text)
+		}
+		// Kept on one line: whole, or cut with an ellipsis.
+		if truncate, _ := n.Props["truncate"].(string); truncate != "" {
+			el.SingleLine().MinWidth(0)
+		} else if wrap, _ := n.Props["wrap"].(string); wrap == "none" {
+			el.SingleLine().Shrink(0)
 		}
 		if !a.tspHead {
 			el.Selectable()
@@ -706,8 +1079,22 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		el = bar
 	case "spinner":
 		sp := ui.Row(key).Gap(6).AlignItems(ui.Center)
+		style, _ := n.Props["style"].(string)
+		frame := -1
+		if style == "starburst" {
+			// omp's working glyph, as Tern draws it: a star that
+			// turns through its points; still with less motion.
+			frame = 3
+			if !a.reduceMotion && !sf.Closed {
+				frame = int(sp.Loop("starburst", time.Duration(len(tspStarburst))*120*time.Millisecond, ui.Linear)*float32(len(tspStarburst))) % len(tspStarburst)
+			}
+		}
 		sp.Children(func() {
-			activityDot(c, k.busy, 8)
+			if frame >= 0 {
+				ui.Text(c, tspStarburst[frame]).FontSize(15).TextColor(k.busy).Width(15).Shrink(0)
+			} else {
+				activityDot(c, k.busy, 8)
+			}
 			if l := n.Props["label"]; l != nil {
 				a.tspRich(c, k, l, 12, false).TextColor(k.textMuted)
 			}
@@ -733,6 +1120,10 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		size, _ := n.Props["size"].(string)
 		el = ui.Box(key).Height(map[string]float32{"none": 0, "xs": 2, "sm": 4, "md": 8, "lg": 16}[size])
 	case "kbd":
+		if a.tspPinned && role == "omp.composer.send" {
+			el = a.tspSubmit(c, key, k, n, false)
+			break
+		}
 		keys, _ := n.Props["keys"].([]any)
 		el = a.tspKeys(c.Key(n.ID), k, keys)
 	case "icon":
@@ -744,15 +1135,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		value, has := n.Props["value"].(float64)
 		marks, _ := n.Props["marks"].([]any)
 		label, _ := n.Props["label"].(string)
-		fill := k.busy
-		if th, ok := n.Props["thresholds"].(map[string]any); ok && has {
-			// Thresholds of what is left: below warn, then below bad.
-			if bad, ok := th["bad"].(float64); ok && 1-value < bad {
-				fill = k.attention
-			} else if warn, ok := th["warn"].(float64); ok && 1-value < warn {
-				fill = k.attention.Alpha(0.7)
-			}
-		}
+		fill := tspMeterFill(k, n)
 		meter := ui.Row(key).Gap(6).AlignItems(ui.Center)
 		meter.Children(func() {
 			track := ui.Box(c).Height(6).Radius(3).Background(k.track).Width(120).Clip()
@@ -777,7 +1160,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 			if icon, _ := n.Props["icon"].(string); icon != "" {
 				a.tspIcon(c, k, icon)
 			}
-			a.tspRich(c, k, n.Props["spans"], 12, false).TextColor(k.textMuted)
+			a.tspRich(c, k, n.Props["spans"], 12, false).TextColor(k.textMuted).SingleLine()
 		})
 		el = seg
 	case "image":
@@ -837,6 +1220,10 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		el = a.tspEffort(c, key, k, sf, n)
 	case "shimmer":
 		el = a.tspShimmer(c, key, k, sf, n)
+		if a.tspPinned {
+			// omp's working label: one line, cut to the room it has.
+			el.SingleLine().MinWidth(0)
+		}
 	case "rows":
 		el = a.tspRows(c, key, k, n)
 	case "prefs":
@@ -862,7 +1249,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 	case "rate":
 		value, _ := n.Props["value"].(float64)
 		unit, _ := n.Props["unit"].(string)
-		el = ui.Text(c, fmt.Sprintf("%.0f %s", value, unit)).FontSize(12).TextColor(k.textMuted)
+		el = ui.Text(c, fmt.Sprintf("%.1f %s", value, unit)).FontSize(12).TextColor(k.textMuted).SingleLine().Shrink(0)
 	case "ansi":
 		// A program's terminal output in its colors (the terminal's
 		// palette), cut to the preview it asks for.
@@ -899,46 +1286,11 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		el = block
 	case "checklist":
 		phases, _ := n.Props["phases"].([]any)
-		cl := ui.Column(key).Gap(3).FillWidth()
-		cl.Children(func() {
-			for pi, ph := range phases {
-				ph, _ := ph.(map[string]any)
-				if title := ph["title"]; title != nil {
-					a.tspRich(c.Key(pi), k, title, 12, true)
-				}
-				items, _ := ph["items"].([]any)
-				for i, it := range items {
-					it, _ := it.(map[string]any)
-					status, _ := it["status"].(string)
-					row := ui.Row(c.Key(fmt.Sprintf("%d.%d", pi, i))).Gap(6).AlignItems(ui.Baseline).FillWidth()
-					row.Children(func() {
-						glyph, color := "☐", k.textMuted
-						switch status {
-						case "active":
-							glyph, color = "◉", k.busy
-						case "done":
-							glyph, color = "☑", k.busy
-						case "dropped":
-							glyph = "⊘"
-						case "blocked":
-							glyph, color = "⊗", k.attention
-						}
-						ui.Text(c, glyph).FontSize(13).TextColor(color)
-						t := a.tspRich(c, k, it["text"], 13, false)
-						if status == "done" || status == "dropped" {
-							t.TextColor(k.textMuted)
-						}
-					})
-					if note := it["note"]; note != nil {
-						a.tspRich(c, k, note, 12, false).TextColor(k.textMuted).Padding(0, 0, 0, 20)
-					}
-				}
-			}
-			if note := n.Props["note"]; note != nil {
-				a.tspRich(c, k, note, 12, false).TextColor(k.textMuted)
-			}
-		})
-		el = cl
+		if mode, _ := n.Props["mode"].(string); mode == "hud" {
+			el = a.tspChecklistPill(c, key, k, p, sf, n, phases)
+			break
+		}
+		el = a.tspChecklist(c, key, k, n, phases)
 	case "tree":
 		nodes, _ := n.Props["nodes"].([]any)
 		tree := ui.Column(key).Gap(2).FillWidth()
@@ -958,25 +1310,46 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 	if title, _ := n.Props["title"].(string); title != "" {
 		el.Tooltip(title)
 	}
-	// A click action, where the node has one, of a live surface: the
-	// program gets it, and the keys after it. Each program's surfaces
-	// have ids of its own, so the kept ones are keyed by their anchors.
-	if actions, ok := n.Props["actions"].(map[string]any); ok && !sf.Closed {
-		if act, ok := actions["click"].(string); ok && act != "" {
-			if el.Clicked() {
-				a.surfacePressed(t, p)
-				stream := p.stream
-				ev := map[string]any{"ev": "action", "sf": sf.ID, "id": n.ID, "act": act}
-				go func() {
-					if err := stream.TSPEvent(ev); err != nil {
-						a.post(func() {
-							a.toast(ui.Toast{Title: "The program did not get the click", Description: err.Error(), Type: "error"})
-						})
-					}
-				}()
-			}
+	a.tspClick(t, p, sf, n, el)
+}
+
+// tspClick sends the program n's click action, where it has one and the
+// surface is live, when el is clicked: the program gets it, and the keys
+// after it. Each program's surfaces have ids of its own, so the kept
+// ones are keyed by their anchors.
+func (a *App) tspClick(t *Tab, p *Pane, sf *rex.Surface, n *rex.TSPNode, el ui.Element) {
+	actions, ok := n.Props["actions"].(map[string]any)
+	if !ok || sf.Closed {
+		return
+	}
+	act, ok := actions["click"].(string)
+	if !ok || act == "" || !el.Clicked() {
+		return
+	}
+	a.surfacePressed(t, p)
+	stream := p.stream
+	ev := map[string]any{"ev": "action", "sf": sf.ID, "id": n.ID, "act": act}
+	go func() {
+		if err := stream.TSPEvent(ev); err != nil {
+			a.post(func() {
+				a.toast(ui.Toast{Title: "The program did not get the click", Description: err.Error(), Type: "error"})
+			})
+		}
+	}()
+}
+
+// tspMeterFill is the color of a meter's fill: by its thresholds of what
+// is left, warn and bad, the attention color.
+func tspMeterFill(k *colors, n *rex.TSPNode) ui.Color {
+	value, has := n.Props["value"].(float64)
+	if th, ok := n.Props["thresholds"].(map[string]any); ok && has {
+		if bad, ok := th["bad"].(float64); ok && 1-value < bad {
+			return k.attention
+		} else if warn, ok := th["warn"].(float64); ok && 1-value < warn {
+			return k.attention.Alpha(0.7)
 		}
 	}
+	return k.busy
 }
 
 func (a *App) tspChildren(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, n *rex.TSPNode) {

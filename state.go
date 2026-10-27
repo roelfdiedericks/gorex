@@ -115,6 +115,9 @@ type Pane struct {
 	// tspNeed is how many rows each inline surface's content took in the
 	// last frame (by anchor), more than it has when its head is cut.
 	tspNeed map[uint32]int
+	// hudOpen tells which of the dock's HUD pills show their popover (a
+	// checklist's whole plan), by anchor and node id.
+	hudOpen map[string]*bool
 	// fields are the programs' text fields the pane draws natively, by
 	// anchor and node id (tsp_field.go).
 	fields map[string]*tspField
@@ -263,6 +266,9 @@ type App struct {
 	// where the scrollback does not move it.
 	tspDock   *rex.TSPNode
 	tspPinned bool
+	// tspFieldBare draws the fields being drawn without a box of their
+	// own, as the dock's composer card is theirs (tspComposer).
+	tspFieldBare bool
 	// tspFlat counts the tool bodies being drawn: the cards and tools in
 	// one are drawn bare, as sections of its frame.
 	tspFlat int
