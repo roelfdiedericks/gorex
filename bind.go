@@ -120,8 +120,12 @@ func dialBinding(b binding, prog remote.Progress, login *askpass.Session, restar
 		if p, err = loadPayload(); err != nil {
 			return nil, nil, rex.Hello{}, err
 		}
+		// gorex ssh -A or -a decides for the window; else the host's
+		// switch forwards the agent, or ssh's configuration decides.
 		t := b.target
-		t.Agent = forwardsAgent(t.Key())
+		if t.Agent == "" && forwardsAgent(t.Key()) {
+			t.Agent = "yes"
+		}
 		if link, err = remote.Open(t, filepath.Base(rex.Dir()), p, prog, login); err != nil {
 			return nil, nil, rex.Hello{}, err
 		}

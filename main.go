@@ -76,15 +76,23 @@ func main() {
 	a := &App{stateKey: "main", k: &lightColors}
 	a.loadSettings()
 	a.registerProtocols()
-	// ssh <destination> opens a window on the sessions of a server there.
-	// Its window keeps a place of its own, and the process is the window's:
-	// it quits when the window closes, on macOS too, as ssh itself ends
-	// with its session.
+	// ssh [-A | -a] <destination> opens a window on the sessions of a
+	// server there. -A forwards the ssh agent to it and -a doesn't, as
+	// ssh's own -A and -a, over the host's switch and ssh's configuration,
+	// for this window. Its window keeps a place of its own, and the process
+	// is the window's: it quits when the window closes, on macOS too, as
+	// ssh itself ends with its session.
 	oneOff := len(os.Args) > 2 && os.Args[1] == "ssh"
 	if oneOff {
-		if t, err := remote.Resolve(os.Args[2]); err != nil {
-			a.err = "Can't connect to " + os.Args[2] + ": " + err.Error()
+		agent, spec, err := sshArgs(os.Args[2:])
+		var t remote.Target
+		if err == nil {
+			t, err = remote.Resolve(spec)
+		}
+		if err != nil {
+			a.err = "Can't connect to " + strings.Join(os.Args[2:], " ") + ": " + err.Error()
 		} else {
+			t.Agent = agent
 			a.bind = binding{remote: true, target: t}
 			a.stateKey = "ssh/" + t.Key()
 		}

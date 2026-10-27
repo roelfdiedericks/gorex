@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"gorex/internal/remote"
@@ -109,6 +110,27 @@ func forwardsAgent(key string) bool {
 
 func forgetRemote(key string) {
 	saveRemotes(slices.DeleteFunc(loadRemotes(), func(o savedRemote) bool { return o.Key == key }))
+}
+
+// sshArgs reads the arguments of gorex ssh: -A, which forwards the ssh
+// agent, or -a, which doesn't, as ssh's own, then the destination. agent
+// is "yes", "no", or "" when neither is given (remote.Target.Agent).
+func sshArgs(args []string) (agent, spec string, err error) {
+	for len(args) > 0 && strings.HasPrefix(args[0], "-") {
+		switch args[0] {
+		case "-A":
+			agent = "yes"
+		case "-a":
+			agent = "no"
+		default:
+			return "", "", fmt.Errorf("unknown option %s: gorex ssh takes -A or -a, then user@host", args[0])
+		}
+		args = args[1:]
+	}
+	if len(args) != 1 {
+		return "", "", fmt.Errorf("gorex ssh takes -A or -a, then one destination, user@host")
+	}
+	return agent, args[0], nil
 }
 
 // switchTo connects the window to the server of b instead, again when

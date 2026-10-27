@@ -56,11 +56,12 @@ terminal plugin (Ghostty's libghostty-vt). No webview, no cgo: one ~15 MB app.
   cancelled or refused is not retried by itself. `gorex doctor user@host`
   tells how a host takes logins. Your ssh agent is forwarded to a host
   where `~/.ssh/config` says `ForwardAgent yes`, or its Forward ssh agent
-  switch in Settings, Hosts, is on: the host's sessions use it, old ones
-  too, at a path that stays (`~/.config/<profile>/agent.sock`), while a
-  window is connected, the latest one's agent first. A window opened with
-  `GoRex ssh` quits when it is closed, on macOS too; the server and its
-  sessions go on.
+  switch in Settings, Hosts, is on, or for one window with `GoRex ssh -A
+  user@host` (`-a`: not, over both): the host's sessions started since use
+  it at a path that stays (`~/.config/<profile>/agent.sock`), after a
+  reconnect too, while a window is connected, the latest one's agent
+  first. A window opened with `GoRex ssh` quits when it is closed, on macOS
+  too; the server and its sessions go on.
 - **Pasting images.** A program that reads the clipboard itself (the
   Kitty clipboard protocol, as omp does) is told what a paste holds and
   takes the image, on any host: a screenshot pastes into its prompt over

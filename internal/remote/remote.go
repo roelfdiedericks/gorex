@@ -27,13 +27,13 @@ import (
 )
 
 // Target is a machine to reach over ssh: Spec as the user gave it, and
-// what ssh's configuration makes of it. Agent forwards the user's ssh
-// agent to the host, as GoRex's setting for it says, besides where ssh's
-// configuration does (ForwardAgent): the host's sessions use it while
-// the window is connected.
+// what ssh's configuration makes of it. Agent, "yes" or "no", has ssh
+// forward the user's ssh agent to the host or not (ForwardAgent), over
+// what ssh's configuration says, which "" leaves it to: the host's
+// sessions use the agent while the window is connected.
 type Target struct {
 	Spec, User, Host, Port string
-	Agent                  bool
+	Agent                  string
 }
 
 // Key identifies the machine and account, however it was named.
@@ -129,8 +129,8 @@ func Open(t Target, profile string, p Payload, prog Progress, login *askpass.Ses
 // there yet, the remote system as uname names it.
 func bridge(t Target, profile string, p Payload, logf func(string), login *askpass.Session) (*Link, string, error) {
 	var opts []string
-	if t.Agent {
-		opts = []string{"-o", "ForwardAgent=yes"}
+	if t.Agent != "" {
+		opts = []string{"-o", "ForwardAgent=" + t.Agent}
 	}
 	cmd, err := sshCmd(t, p.bridgeScript(profile), logf, login, opts...)
 	if err != nil {

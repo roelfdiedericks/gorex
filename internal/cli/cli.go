@@ -53,10 +53,10 @@ func Run(w io.Writer, args []string, ver string) (ran bool, code int) {
 }
 
 func help(w io.Writer, _ []string) int {
-	line := func(use, what string) { fmt.Fprintf(w, "  %-25s %s\n", strings.TrimSpace(use), what) }
+	line := func(use, what string) { fmt.Fprintf(w, "  %-31s %s\n", strings.TrimSpace(use), what) }
 	fmt.Fprintf(w, "GoRex, a terminal of tabs, panes and sessions that stay\n\n")
 	line("gorex", "open a window on this machine's sessions")
-	line("gorex ssh user@host", "open a window on the sessions of a server on host, over ssh")
+	line("gorex ssh [-A | -a] user@host", "open a window on the sessions of a server on host, over ssh; -A forwards your ssh agent there, -a doesn't, over the host's setting and ssh's config")
 	for _, c := range commands {
 		line("gorex "+c.name+" "+c.args, c.help)
 	}
