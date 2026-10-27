@@ -4,6 +4,20 @@ The version of each release is its heading here, which `mygo.json`'s
 `version` must match: `make website` refuses to build otherwise, and
 refuses a version already published.
 
+## Unreleased
+
+- omp's transcript scrolls with the keys, as in Tern: Page Up and Page
+  Down by a page, Ctrl+Home and Ctrl+End to its start and end, with the
+  focus in the composer or not, and Home and End too outside the
+  composer, where they move its caret. They reached omp, which does not
+  scroll its transcript itself. The composer takes the focus a click on
+  the dock or on omp's controls, or a pane switch, gives the terminal; a
+  click in the transcript leaves it. While omp shows a picker or a
+  sheet, its keys stay its own.
+- omp's composer stays at the bottom of the pane when the scrollback is
+  scrolled above omp's start, as Tern's does: it went away with the
+  focus in it, and no key scrolled back down.
+
 ## 0.1.6
 
 - omp's dock floats over its transcript as Tern's does: centered and at

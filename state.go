@@ -116,6 +116,15 @@ type Pane struct {
 	// labels over it) was drawn last, in the window: the popups of its
 	// fields open above it (tspOverlayAt).
 	tspCard ui.Rect
+	// composerAt is the frame that drew a live surface's composer field
+	// last, composerFocused whether it had the keyboard focus then, and
+	// composerFocus asks it to take it: the terminal of a pane with a
+	// live dock passes the focus to it, but while termHeld, which a press
+	// in the transcript sets, until the terminal loses the focus.
+	composerAt      uint64
+	composerFocused bool
+	composerFocus   bool
+	termHeld        bool
 	// tspNeed is how many rows each inline surface's content took in the
 	// last frame (by anchor), more than it has when its head is cut.
 	tspNeed map[uint32]int

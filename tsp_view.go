@@ -107,6 +107,13 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 	// it has: it shows while its anchor is above the view's end.
 	rows := max(sf.Rows+sf.Dock, p.surfaceRows[sf.ID].rows+p.surfaceRows[sf.ID].dock, 1)
 	if pl.Row >= screenRows || !docked && pl.Row+rows <= 0 {
+		// Scrolled above a live surface's start, its dock stays pinned
+		// at the pane's bottom, as Tern's composer does: the user types,
+		// and the focus in its field stays, whatever part of the
+		// scrollback is in view.
+		if docked {
+			a.surfaceDock(c, k, t, p, sf, tspDockRegion(sf), pl.Rect.X)
+		}
 		return
 	}
 	cell := pl.Rect.H / float32(max(pl.Rows, 1))
@@ -161,7 +168,11 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 		end.Children(func() { content = a.surfaceContent(c, k, t, p, sf, !sf.Closed) })
 	})
 	if box.Pressed() {
+		// A press in the transcript, between its blocks, leaves the
+		// composer: the keys go to the terminal, and the page keys
+		// scroll (view.go).
 		a.surfacePressed(t, p)
+		p.termHeld = true
 	}
 	if dock := a.tspDock; dock != nil {
 		a.surfaceDock(c, k, t, p, sf, dock, pl.Rect.X)
@@ -224,16 +235,19 @@ type tspSize struct{ rows, dock int }
 
 // tspDocked reports whether a surface has a dock region, as the server
 // pads it for (rex.Surface.docked).
-func tspDocked(sf *rex.Surface) bool {
+func tspDocked(sf *rex.Surface) bool { return tspDockRegion(sf) != nil }
+
+// tspDockRegion is a surface's dock region, nil for none.
+func tspDockRegion(sf *rex.Surface) *rex.TSPNode {
 	if sf.Root == nil {
-		return false
+		return nil
 	}
 	for _, n := range sf.Root.Children {
 		if n.ID == "dock" {
-			return true
+			return n
 		}
 	}
-	return false
+	return nil
 }
 
 // surfaceDock draws a live surface's dock region (a program's composer
@@ -642,12 +656,13 @@ var tspPageKeys = map[ui.Key]string{ui.KeyPageUp: "page-up", ui.KeyPageDown: "pa
 
 // surfacePressed takes a press on a surface's edge, or on a control of
 // the program's: the pane and its terminal get the focus, so that keys
-// go to the program.
+// go to the program (to its composer, with a live dock: view.go).
 func (a *App) surfacePressed(t *Tab, p *Pane) {
 	if t.Focus != p {
 		t.setFocus(p)
 	}
 	a.focusReq = p
+	p.termHeld = false
 	a.changed()
 }
 

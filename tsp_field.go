@@ -151,6 +151,12 @@ func (a *App) tspField(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pan
 		// as Lines asks, without a text area's least height.
 		el.Background(ui.Transparent).Border(0, ui.Transparent).FocusRing(false).Padding(0).MinHeight(0)
 		padX, padY = 0, 0
+		// The pane's terminal passes the focus to it (view.go).
+		p.composerAt, p.composerFocused = a.frame, el.Focused()
+		if p.composerFocus {
+			el.Focus()
+			p.composerFocus = false
+		}
 	}
 	if richPlaceholder != nil {
 		el.Draw(func(pt *ui.Painter, r ui.Rect) {
@@ -187,7 +193,15 @@ func (a *App) tspField(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pan
 	})
 	caretRunes, selected := &f.caretRunes, &f.selected
 	ctrlCCopies, optionAsAlt := is(a.eff.Terminal.CtrlCCopies), is(a.eff.Terminal.OptionAsAlt)
+	composer := a.tspFieldBare
 	el.OnTextKey(func(tk ui.TextKey) bool {
+		// The text area takes the keys it edits with before the pane's
+		// shortcuts (view.go) see them: the composer scrolls with them
+		// itself.
+		if by := tspComposerScroll(tk.Key, tk.Mods); composer && by != "" {
+			a.scrollTerm(p, by)
+			return true
+		}
 		switch {
 		case tk.Key == ui.KeyEnter && tk.Mods == 0 && !area:
 			// A one-line input's Enter is its program's key (a picker
@@ -267,6 +281,24 @@ func tspEditChord(key ui.Key) bool {
 		return true
 	}
 	return false
+}
+
+// tspComposerScroll is how a key typed in the composer scrolls the
+// transcript, as Tern's does: Page Up and Page Down by a page, Ctrl+Home
+// and Ctrl+End to its ends; "" for a key the composer keeps, as Home and
+// End, which move its caret.
+func tspComposerScroll(key ui.Key, mods ui.Modifiers) string {
+	switch {
+	case key == ui.KeyPageUp && mods == 0:
+		return "page-up"
+	case key == ui.KeyPageDown && mods == 0:
+		return "page-down"
+	case key == ui.KeyHome && mods == ui.Ctrl:
+		return "start"
+	case key == ui.KeyEnd && mods == ui.Ctrl:
+		return "end"
+	}
+	return ""
 }
 
 // tspChordBytes is what a chord typed in a program's field sends the

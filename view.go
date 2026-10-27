@@ -359,9 +359,25 @@ func (a *App) paneCard(c *ui.Context, k *colors, t *Tab, p *Pane) ui.Element {
 			p.hostBounds = host.Bounds()
 			host.Children(func() {
 				tv := terminal.View(c, p.term).Fill()
+				// With a live dock, the program's composer has the keys
+				// the terminal would: the focus given to the terminal
+				// goes to it (tspDockLive), but after a press in the
+				// transcript (termHeld), which the terminal keeps until
+				// it loses the focus.
+				if p.termHeld && !tv.Focused() && a.focusReq != p {
+					p.termHeld = false
+				}
+				dock := p.tspDockLive() && p.composerAt+1 >= a.frame && !p.termHeld
 				if a.focusReq == p && a.tab() == t {
-					tv.Focus()
+					if dock {
+						p.composerFocus = true
+					} else {
+						tv.Focus()
+					}
 					a.focusReq = nil
+				}
+				if dock && tv.Focused() {
+					p.composerFocus = true
 				}
 				if tv.Focused() && t.Focus != p {
 					t.setFocus(p)
@@ -388,9 +404,10 @@ func (a *App) paneCard(c *ui.Context, k *colors, t *Tab, p *Pane) ui.Element {
 				}
 				// A surface draws over the terminal while the program
 				// shows it. As one appears, the terminal takes the
-				// focus, so that keys reach the program; after that the
-				// focus goes where the user clicks, as selecting text in
-				// a surface takes it (tsp_view.go).
+				// focus, so that keys reach the program (its composer,
+				// once it has a dock); after that the focus goes where
+				// the user clicks, as selecting text in a surface takes
+				// it (tsp_view.go).
 				if live > p.surfacesLive && t.Focus == p && a.tab() == t {
 					tv.Focus()
 				}
@@ -400,6 +417,25 @@ func (a *App) paneCard(c *ui.Context, k *colors, t *Tab, p *Pane) ui.Element {
 				}
 				a.surfaces(c, k, t, p)
 			})
+			if p.tspDockLive() {
+				// The page keys scroll the transcript wherever the focus
+				// is in the pane; Home and End too but in a field, whose
+				// caret they move.
+				for _, s := range []struct {
+					mods ui.Modifiers
+					key  ui.Key
+					by   string
+					all  bool
+				}{
+					{0, ui.KeyPageUp, "page-up", true}, {0, ui.KeyPageDown, "page-down", true},
+					{ui.Ctrl, ui.KeyHome, "start", true}, {ui.Ctrl, ui.KeyEnd, "end", true},
+					{0, ui.KeyHome, "start", false}, {0, ui.KeyEnd, "end", false},
+				} {
+					if (s.all || !p.composerFocused) && host.Shortcut(s.mods, s.key) {
+						a.scrollTerm(p, s.by)
+					}
+				}
+			}
 		})
 	})
 	p.bounds = card.Bounds()

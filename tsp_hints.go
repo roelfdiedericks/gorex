@@ -142,3 +142,25 @@ func (p *Pane) dockOver() float32 {
 	}
 	return 0
 }
+
+// tspDockLive reports whether the pane shows a live inline surface with
+// a dock and nothing in its layer region over it (an overlay, a picker,
+// a sheet, whose keys are the program's): its composer then takes the
+// keys the terminal would, and the page keys scroll the transcript.
+func (p *Pane) tspDockLive() bool {
+	for i := range p.surfaces {
+		sf := &p.surfaces[i]
+		if sf.Closed || sf.Image == 0 || !tspDocked(sf) {
+			continue
+		}
+		if layer := tspLayer(sf); layer != nil {
+			for _, n := range layer.Children {
+				if hidden, _ := n.Props["hidden"].(bool); !hidden {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	return false
+}
