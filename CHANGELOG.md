@@ -4,7 +4,7 @@ The version of each release is its heading here, which `mygo.json`'s
 `version` must match: `make website` refuses to build otherwise, and
 refuses a version already published.
 
-## Unreleased
+## 0.1.7
 
 - omp's transcript scrolls with the keys, as in Tern: Page Up and Page
   Down by a page, Ctrl+Home and Ctrl+End to its start and end, with the
