@@ -111,9 +111,13 @@ func (p Payload) forSystem(system string) (server, error) {
 }
 
 // bridgeScript starts the bridge of profile with the server for the host's
-// system, when it is there, and otherwise asks for it, naming the system.
-// The server loads the libghostty-vt beside it, and nothing else: it never
-// downloads one.
+// system, when it is there, and otherwise asks for it, naming the system,
+// and says on its error output, which the Connection Log shows, why: no
+// server for the system, none copied yet, or one there that can't be run,
+// with its modes and the mount it is on (noexec). The server loads the
+// libghostty-vt beside it, and nothing else: it never downloads one. A
+// server that can't start says so on its error output too, as the shell
+// does when exec fails.
 func (p Payload) bridgeScript(profile string) string {
 	var b strings.Builder
 	b.WriteString(`case "$(uname -s) $(uname -m)" in `)
@@ -128,6 +132,10 @@ func (p Payload) bridgeScript(profile string) string {
 	}
 	b.WriteString(`*) id=;; esac; d="$HOME/.cache/gorex/$id"; `)
 	b.WriteString(`if [ -n "$id" ] && [ -x "$d/gorex" ]; then export MYGO_GHOSTTY_VT="$d/$lib"; exec "$d/gorex" -bridge ` + shQuote(profile) + `; fi; `)
+	b.WriteString(`if [ -z "$id" ]; then echo "host: GoRex has no server for $(uname -s) $(uname -m)" >&2; ` +
+		`elif [ -e "$d/gorex" ]; then echo "host: $d/gorex is there, but can't be run:" >&2; ls -ld "$d" "$d/gorex" "$d/$lib" 2>&1 | sed 's/^/host: /' >&2; ` +
+		`(findmnt -no TARGET,FSTYPE,OPTIONS -T "$d" 2>/dev/null || df -P "$d") 2>&1 | sed 's/^/host: mount: /' >&2; ` +
+		`else echo "host: no GoRex server in $d yet" >&2; fi; `)
 	b.WriteString(`echo "` + deployMarker + `$(uname -s) $(uname -m)"`)
 	return b.String()
 }

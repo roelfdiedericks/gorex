@@ -179,11 +179,16 @@ func bridge(t Target, profile string, p Payload, logf func(string), login *askpa
 
 // upload copies the server s to t, where it lands in ~/.cache/gorex/<id>
 // whole or not at all. Its files go as a gzipped tar archive made on the
-// way, which the host's tar unpacks.
+// way, which the host's tar unpacks. It says on its error output, which
+// the Connection Log shows, where the server went, or that one was there
+// already, which it keeps, and the files' modes there.
 func upload(t Target, s server, logf func(string), login *askpass.Session) error {
+	dir := `"$c/` + s.id + `"`
 	script := `set -e; c="$HOME/.cache/gorex"; mkdir -p "$c"; t=$(mktemp -d "$c/.upload.XXXXXX"); ` +
 		`trap 'rm -rf "$t"' EXIT; tar -xzf - -C "$t"; chmod 755 "$t/gorex"; ` +
-		`if [ ! -d "$c/` + s.id + `" ]; then mv "$t" "$c/` + s.id + `"; fi; echo GOREX-DEPLOYED`
+		`if [ ! -d ` + dir + ` ]; then mv "$t" ` + dir + `; echo "host: copied to "` + dir + ` >&2; ` +
+		`else echo "host: "` + dir + `" was there already: kept it" >&2; fi; ` +
+		`ls -l ` + dir + ` 2>&1 | sed 's/^/host: /' >&2; echo GOREX-DEPLOYED`
 	cmd, err := sshCmd(t, script, logf, login)
 	if err != nil {
 		return err
