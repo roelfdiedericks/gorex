@@ -4,7 +4,7 @@ The version of each release is its heading here, which `mygo.json`'s
 `version` must match: `make website` refuses to build otherwise, and
 refuses a version already published.
 
-## Unreleased
+## 0.1.4
 
 - ssh agent forwarding works with sessions that stay: where
   `~/.ssh/config` says `ForwardAgent yes`, or a host's new Forward ssh
