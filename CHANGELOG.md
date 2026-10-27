@@ -17,6 +17,9 @@ refuses a version already published.
   branch on one line, the cost, and a round send or stop button. Empty
   parts of a program's surface take no room: a band of blank space sat
   over the context meter.
+- Text a program prints under its open surface, where it is to print
+  nothing, is erased: the ends of its lines showed beside the surface, in
+  the strip kept clear for the scroll bar.
 
 ## 0.1.5
 

@@ -279,6 +279,9 @@ func (s *session) read() {
 			erased := s.scrollbackAnchors(out)
 			s.vt.Feed(out)
 			s.dropAnchors(erased)
+			if len(s.tsp.order) > 0 && printable(out) {
+				s.eraseUnder()
+			}
 			s.tspPad()
 			s.status.feed(out)
 			s.paste.feed(out)
@@ -717,6 +720,69 @@ func (s *session) tspPad() {
 		s.vt.Feed([]byte(reclaim(-n)))
 	}
 	s.placeEnds()
+}
+
+// eraseUnder erases what the program printed in the screen's rows under
+// its live inline surfaces, where it is to print nothing (padding): a
+// late paint of its rows, as omp has been seen to make. A window would
+// show it beside the surface, in the strip the terminal's scroll bar
+// keeps clear. The anchor's row, with what came before the anchor, and
+// the end marker's two cells stay; the cursor goes back where it was.
+// s.mu held.
+func (s *session) eraseUnder() {
+	rows, _ := s.anchorRows()
+	col, cursor := s.vt.Cursor()
+	var b strings.Builder
+	for _, id := range s.tsp.order {
+		sf := s.tsp.surfaces[id]
+		if sf == nil || sf.Image == 0 {
+			continue
+		}
+		top, ok := rows[sf.Image]
+		if !ok {
+			continue
+		}
+		// A surface with a dock takes the screen down from its anchor.
+		last := top + max(sf.Rows, 1) + sf.Dock - 1
+		if sf.docked() {
+			last = s.rows - 1
+		}
+		for r := max(top+1, 0); r <= min(last, s.rows-1); r++ {
+			fmt.Fprintf(&b, "\x1b[%d;3H\x1b[K", r+1)
+		}
+	}
+	if b.Len() > 0 {
+		fmt.Fprintf(&b, "\x1b[%d;%dH", cursor+1, col+1)
+		s.vt.Feed([]byte(b.String()))
+	}
+}
+
+// printable reports whether output has text to show, outside the escape
+// sequences (CSI, OSC, DCS, APC and the like) and control characters.
+func printable(out []byte) bool {
+	for i := 0; i < len(out); i++ {
+		c := out[i]
+		switch {
+		case c == 0x1b && i+1 < len(out):
+			i++
+			switch out[i] {
+			case '[':
+				// To the final byte.
+				for i++; i < len(out) && (out[i] < 0x40 || out[i] > 0x7e); i++ {
+				}
+			case ']', 'P', '_', '^', 'X':
+				// A string, to BEL or ST.
+				for i++; i < len(out) && out[i] != 0x07 && !(out[i] == 0x1b && i+1 < len(out) && out[i+1] == '\\'); i++ {
+				}
+				if i < len(out) && out[i] == 0x1b {
+					i++
+				}
+			}
+		case c >= 0x20 && c != 0x7f:
+			return true
+		}
+	}
+	return false
 }
 
 // kill hangs up the session and waits a little for it to end.

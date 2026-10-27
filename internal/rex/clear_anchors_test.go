@@ -76,3 +76,63 @@ func TestPlaceEnds(t *testing.T) {
 		t.Errorf("an end under the cursor was placed: %d", end)
 	}
 }
+
+// What a program prints under its live inline surface, where it is to
+// print nothing, is erased: a window would show it in the strip beside
+// the surface. What came before the surface, its anchor and end marker,
+// and the cursor stay. With a dock, the surface takes the screen down to
+// its end; without, the rows after it are the program's.
+func TestEraseUnderLiveSurface(t *testing.T) {
+	img := uint32(TSPImageFirst)
+	for _, docked := range []bool{false, true} {
+		s := &session{vt: newAnchorTerm(t), rows: 6}
+		sf := &Surface{ID: "s", Image: img, Rows: 3, Root: &TSPNode{ID: "s", Kind: "col"}}
+		if docked {
+			sf.Root.Children = []*TSPNode{{ID: "dock", Kind: "col"}}
+		}
+		s.tsp.surfaces = map[string]*Surface{"s": sf}
+		s.tsp.order = []string{"s"}
+		// Rows: 0 the command, 1 the anchor, 2, 3 the end marker, 4 the
+		// cursor, 5 below it.
+		s.vt.Feed([]byte("$ cmd\r\n" + anchor(img) + "\r\n\r\n" + endMarker(img) + "\r\n"))
+		out := []byte("\x1b[2A\r\x1b[14Cstray\x1b[1B\r\x1b[14Cstray\x1b[2B\r\x1b[14Cbelow\x1b[1A\r")
+		if !printable(out) {
+			t.Fatal("the stray text is not printable")
+		}
+		s.vt.Feed(out)
+		s.eraseUnder()
+		text := s.vt.Text()
+		if strings.Contains(text, "stray") || !strings.Contains(text, "$ cmd") {
+			t.Errorf("docked %v: text %q", docked, text)
+		}
+		if got := strings.Contains(text, "below"); got == docked {
+			t.Errorf("docked %v: the row after the surface kept: %v", docked, got)
+		}
+		if a, e := anchorRows(s.vt), endRows(s.vt); a[img] != 1 || e[img] != 3 {
+			t.Errorf("docked %v: anchor at %v, end at %v", docked, a, e)
+		}
+		if col, row := s.vt.Cursor(); col != 0 || row != 4 {
+			t.Errorf("docked %v: cursor at %d,%d, want 0,4", docked, col, row)
+		}
+	}
+}
+
+// Output with no text, only escape sequences and controls, is not
+// printable: it leaves the rows under a surface as they are.
+func TestPrintable(t *testing.T) {
+	for _, c := range []struct {
+		out  string
+		want bool
+	}{
+		{"\x1b[?25l\x1b[2;5H\x1b[38;2;10;20;30m\r\n\a", false},
+		{"\x1b]0;a title\a\x1b]9;4;1;50\x1b\\", false},
+		{"\x1bP+q544e\x1b\\\x1b7\x1b8", false},
+		{"\x1b]0;title\ax", true},
+		{"\x1b[1mbold", true},
+		{"é", true},
+	} {
+		if got := printable([]byte(c.out)); got != c.want {
+			t.Errorf("printable(%q) = %v, want %v", c.out, got, c.want)
+		}
+	}
+}
