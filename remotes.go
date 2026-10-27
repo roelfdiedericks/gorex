@@ -14,12 +14,14 @@ import (
 )
 
 // savedRemote is a server the app connected to over ssh, which the
-// palette offers to switch to.
+// palette offers to switch to. ForwardAgent is this PC's setting for the
+// host: ssh forwards the agent to it (remote.Target.Agent).
 type savedRemote struct {
-	Key      string    `json:"key"`
-	Target   string    `json:"target"`
-	Name     string    `json:"name,omitempty"`
-	LastUsed time.Time `json:"lastUsed"`
+	Key          string    `json:"key"`
+	Target       string    `json:"target"`
+	Name         string    `json:"name,omitempty"`
+	LastUsed     time.Time `json:"lastUsed"`
+	ForwardAgent bool      `json:"forwardAgent,omitempty"`
 }
 
 // title names the remote as its server does, or as the user did.
@@ -71,10 +73,38 @@ func saveRemotes(rs []savedRemote) {
 	}
 }
 
-// touchRemote adds r to the known remotes, or updates the one of its key.
+// touchRemote adds r to the known remotes, or updates the one of its key,
+// keeping its settings.
 func touchRemote(r savedRemote) {
-	rs := slices.DeleteFunc(loadRemotes(), func(o savedRemote) bool { return o.Key == r.Key })
+	rs := loadRemotes()
+	if i := slices.IndexFunc(rs, func(o savedRemote) bool { return o.Key == r.Key }); i >= 0 {
+		r.ForwardAgent = rs[i].ForwardAgent
+		rs = slices.Delete(rs, i, i+1)
+	}
 	saveRemotes(append(rs, r))
+}
+
+// setForwardAgent sets whether ssh forwards the agent to the remote of
+// key, from its next connection on.
+func setForwardAgent(key string, on bool) {
+	rs := loadRemotes()
+	for i := range rs {
+		if rs[i].Key == key {
+			rs[i].ForwardAgent = on
+		}
+	}
+	saveRemotes(rs)
+}
+
+// forwardsAgent reports whether ssh forwards the agent to the remote of
+// key, as this PC's setting for it says.
+func forwardsAgent(key string) bool {
+	for _, r := range loadRemotes() {
+		if r.Key == key {
+			return r.ForwardAgent
+		}
+	}
+	return false
 }
 
 func forgetRemote(key string) {

@@ -41,6 +41,9 @@ type Server struct {
 	quit     chan struct{}
 	quitOnce sync.Once
 	events   *events
+	// agents relays the ssh agents forwarded to the bridges connected
+	// now (agent.go).
+	agents agentRelay
 }
 
 // idleTimeout is how long a server with no sessions and no app waits
@@ -125,6 +128,7 @@ func serve(state string) error {
 					ss.kill()
 				}
 				os.Remove(sock)
+				s.agents.close()
 				return nil
 			default:
 			}
@@ -220,6 +224,14 @@ func (s *Server) control(conn net.Conn, r *bufio.Reader, first []byte) {
 				go func() { reply(s.request(req)) }()
 			case "watch":
 				reply(s.answer(req, nil, s.events.watch(ctl, req.Path)))
+			case "agent":
+				// A bridge's forwarded agent, for as long as this
+				// connection lasts.
+				remove, err := s.agents.add(req.Path)
+				if err == nil {
+					defer remove()
+				}
+				reply(s.answer(req, nil, err))
 			case "unwatch":
 				s.events.unwatch(ctl, req.Path)
 				reply(Response{ID: req.ID})

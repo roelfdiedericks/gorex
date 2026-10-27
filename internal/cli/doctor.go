@@ -95,7 +95,7 @@ func doctor(w io.Writer, args []string) int {
 		for _, l := range lines(cfg) {
 			k, _, _ := strings.Cut(l, " ")
 			switch k {
-			case "user", "hostname", "port", "identityfile", "identitiesonly", "identityagent", "proxyjump", "proxycommand", "batchmode", "preferredauthentications":
+			case "user", "hostname", "port", "identityfile", "identitiesonly", "identityagent", "forwardagent", "proxyjump", "proxycommand", "batchmode", "preferredauthentications":
 				p("    %s", l)
 			}
 		}

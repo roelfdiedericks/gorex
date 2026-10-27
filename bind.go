@@ -120,7 +120,9 @@ func dialBinding(b binding, prog remote.Progress, login *askpass.Session, restar
 		if p, err = loadPayload(); err != nil {
 			return nil, nil, rex.Hello{}, err
 		}
-		if link, err = remote.Open(b.target, filepath.Base(rex.Dir()), p, prog, login); err != nil {
+		t := b.target
+		t.Agent = forwardsAgent(t.Key())
+		if link, err = remote.Open(t, filepath.Base(rex.Dir()), p, prog, login); err != nil {
 			return nil, nil, rex.Hello{}, err
 		}
 		if client, err = rex.Connect(link.Dial); err != nil {

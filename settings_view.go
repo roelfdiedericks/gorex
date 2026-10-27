@@ -715,6 +715,16 @@ func (a *App) hostsPage(c *ui.Context, k *colors) {
 							ui.Text(c, r.title()).FontSize(13).FontWeight(600).TextColor(k.text).SingleLine().Ellipsis("…")
 							ui.Text(c, r.Target+" · "+roundDur(time.Since(r.LastUsed))+" ago").FontSize(11.5).TextColor(k.textFaint).SingleLine().Ellipsis("…")
 						})
+						// This PC's setting for the host, which ssh's
+						// own configuration may add to (ForwardAgent).
+						ui.Row(c).Gap(6).AlignItems(ui.Center).Shrink(0).Children(func() {
+							ui.Text(c, "Forward ssh agent").FontSize(11.5).TextColor(k.textMuted)
+							on := r.ForwardAgent
+							if ui.Switch(c, &on).Changed() {
+								setForwardAgent(r.Key, on)
+								a.remotes = loadRemotes()
+							}
+						})
 						if "ssh/"+r.Key == a.bind.key() {
 							ui.Text(c, "this window").FontSize(11.5).TextColor(k.textFaint)
 						} else if textButton(c, k, "Forget").Clicked() {
@@ -724,6 +734,8 @@ func (a *App) hostsPage(c *ui.Context, k *colors) {
 					})
 				}
 			})
+			ui.Text(c, "Forward ssh agent lets the host's sessions use the keys of this PC's ssh agent, while a window of this PC is connected; root on the host can use them meanwhile. It applies from the host's next connection (Reconnect in the palette), and also where ~/.ssh/config says ForwardAgent yes.").
+				FontSize(11.5).TextColor(k.textFaint).LineHeight(1.35)
 		})
 		ui.Column(c).Gap(8).Children(func() {
 			ui.Text(c, "Copy a look").FontSize(13).FontWeight(700).TextColor(k.text)

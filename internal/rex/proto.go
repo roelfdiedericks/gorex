@@ -293,16 +293,21 @@ func Dir() string {
 
 // SocketPath returns the path of the server's socket: in Dir, unless that
 // is too long a path for a socket, then in the temporary directory.
-func SocketPath() string {
-	p := filepath.Join(Dir(), "server.sock")
+func SocketPath() string { return sockPath("server.sock") }
+
+// sockPath returns the path of the socket name in Dir, or, when that is
+// too long a path for a socket, one in the temporary directory of a hash
+// of it.
+func sockPath(name string) string {
+	p := filepath.Join(Dir(), name)
 	if len(p) < 100 {
 		return p
 	}
 	h := fnv.New32a()
 	h.Write([]byte(p))
-	name := fmt.Sprintf("gorex-%x.sock", h.Sum32())
+	tmp := fmt.Sprintf("gorex-%x.sock", h.Sum32())
 	if uid := os.Getuid(); uid >= 0 { // Windows has none, and a temporary directory per user
-		name = fmt.Sprintf("gorex-%d-%x.sock", uid, h.Sum32())
+		tmp = fmt.Sprintf("gorex-%d-%x.sock", uid, h.Sum32())
 	}
-	return filepath.Join(os.TempDir(), name)
+	return filepath.Join(os.TempDir(), tmp)
 }

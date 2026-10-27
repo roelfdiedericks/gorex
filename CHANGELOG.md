@@ -4,6 +4,20 @@ The version of each release is its heading here, which `mygo.json`'s
 `version` must match: `make website` refuses to build otherwise, and
 refuses a version already published.
 
+## Unreleased
+
+- ssh agent forwarding works with sessions that stay: where
+  `~/.ssh/config` says `ForwardAgent yes`, or a host's new Forward ssh
+  agent switch (Settings, Hosts) is on, the host's sessions use the
+  agent of the window connected now, the latest one's, at a path that
+  stays, after a reconnect too. They had the first connection's agent,
+  which was gone with it.
+- When a host's GoRex server does not start after it was copied there,
+  the Connection Log says why: no server for the host's system, none
+  there, or one there that can't be run, with its files' modes and the
+  mount it is on (noexec); and where the copy went, or that one was
+  there already.
+
 ## 0.1.3
 
 - The file browser marks the files git sees as changed in a repository

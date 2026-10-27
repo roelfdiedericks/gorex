@@ -32,15 +32,15 @@ type sshProc struct {
 	login  *askpass.Session
 }
 
-// sshCmd makes an ssh that runs script with sh on t, with openssh.Options.
-// Each line ssh prints goes to logf. It asks the user through login, or,
-// with none, nothing.
-func sshCmd(t Target, script string, logf func(string), login *askpass.Session) (*sshProc, error) {
+// sshCmd makes an ssh that runs script with sh on t, with openssh.Options
+// and opts. Each line ssh prints goes to logf. It asks the user through
+// login, or, with none, nothing.
+func sshCmd(t Target, script string, logf func(string), login *askpass.Session, opts ...string) (*sshProc, error) {
 	ssh, err := openssh.Path()
 	if err != nil {
 		return nil, err
 	}
-	args := slices.Clone(openssh.Options)
+	args := append(slices.Clone(openssh.Options), opts...)
 	var env []string
 	if login == nil {
 		args = append(args, openssh.Batch...)
