@@ -112,12 +112,14 @@ func (p *sshProc) limit(d time.Duration) (stop func() bool) {
 	}
 }
 
-// LoginError is why logging in to a host failed where trying again by
-// itself won't help: the user cancelled a prompt, refused a host's key,
-// or gave a password ssh stopped asking for, or the host's key changed.
-type LoginError struct{ Reason string }
+// StopError is why connecting to a host failed where trying again by
+// itself won't help, and would only ask the user again: the user
+// cancelled a prompt, refused a host's key, or gave a password ssh
+// stopped asking for; the host's key changed; the server copied there
+// does not start.
+type StopError struct{ Reason string }
 
-func (e *LoginError) Error() string { return e.Reason }
+func (e *StopError) Error() string { return e.Reason }
 
 // err describes why ssh failed, from what it printed last and what the
 // user did with its prompts.
@@ -131,11 +133,11 @@ func (p *sshProc) err() error {
 		asked, cancelled, refused := p.login.Outcome()
 		switch {
 		case cancelled:
-			return &LoginError{"Login to " + p.t.Spec + " cancelled"}
+			return &StopError{"Login to " + p.t.Spec + " cancelled"}
 		case refused:
-			return &LoginError{"Not connected: the key of " + p.t.Spec + " was not trusted"}
+			return &StopError{"Not connected: the key of " + p.t.Spec + " was not trusted"}
 		case asked && strings.Contains(out, "Permission denied"):
-			return &LoginError{"Login to " + p.t.Spec + " failed: " + msg}
+			return &StopError{"Login to " + p.t.Spec + " failed: " + msg}
 		}
 	}
 	if strings.Contains(out, "REMOTE HOST IDENTIFICATION HAS CHANGED") {
@@ -143,7 +145,7 @@ func (p *sshProc) err() error {
 		if p.t.Port != "" && p.t.Port != "22" {
 			host = "[" + host + "]:" + p.t.Port
 		}
-		return &LoginError{"The key of " + p.t.Spec + " has changed since ssh last saw it, which ssh refuses. If the host was reinstalled, remove its old key with: ssh-keygen -R \"" + host + "\", then Retry."}
+		return &StopError{"The key of " + p.t.Spec + " has changed since ssh last saw it, which ssh refuses. If the host was reinstalled, remove its old key with: ssh-keygen -R \"" + host + "\", then Retry."}
 	}
 	if p.login == nil && strings.Contains(out, "Host key verification failed") {
 		msg += " (run ssh " + p.t.Spec + " once in a terminal to accept its host key)"

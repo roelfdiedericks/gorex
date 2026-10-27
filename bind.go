@@ -272,9 +272,9 @@ func (a *App) connectLoop(win *mygo.Window, b binding, gen int64, attempts int, 
 			return
 		}
 		// A login the user cancelled or got wrong, a host key not trusted
-		// or changed: retrying by itself would only fail again, or ask
-		// again unasked.
-		var failed *remote.LoginError
+		// or changed, a server copied there that does not start: retrying
+		// by itself would only fail again, and ask the user again.
+		var failed *remote.StopError
 		if errors.As(err, &failed) {
 			win.Update(func() {
 				if current() {

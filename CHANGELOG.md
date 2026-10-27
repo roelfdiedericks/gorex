@@ -16,7 +16,10 @@ refuses a version already published.
   the Connection Log says why: no server for the host's system, none
   there, or one there that can't be run, with its files' modes and the
   mount it is on (noexec); and where the copy went, or that one was
-  there already.
+  there already. Connecting then stops, with Retry, rather than trying
+  again by itself and asking for a passphrase each time; and a server
+  folder there whose server can't be run is replaced by the copy, where
+  it was kept.
 
 ## 0.1.3
 

@@ -108,11 +108,13 @@ func Open(t Target, profile string, p Payload, prog Progress, login *askpass.Ses
 			return l, err
 		}
 		if try > 0 {
-			return nil, fmt.Errorf("the GoRex copied to %s does not start", t.Spec)
+			// The bridge's script told the Connection Log why (host:
+			// lines); trying again would only copy it again.
+			return nil, &StopError{"The GoRex copied to " + t.Spec + " does not start: the Connection Log tells why"}
 		}
 		s, err := p.forSystem(system)
 		if err != nil {
-			return nil, err
+			return nil, &StopError{err.Error()}
 		}
 		prog.Status("Copying GoRex to " + t.Spec + "…")
 		prog.Log(fmt.Sprintf("%s is %s: copying the %s server (%s)", t.Spec, system, s.name, s.id))
@@ -189,13 +191,15 @@ func bridge(t Target, profile string, p Payload, logf func(string), login *askpa
 
 // upload copies the server s to t, where it lands in ~/.cache/gorex/<id>
 // whole or not at all. Its files go as a gzipped tar archive made on the
-// way, which the host's tar unpacks. It says on its error output, which
-// the Connection Log shows, where the server went, or that one was there
-// already, which it keeps, and the files' modes there.
+// way, which the host's tar unpacks. A server there already is kept, as
+// another window may run it, unless it can't be run, which the copy then
+// replaces. It says on its error output, which the Connection Log shows,
+// which it did, and the files' modes there.
 func upload(t Target, s server, logf func(string), login *askpass.Session) error {
 	dir := `"$c/` + s.id + `"`
 	script := `set -e; c="$HOME/.cache/gorex"; mkdir -p "$c"; t=$(mktemp -d "$c/.upload.XXXXXX"); ` +
 		`trap 'rm -rf "$t"' EXIT; tar -xzf - -C "$t"; chmod 755 "$t/gorex"; ` +
+		`if [ -d ` + dir + ` ] && [ ! -x ` + dir + `/gorex ]; then rm -rf ` + dir + `; echo "host: replacing "` + dir + `", whose server can't be run" >&2; fi; ` +
 		`if [ ! -d ` + dir + ` ]; then mv "$t" ` + dir + `; echo "host: copied to "` + dir + ` >&2; ` +
 		`else echo "host: "` + dir + `" was there already: kept it" >&2; fi; ` +
 		`ls -l ` + dir + ` 2>&1 | sed 's/^/host: /' >&2; echo GOREX-DEPLOYED`
