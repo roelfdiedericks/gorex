@@ -4,7 +4,7 @@ The version of each release is its heading here, which `mygo.json`'s
 `version` must match: `make website` refuses to build otherwise, and
 refuses a version already published.
 
-## Unreleased
+## 0.1.6
 
 - omp's dock floats over its transcript as Tern's does: centered and at
   most 800 DIPs wide, its composer a card with the context meter a
