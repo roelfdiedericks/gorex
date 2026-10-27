@@ -49,6 +49,7 @@ func (a *App) applySettings() {
 		a.win.SetVibrancy(mygo.Vibrancy(m))
 	}
 	termFont = termFontOf(&a.eff)
+	a.tsp = tspStyleOf(&a.eff)
 	light, dark := termThemes(&a.eff)
 	t := &a.eff.Terminal
 	opts := fmt.Sprint(is(a.eff.Appearance.Transparent), t.Cursor, is(t.Blink), t.Scrollback, t.Images, is(t.OptionAsAlt),

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"runtime"
 	"strings"
 	"unicode/utf16"
 	"unicode/utf8"
@@ -18,20 +19,23 @@ import (
 // has, which the field takes when they differ from what it last said, as
 // after a slash command or a history recall. Keys that type no text,
 // Escape, Tab, the arrows at the edges, chords, go to the program through
-// the terminal, as any key. A paste of text goes into the field; a paste
+// the terminal, as any key (tspChordBytes): Ctrl+C copies a selection
+// only, as the terminal's does, and Alt chords are the program's.
+// A paste of text goes into the field; a paste
 // without text (an image) goes to the program through the terminal, as a
 // paste into the terminal would, which programs take as an attachment.
 
 // tspField is what the window keeps of a program's field: its text, which
 // the widget edits; what the program last said of it (said); the texts
 // the field sent it that it has not echoed yet, oldest first (sent);
-// and the caret as of the last frame.
+// and the caret as of the last frame, and whether text was selected.
 type tspField struct {
 	text       string
 	said       string
 	saidAt     int // UTF-16 units, as the program counts
 	sent       []tspSent
 	caretRunes int
+	selected   bool
 }
 
 // tspSent is a text a field sent its program, with its caret.
@@ -111,7 +115,7 @@ func (a *App) tspField(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pan
 			m, _ := s.(map[string]any)
 			text, _ := m["t"].(string)
 			style, _ := m["s"].(string)
-			sp := ui.Span{Text: text, Size: 13, Color: k.textMuted}
+			sp := ui.Span{Text: text, Size: a.tspText(13), Color: k.textMuted}
 			for _, tok := range strings.Fields(style) {
 				switch tok {
 				case "em":
@@ -140,7 +144,7 @@ func (a *App) tspField(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pan
 	} else {
 		el = ui.TextInput(key, &f.text)
 	}
-	el.FillWidth().FontSize(13).TextColor(k.text).Placeholder(placeholder).ReadOnly(readonly || sf.Closed)
+	el.FillWidth().FontSize(a.tspText(13)).TextColor(k.text).Placeholder(placeholder).ReadOnly(readonly || sf.Closed)
 	padX, padY := float32(10), float32(6)
 	if a.tspFieldBare {
 		// The composer's card is the field's box; it starts at one line,
@@ -153,7 +157,7 @@ func (a *App) tspField(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pan
 			if f.text != "" {
 				return
 			}
-			l := ui.ShapeRichText(richPlaceholder, ui.Font{Family: tspFont, Size: 13}, max(r.W-2*padX, 1))
+			l := ui.ShapeRichText(richPlaceholder, ui.Font{Family: a.tspLook().font, Size: a.tspText(13)}, max(r.W-2*padX, 1))
 			pt.Clip(r, 0, func() { pt.TextLayout(l, r.X+padX, r.Y+padY, k.textMuted) })
 		})
 	}
@@ -181,7 +185,8 @@ func (a *App) tspField(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pan
 		term.PasteData(d)
 		return true
 	})
-	caretRunes := &f.caretRunes
+	caretRunes, selected := &f.caretRunes, &f.selected
+	ctrlCCopies, optionAsAlt := is(a.eff.Terminal.CtrlCCopies), is(a.eff.Terminal.OptionAsAlt)
 	el.OnTextKey(func(tk ui.TextKey) bool {
 		switch {
 		case tk.Key == ui.KeyEnter && tk.Mods == 0 && !area:
@@ -198,10 +203,10 @@ func (a *App) tspField(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pan
 		case tk.Key == ui.KeyEscape, tk.Key == ui.KeyTab:
 			term.Send(tspKeyBytes(tk.Key, tk.Mods))
 			return true
-		case tk.Mods&(ui.Ctrl|ui.Cmd) != 0 && !tspEditChord(tk.Key):
-			// The program's chords (Ctrl+C, Ctrl+R, Ctrl+P, …): through
-			// the terminal, as any key.
-			if b := tspKeyBytes(tk.Key, tk.Mods); b != nil {
+		case tk.Mods&(ui.Ctrl|ui.Cmd|ui.Alt) != 0:
+			// The program's chords (Ctrl+C, Ctrl+R, Alt+P, …): through
+			// the terminal, as any key; the field keeps its own.
+			if b := tspChordBytes(tk.Key, tk.Mods, *selected, ctrlCCopies, optionAsAlt); b != nil {
 				term.Send(b)
 				return true
 			}
@@ -218,8 +223,22 @@ func (a *App) tspField(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pan
 		}
 		return false
 	})
-	s, _ := el.TextSelection()
-	f.caretRunes = s
+	// Alt with a letter or digit counts as typing to the text widget (Alt
+	// types characters on some layouts), which OnTextKey then never sees:
+	// taken as the key comes instead, the program's Meta chord.
+	el.HandleInput(func(ev ui.InputEvent) bool {
+		if ev.Kind != ui.InputKeyDown || ev.Mods&ui.Alt == 0 {
+			return false
+		}
+		b := tspChordBytes(ev.Key, ev.Mods, *selected, ctrlCCopies, optionAsAlt)
+		if b == nil {
+			return false
+		}
+		term.Send(b)
+		return true
+	})
+	s, e := el.TextSelection()
+	f.caretRunes, f.selected = s, s != e
 	if el.Changed() {
 		// What the user typed, as the edit over the part that differs
 		// from what the program has, with the caret, which the program
@@ -248,6 +267,42 @@ func tspEditChord(key ui.Key) bool {
 		return true
 	}
 	return false
+}
+
+// tspChordBytes is what a chord typed in a program's field sends the
+// program, through the terminal; nil for one the field keeps. Ctrl+C is
+// the program's interrupt (omp's clear, and exit when pressed twice) but
+// for a selection where Ctrl+C copies, as the terminal's setting says.
+// Alt with a letter or digit is Meta's, ESC and the key, as terminals
+// send it; with an arrow or Backspace it is the field's word moves, and
+// on macOS Option types characters unless Option is Alt. The other Ctrl
+// and Cmd chords are the program's but the field's own (tspEditChord).
+func tspChordBytes(key ui.Key, mods ui.Modifiers, selected, ctrlCCopies, optionAsAlt bool) []byte {
+	switch {
+	case key == ui.KeyC && mods == ui.Ctrl:
+		if selected && ctrlCCopies {
+			return nil
+		}
+		return []byte{0x03}
+	case mods&ui.Alt != 0 && mods&(ui.Ctrl|ui.Cmd) == 0:
+		if runtime.GOOS == "darwin" && !optionAsAlt {
+			return nil
+		}
+		switch {
+		case key >= ui.KeyA && key <= ui.KeyZ:
+			ch := byte('a' + key - ui.KeyA)
+			if mods&ui.Shift != 0 {
+				ch = byte('A' + key - ui.KeyA)
+			}
+			return []byte{0x1b, ch}
+		case key >= ui.Key0 && key <= ui.Key9:
+			return []byte{0x1b, byte('0' + key - ui.Key0)}
+		}
+		return nil
+	case mods&(ui.Ctrl|ui.Cmd) != 0 && !tspEditChord(key):
+		return tspKeyBytes(key, mods)
+	}
+	return nil
 }
 
 func strconvImage(image uint32) string {

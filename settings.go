@@ -34,14 +34,16 @@ type Settings struct {
 	V          int        `json:"v,omitempty"`
 	Appearance Appearance `json:"appearance,omitzero"`
 	Terminal   Terminal   `json:"terminal,omitzero"`
+	OMP        OMP        `json:"omp,omitzero"`
 	Editor     Editor     `json:"editor,omitzero"`
 	Shell      Shell      `json:"shell,omitzero"`
 	General    General    `json:"general,omitzero"`
 }
 
 // settingsVersion is the document's version: for migrating a field whose
-// meaning changed, on read.
-const settingsVersion = 1
+// meaning changed, on read. 2 moved the Tern Surface Protocol switch from
+// terminal.tsp, the host's only, to omp.tsp.
+const settingsVersion = 2
 
 type Appearance struct {
 	// Mode is "light", "dark", or "" to follow the system.
@@ -112,10 +114,36 @@ type Terminal struct {
 	// StatusNotify notifies when a program says it waits on the user, has
 	// finished or failed (OSC 7501), out of sight.
 	StatusNotify *bool `json:"statusNotify,omitempty" kind:"look" label:"Notify when a program needs you, finishes or fails" group:"Program status"`
+}
+
+// OMP is how programs that speak the Tern Surface Protocol, omp the one
+// known, are drawn: their surfaces' text, code, layout and motion.
+type OMP struct {
 	// TSP has the host's sessions answer programs that speak the Tern
-	// Surface Protocol, whose screen surfaces the window then draws over
-	// the terminal. Experimental: see TSP.md.
-	TSP *bool `json:"tsp,omitempty" kind:"host" label:"Tern Surface Protocol (experimental)" group:"Programs"`
+	// Surface Protocol, whose surfaces the window then draws over the
+	// terminal, in sessions started after a change. Experimental: see
+	// TSP.md.
+	TSP *bool `json:"tsp,omitempty" kind:"look" label:"Tern Surface Protocol (experimental)" group:"Protocol"`
+	// Font and Size are the surfaces' text, the system's UI font when the
+	// font is unset; the text's other sizes keep their ratios to Size.
+	Font       string  `json:"font,omitempty" kind:"look" label:"Font" group:"Text"`
+	Size       float32 `json:"size,omitempty" kind:"look" label:"Size" group:"Text"`
+	LineHeight float32 `json:"lineHeight,omitempty" kind:"look" label:"Line height" group:"Text"`
+	// CodeFont, CodeSize and CodeLigatures are the code's (commands and
+	// their output, diffs, code blocks, paths): the terminal's when unset.
+	CodeFont      string  `json:"codeFont,omitempty" kind:"look" label:"Font" group:"Code text"`
+	CodeSize      float32 `json:"codeSize,omitempty" kind:"look" label:"Size" group:"Code text"`
+	CodeLigatures *bool   `json:"codeLigatures,omitempty" kind:"look" label:"Ligatures" group:"Code text"`
+	// DockWidth is the composer's width at most, in DIPs; MessageWidth the
+	// transcript's, -1 for none (unset is the builtin's, none).
+	DockWidth    float32 `json:"dockWidth,omitempty" kind:"look" label:"Composer width, at most" group:"Layout"`
+	MessageWidth float32 `json:"messageWidth,omitempty" kind:"look" label:"Message width, at most" group:"Layout"`
+	// Spacing is "compact", "normal" or "roomy": the room between blocks
+	// and in cards.
+	Spacing string `json:"spacing,omitempty" kind:"look" label:"Spacing" group:"Layout"`
+	// Motion animates the working indicators: the label's shimmer, the
+	// star, the context meter's sweep.
+	Motion *bool `json:"motion,omitempty" kind:"pc" label:"Animate working indicators" group:"Motion"`
 }
 
 type Shell struct {
@@ -180,6 +208,7 @@ var builtin = Settings{
 		Cursor: "block", Blink: on, Scrollback: 10000, Images: 320, CopyOnSelect: off, OptionAsAlt: off, Bell: "mark", Identity: "ghostty", StatusNotify: on,
 		CtrlCCopies: onWindows, CtrlVPastes: onWindows, InsertKeys: on, RightClickPastes: onWindows,
 	},
+	OMP: OMP{Size: 13, LineHeight: 1.5, DockWidth: 800, Spacing: "normal", Motion: on},
 	Editor: Editor{
 		LineHeight: 1.5, WrapGuides: "100", SoftWrap: off, DiffLayout: "split", DiffInline: "words",
 		HiddenFiles: on, MaxFile: 8 << 20, OpenOn: "click", PreviewOnOpen: on, Mermaid: on,
@@ -263,10 +292,22 @@ func effective(defaults, host *Settings) Settings {
 func (f field) inherited(host *Settings) bool { return f.kind == "look" && !f.isSet(host) }
 
 // decodeSettings reads a document, leniently: unknown fields are ignored,
-// missing ones unset. Migrations by V would go here.
+// missing ones unset. A document before version 2 has the Tern Surface
+// Protocol switch under the terminal.
 func decodeSettings(b []byte) (s Settings) {
-	if len(b) > 0 {
-		json.Unmarshal(b, &s)
+	if len(b) == 0 {
+		return s
+	}
+	json.Unmarshal(b, &s)
+	if s.V < 2 && s.OMP.TSP == nil {
+		var old struct {
+			Terminal struct {
+				TSP *bool `json:"tsp"`
+			} `json:"terminal"`
+		}
+		if json.Unmarshal(b, &old) == nil {
+			s.OMP.TSP = old.Terminal.TSP
+		}
 	}
 	return s
 }
@@ -413,7 +454,7 @@ func applyAppearance(s *Settings) {
 
 // shellOptions returns what new sessions of the host run, by s.
 func shellOptions(s *Settings) rex.CreateOptions {
-	o := rex.CreateOptions{Scrollback: s.Terminal.Scrollback, ImageLimit: imageLimit(s), Identity: s.Terminal.Identity, TSP: is(s.Terminal.TSP)}
+	o := rex.CreateOptions{Scrollback: s.Terminal.Scrollback, ImageLimit: imageLimit(s), Identity: s.Terminal.Identity, TSP: is(s.OMP.TSP)}
 	if cmd := strings.TrimSpace(s.Shell.Command); cmd != "" {
 		o.Command = append([]string{cmd}, strings.Fields(s.Shell.Args)...)
 		o.Login = is(s.Shell.Login)

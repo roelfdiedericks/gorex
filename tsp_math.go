@@ -93,7 +93,7 @@ func tspInlineMath(k *colors) func(tex string, size float32) (markdown.InlineObj
 // mathError shows a formula that does not typeset: its source, as code,
 // and why as its tooltip.
 func (a *App) mathError(c *ui.Context, k *colors, tex string, err error) ui.Element {
-	return ui.Text(c, tex).Font(a.editorFont().Family).FontSize(12).TextColor(k.textMuted).Tooltip(err.Error())
+	return ui.Text(c, tex).Font(a.tspLook().mono).FontSize(a.tspCode(12)).TextColor(k.textMuted).Tooltip(err.Error())
 }
 
 // mathSet is a formula typeset at a size, in a color: its box, or why it

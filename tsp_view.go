@@ -27,10 +27,6 @@ import (
 // program was told, and falls back itself. A click on a node that has a
 // click action goes to the program as an action event.
 
-// tspFont is the font of surfaces: the system's, and the icons of the
-// Nerd Fonts, which programs put in their text, where it lacks them.
-const tspFont = "system-ui, " + symbolsFont
-
 // surfaces draws the pane's surfaces over its terminal, in the box the
 // terminal's view fills.
 func (a *App) surfaces(c *ui.Context, k *colors, t *Tab, p *Pane) {
@@ -85,7 +81,7 @@ func (a *App) surfaces(c *ui.Context, k *colors, t *Tab, p *Pane) {
 // the box it is in.
 func (a *App) screenSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface) {
 	a.tspOverlays = a.tspOverlays[:0]
-	s := ui.Scroll(c.Key("tsp-"+sf.ID)).Absolute().Fill().Background(k.bgBottom).Padding(12, 16).Font(tspFont)
+	s := ui.Scroll(c.Key("tsp-"+sf.ID)).Absolute().Fill().Background(k.bgBottom).Padding(12, 16).Font(a.tspLook().font)
 	s.Children(func() { a.surfaceContent(c, k, t, p, sf, false) })
 	if s.Pressed() {
 		a.surfacePressed(t, p)
@@ -124,7 +120,7 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 		}
 	}
 	cut := headless || most > 0 && p.tspNeed[sf.Image] > most
-	box := ui.Box(c.Key(fmt.Sprintf("tsp-%d", sf.Image))).Absolute().Left(pl.Rect.X).Top(pl.Rect.Y).Right(tspAside(p, sf, pl)).Background(k.bgBottom).Font(tspFont)
+	box := ui.Box(c.Key(fmt.Sprintf("tsp-%d", sf.Image))).Absolute().Left(pl.Rect.X).Top(pl.Rect.Y).Right(tspAside(p, sf, pl)).Background(k.bgBottom).Font(a.tspLook().font)
 	switch {
 	case sf.Closed:
 		box.Height(cell * float32(sf.Rows))
@@ -245,16 +241,17 @@ func tspDocked(sf *rex.Surface) bool {
 // types whatever part of the output they look at; the surface keeps a
 // space as tall in its place, so that at the bottom the dock is where
 // it would be. As Tern draws it, it floats over the output: centered,
-// no wider than tspDockWidth, with no band of its own behind it.
+// no wider than the OMP settings' composer width, with no band of its
+// own behind it.
 func (a *App) surfaceDock(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, dock *rex.TSPNode, x float32) {
 	// The pinned strip passes the pointer through beside the dock, to the
 	// output under it.
 	pinned := ui.Column(c.Key(fmt.Sprintf("tsp-dock-%d", sf.Image))).Absolute().Left(x).Right(p.term.ScrollbarStrip()).Bottom(0).
-		Padding(tspDockPadTop, 16, tspDockPadBottom, 16).AlignItems(ui.Center).Font(tspFont).PassThrough()
+		Padding(tspDockPadTop, 16, tspDockPadBottom, 16).AlignItems(ui.Center).Font(a.tspLook().font).PassThrough()
 	term := p.term
 	var inner ui.Element
 	pinned.Children(func() {
-		inner = ui.Column(c).Gap(8).FillWidth().MaxWidth(tspDockWidth).Children(func() {
+		inner = ui.Column(c).Gap(a.tspGap(8)).FillWidth().MaxWidth(a.tspLook().dockW).Children(func() {
 			a.tspPinned = true
 			for _, ch := range dock.Children {
 				a.tspNode(c, k, t, p, sf, ch)
@@ -279,9 +276,8 @@ func (a *App) surfaceDock(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Sur
 	}
 }
 
-// The dock's width at most, and the room around it, in DIPs.
+// The room around the dock, in DIPs.
 const (
-	tspDockWidth     = 800
 	tspDockPadTop    = 6
 	tspDockPadBottom = 10
 )
@@ -303,6 +299,8 @@ func (a *App) tspComposer(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *
 		}
 	}
 	col := ui.Column(key).FillWidth()
+	// Its fields' popups open above it (tspOverlayAt).
+	p.tspCard = col.Bounds()
 	col.Children(func() {
 		var labels ui.Element
 		if meter != nil {
@@ -350,12 +348,12 @@ func (a *App) tspEdgeLabels(c *ui.Context, k *colors, n *rex.TSPNode) ui.Element
 	row.Children(func() {
 		ui.Row(c).Grow(float32(value)).Basis(0).MinWidth(0).Justify(ui.End).Children(func() {
 			if label != "" {
-				ui.Text(c, label).FontSize(10.5).TextColor(k.textFaint).SingleLine()
+				ui.Text(c, label).FontSize(a.tspText(10.5)).TextColor(k.textFaint).SingleLine()
 			}
 		})
 		ui.Row(c).Grow(float32(1 - value)).Basis(0).MinWidth(0).Justify(ui.End).Children(func() {
 			if total != "" {
-				ui.Text(c, total).FontSize(10.5).TextColor(k.textFaint).SingleLine()
+				ui.Text(c, total).FontSize(a.tspText(10.5)).TextColor(k.textFaint).SingleLine()
 			}
 		})
 	})
@@ -376,7 +374,7 @@ func (a *App) tspEdgeLine(c *ui.Context, k *colors, n *rex.TSPNode, running bool
 	fill := tspMeterFill(k, n)
 	line := ui.Box(c.Key("edge-line")).Height(2)
 	var sweep float32 = -1
-	if running && has && value > 0 {
+	if running && has && value > 0 && a.tspMotion() {
 		sweep = line.Loop("sweep", tspEdgeSweep, ui.EaseInOut)
 	}
 	line.Draw(func(pt *ui.Painter, r ui.Rect) {
@@ -445,7 +443,7 @@ func (a *App) tspComposerBar(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.
 		if dir != "" && role != "omp.composer.model" && role != "omp.composer.effort" && role != "omp.composer.rate" {
 			ui.Row(c.Key("cwd")).Gap(5).AlignItems(ui.Center).Shrink(0).Tooltip(p.info.Dir).Children(func() {
 				ui.Icon(c, icon("folder")).Size(13, 13).TextColor(k.textMuted)
-				ui.Text(c, dir).Font(a.editorFont().Family).FontSize(12).TextColor(k.textMuted).SingleLine()
+				ui.Text(c, dir).Font(a.tspLook().mono).FontFeatures(a.tspLook().monoFeatures...).FontSize(a.tspCode(12)).TextColor(k.textMuted).SingleLine()
 			})
 			dir = ""
 		}
@@ -480,7 +478,7 @@ func (a *App) tspChecklist(c *ui.Context, key *ui.Context, k *colors, n *rex.TSP
 					case "blocked":
 						glyph, color = "⊗", k.attention
 					}
-					ui.Text(c, glyph).FontSize(13).TextColor(color)
+					ui.Text(c, glyph).FontSize(a.tspText(13)).TextColor(color)
 					t := a.tspRich(c, k, it["text"], 13, false)
 					if status == "done" || status == "dropped" {
 						t.TextColor(k.textMuted)
@@ -555,7 +553,7 @@ func (a *App) tspChecklistPill(c *ui.Context, key *ui.Context, k *colors, p *Pan
 		if current != nil {
 			a.tspRich(c, k, current, 12.5, false).TextColor(k.text).SingleLine().MinWidth(0)
 		}
-		ui.Text(c, fmt.Sprintf("%d/%d", done, total)).FontSize(12).TextColor(k.textMuted).SingleLine().Shrink(0)
+		ui.Text(c, fmt.Sprintf("%d/%d", done, total)).FontSize(a.tspText(12)).TextColor(k.textMuted).SingleLine().Shrink(0)
 	})
 	if pill.Clicked() {
 		*open = !*open
@@ -597,7 +595,12 @@ func tspBlank(n *rex.TSPNode) bool {
 // the focus in an inline surface's text, Page Up and Page Down, Home and
 // End scroll the terminal it is drawn among, as over the terminal.
 func (a *App) surfaceContent(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, pin bool) ui.Element {
-	content := ui.Column(c).FillWidth().Gap(8)
+	content := ui.Column(c).FillWidth().Gap(a.tspGap(8))
+	if w := a.tspLook().msgW; w > 0 {
+		// The transcript no wider than the setting, centered in the
+		// pane as the dock is.
+		content.MaxWidth(w).AlignSelf(ui.Center)
+	}
 	content.Children(func() {
 		if sf.Root == nil {
 			return
@@ -675,7 +678,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 			el = a.tspComposer(c, key, k, t, p, sf, n)
 			break
 		}
-		col := ui.Column(key).Gap(8)
+		col := ui.Column(key).Gap(a.tspGap(8))
 		if a.tspPinned && role == "omp.hud.status" {
 			// The working rows, beside the todo HUD on their line.
 			col.Grow(1).MinWidth(0)
@@ -728,9 +731,9 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		status, _ := n.Props["status"].(string)
 		variant, _ := n.Props["variant"].(string)
 		head, body, collapsed := a.tspFold(p, sf, n)
-		card := ui.Column(key).Gap(10).FillWidth()
+		card := ui.Column(key).Gap(a.tspGap(10)).FillWidth()
 		if variant != "bare" && a.tspFlat == 0 {
-			card.Radius(cardR).Background(k.card).Border(1, k.cardBorder).Padding(12, 14)
+			card.Radius(cardR).Background(k.card).Border(1, k.cardBorder).Padding(a.tspGap(12), a.tspGap(14))
 			if tone, _ := n.Props["tone"].(string); tone != "" {
 				if bg, ok := a.toneBg(k, tone); ok {
 					card.Background(bg)
@@ -767,7 +770,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		el = card
 	case "section":
 		head, body, collapsed := a.tspFold(p, sf, n)
-		sec := ui.Column(key).Gap(8).FillWidth()
+		sec := ui.Column(key).Gap(a.tspGap(8)).FillWidth()
 		sec.Children(func() {
 			h := ui.Row(c).Gap(6).AlignItems(ui.Center).FillWidth()
 			if collapsible, _ := n.Props["collapsible"].(bool); collapsible {
@@ -779,7 +782,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 					if collapsed {
 						glyph = "▸"
 					}
-					ui.Text(c, glyph).FontSize(12).TextColor(k.textMuted)
+					ui.Text(c, glyph).FontSize(a.tspText(12)).TextColor(k.textMuted)
 				}
 				if head != nil {
 					a.tspHead = true
@@ -810,7 +813,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		if spans, ok := n.Props["spans"]; ok {
 			el = a.tspRich(c, k, spans, 13, false)
 		} else {
-			el = ui.Text(c, text).FontSize(13).TextColor(k.text)
+			el = ui.Text(c, text).FontSize(a.tspText(13)).TextColor(k.text)
 		}
 		// Kept on one line: whole, or cut with an ellipsis.
 		if truncate, _ := n.Props["truncate"].(string); truncate != "" {
@@ -822,10 +825,17 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 			el.Selectable()
 		}
 	case "md":
+		look := a.tspLook()
 		box := ui.Box(key).FillWidth()
 		box.Children(func() {
 			markdown.View(c, text, &markdown.Options{
-				Theme: &markdown.Theme{Text: k.text, Muted: k.textMuted, Link: k.busy, CodeFont: a.editorFont().Family},
+				Theme: &markdown.Theme{
+					Text: k.text, Muted: k.textMuted, Link: k.busy,
+					// The surfaces' text and code, by the OMP settings: the
+					// body at 14 by default, code in ems of it.
+					Font: look.font, FontSize: a.tspText(14), LineHeight: look.lineHeight,
+					CodeFont: look.mono, CodeSize: a.tspCode(12) / a.tspText(14), BlockSpacing: 0.75 * look.gap,
+				},
 				// Charts come as SVG: drawn in the theme's colors with
 				// their labels, once the block is whole.
 				Code: map[string]func(*ui.Context, *markdown.CodeBlockView){"svg": func(c *ui.Context, b *markdown.CodeBlockView) {
@@ -846,7 +856,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 	case "badge":
 		b := ui.Box(key).Radius(6).Background(k.hover).Padding(3, 10)
 		b.Children(func() {
-			ui.Text(c, text).FontSize(12).TextColor(k.text)
+			ui.Text(c, text).FontSize(a.tspText(12)).TextColor(k.text)
 		})
 		el = b
 	case "kv":
@@ -931,14 +941,14 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 				if label == "" {
 					label = lang
 				}
-				ui.Text(c, label).FontSize(11).TextColor(k.textMuted).Padding(4, 10, 0, 10)
+				ui.Text(c, label).FontSize(a.tspText(11)).TextColor(k.textMuted).Padding(4, 10, 0, 10)
 			}
 			body := ui.ScrollHorizontal(c).FillWidth().Padding(8, 10)
 			if wrap, _ := n.Props["wrap"].(bool); wrap {
 				body = ui.Box(c).FillWidth().Padding(8, 10)
 			}
 			body.Children(func() {
-				ui.Text(c, text).Font(a.editorFont().Family).FontSize(12).TextColor(k.text).NoWrap().Selectable()
+				ui.Text(c, text).Font(a.tspLook().mono).FontFeatures(a.tspLook().monoFeatures...).FontSize(a.tspCode(12)).TextColor(k.text).NoWrap().Selectable()
 			})
 		})
 		el = block
@@ -965,7 +975,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		block := ui.Column(key).Radius(6).Background(k.bgLow).Border(1, k.cardBorder).FillWidth().Clip()
 		block.Children(func() {
 			if path != "" {
-				ui.Text(c, path).FontSize(11).TextColor(k.textMuted).Padding(4, 10, 0, 10)
+				ui.Text(c, path).FontSize(a.tspText(11)).TextColor(k.textMuted).Padding(4, 10, 0, 10)
 			}
 			body := ui.ScrollHorizontal(c).FillWidth().Padding(6, 0)
 			body.Children(func() {
@@ -985,7 +995,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 							row.Background(k.attention.Alpha(0.1))
 						}
 						row.Children(func() {
-							ui.Text(c, l).Font(a.editorFont().Family).FontSize(12).TextColor(color).NoWrap().Selectable()
+							ui.Text(c, l).Font(a.tspLook().mono).FontFeatures(a.tspLook().monoFeatures...).FontSize(a.tspCode(12)).TextColor(color).NoWrap().Selectable()
 						})
 					}
 				})
@@ -1004,20 +1014,20 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		ag.Children(func() {
 			h := ui.Row(c).Gap(8).AlignItems(ui.Center).FillWidth().Unselectable()
 			h.Children(func() {
-				ui.Text(c, name).FontSize(13).Bold().TextColor(k.text)
+				ui.Text(c, name).FontSize(a.tspText(13)).Bold().TextColor(k.text)
 				if kind != "" {
-					ui.Text(c, kind).FontSize(12).TextColor(k.textMuted)
+					ui.Text(c, kind).FontSize(a.tspText(12)).TextColor(k.textMuted)
 				}
 				if badges, _ := n.Props["badges"].([]any); len(badges) > 0 {
 					for i, b := range badges {
 						b, _ := b.(map[string]any)
 						t, _ := b["text"].(string)
-						ui.Text(c.Key(i), t).FontSize(11).TextColor(k.textMuted).Padding(1, 6).Radius(4).Background(k.hover)
+						ui.Text(c.Key(i), t).FontSize(a.tspText(11)).TextColor(k.textMuted).Padding(1, 6).Radius(4).Background(k.hover)
 					}
 				}
 				ui.Box(c).Grow(1)
 				if model != "" {
-					ui.Text(c, model).FontSize(11).TextColor(k.textMuted)
+					ui.Text(c, model).FontSize(a.tspText(11)).TextColor(k.textMuted)
 				}
 				if st, ok := n.Props["stats"].(map[string]any); ok {
 					var parts []string
@@ -1028,7 +1038,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 						parts = append(parts, fmt.Sprintf("$%.2f", cost))
 					}
 					if len(parts) > 0 {
-						ui.Text(c, strings.Join(parts, " · ")).FontSize(11).TextColor(k.textMuted)
+						ui.Text(c, strings.Join(parts, " · ")).FontSize(a.tspText(11)).TextColor(k.textMuted)
 					}
 				}
 				if status != "" {
@@ -1050,9 +1060,9 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		sub, _ := n.Props["sub"].(string)
 		toast := ui.Column(key).Gap(2).Padding(6, 10).Radius(6).Background(k.panel).Border(1, k.panelBorder)
 		toast.Children(func() {
-			ui.Text(c, text).FontSize(12).TextColor(k.text)
+			ui.Text(c, text).FontSize(a.tspText(12)).TextColor(k.text)
 			if sub != "" {
-				ui.Text(c, sub).FontSize(11).TextColor(k.textMuted)
+				ui.Text(c, sub).FontSize(a.tspText(11)).TextColor(k.textMuted)
 			}
 		})
 		el = toast
@@ -1085,13 +1095,13 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 			// omp's working glyph, as Tern draws it: a star that
 			// turns through its points; still with less motion.
 			frame = 3
-			if !a.reduceMotion && !sf.Closed {
+			if a.tspMotion() && !sf.Closed {
 				frame = int(sp.Loop("starburst", time.Duration(len(tspStarburst))*120*time.Millisecond, ui.Linear)*float32(len(tspStarburst))) % len(tspStarburst)
 			}
 		}
 		sp.Children(func() {
 			if frame >= 0 {
-				ui.Text(c, tspStarburst[frame]).FontSize(15).TextColor(k.busy).Width(15).Shrink(0)
+				ui.Text(c, tspStarburst[frame]).FontSize(a.tspText(15)).TextColor(k.busy).Width(a.tspText(15)).Shrink(0)
 			} else {
 				activityDot(c, k.busy, 8)
 			}
@@ -1150,7 +1160,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 				}
 			})
 			if label != "" {
-				ui.Text(c, label).FontSize(11).TextColor(k.textMuted)
+				ui.Text(c, label).FontSize(a.tspText(11)).TextColor(k.textMuted)
 			}
 		})
 		el = meter
@@ -1200,7 +1210,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		}
 		img := ui.Box(key).Radius(6).Background(k.hover).Padding(6, 12)
 		img.Children(func() {
-			ui.Text(c, alt).FontSize(16).Bold().TextColor(k.text)
+			ui.Text(c, alt).FontSize(a.tspText(16)).Bold().TextColor(k.text)
 		})
 		el = img
 	case "elapsed":
@@ -1211,7 +1221,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		if s, ok := n.Props["stopped"].(float64); ok {
 			stopped = &s
 		}
-		el = ui.Text(c, elapsedText(a.liveMS(c, p, sf, n.ID, age, stopped)/1000)).FontSize(12).TextColor(k.textMuted)
+		el = ui.Text(c, elapsedText(a.liveMS(c, p, sf, n.ID, age, stopped)/1000)).FontSize(a.tspText(12)).TextColor(k.textMuted)
 	case "media":
 		el = a.tspMedia(c, key, k, p, n)
 	case "tabs":
@@ -1249,13 +1259,13 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 	case "rate":
 		value, _ := n.Props["value"].(float64)
 		unit, _ := n.Props["unit"].(string)
-		el = ui.Text(c, fmt.Sprintf("%.1f %s", value, unit)).FontSize(12).TextColor(k.textMuted).SingleLine().Shrink(0)
+		el = ui.Text(c, fmt.Sprintf("%.1f %s", value, unit)).FontSize(a.tspText(12)).TextColor(k.textMuted).SingleLine().Shrink(0)
 	case "ansi":
 		// A program's terminal output in its colors (the terminal's
 		// palette), cut to the preview it asks for.
 		th := a.ansiPalette()
-		font := a.editorFont().Family
-		lines := ansiLines(ansiSpans(text, ui.Span{Font: font, Size: 12, Color: k.text}, &th.Palette, k.bgLow))
+		font := a.tspLook().mono
+		lines := ansiLines(ansiSpans(text, ui.Span{Font: font, Size: a.tspCode(12), Color: k.text}, &th.Palette, k.bgLow))
 		for len(lines) > 1 && len(lines[len(lines)-1]) == 0 {
 			lines = lines[:len(lines)-1]
 		}
@@ -1270,17 +1280,17 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		var spans []ui.Span
 		for i, line := range lines {
 			if i > 0 {
-				spans = append(spans, ui.Span{Text: "\n", Font: font, Size: 12})
+				spans = append(spans, ui.Span{Text: "\n", Font: font, Size: a.tspCode(12)})
 			}
 			spans = append(spans, line...)
 		}
 		block := ui.Column(key).Radius(6).Background(k.bgLow).FillWidth().Padding(6, 10).Clip()
 		block.Children(func() {
 			if len(spans) > 0 {
-				ui.RichText(c, spans...).NoWrap().Selectable()
+				ui.RichText(c, spans...).FontFeatures(a.tspLook().monoFeatures...).NoWrap().Selectable()
 			}
 			if more > 0 {
-				ui.Text(c, fmt.Sprintf("… %d more lines", more)).FontSize(11).TextColor(k.textMuted)
+				ui.Text(c, fmt.Sprintf("… %d more lines", more)).FontSize(a.tspText(11)).TextColor(k.textMuted)
 			}
 		})
 		el = block
@@ -1302,7 +1312,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 	a.revealed(p, sf, n, el)
 	if p.tspAnchorWant[n.ID] {
 		// An overlay is anchored at it (overlayAnchor).
-		p.tspAnchorAt[n.ID] = tspAnchorBox{el.Bounds(), n.Kind}
+		p.tspAnchorAt[n.ID] = tspAnchorBox{el.Bounds(), n.Kind, a.tspPinned}
 	}
 	if grow, _ := n.Props["grow"].(float64); grow > 0 {
 		el.Grow(float32(grow))
@@ -1364,7 +1374,7 @@ func (a *App) tspChildren(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Sur
 func (a *App) tspRich(c *ui.Context, k *colors, v any, size float32, bold bool) ui.Element {
 	switch v := v.(type) {
 	case string:
-		t := ui.Text(c, v).FontSize(size).TextColor(k.text)
+		t := ui.Text(c, v).FontSize(a.tspText(size)).TextColor(k.text)
 		if bold {
 			t.Bold()
 		}
@@ -1375,7 +1385,7 @@ func (a *App) tspRich(c *ui.Context, k *colors, v any, size float32, bold bool) 
 			m, _ := s.(map[string]any)
 			text, _ := m["t"].(string)
 			style, _ := m["s"].(string)
-			sp := ui.Span{Text: text, Size: size, Color: k.text}
+			sp := ui.Span{Text: text, Size: a.tspText(size), Color: k.text}
 			if bold {
 				sp.Weight = 600
 			}
@@ -1394,7 +1404,7 @@ func (a *App) tspRich(c *ui.Context, k *colors, v any, size float32, bold bool) 
 					// Glyphs of the Nerd Fonts, which GoRex bundles.
 					sp.Font = symbolsFont
 				case "code", "mono", "path", "key", "num":
-					sp.Font = a.editorFont().Family
+					sp.Font = a.tspLook().mono
 				case "del":
 					sp.Strikethrough = true
 				case "ins":
@@ -1413,7 +1423,7 @@ func (a *App) tspRich(c *ui.Context, k *colors, v any, size float32, bold bool) 
 		}
 		return ui.RichText(c, spans...)
 	}
-	return ui.Text(c, "").FontSize(size)
+	return ui.Text(c, "").FontSize(a.tspText(size))
 }
 
 // tspKeys draws key caps, as a hint of what a key does.
@@ -1424,7 +1434,7 @@ func (a *App) tspKeys(c *ui.Context, k *colors, keys []any) ui.Element {
 			s, _ := key.(string)
 			cap := ui.Box(c.Key(i)).Radius(4).Background(k.bgLow).Border(1, k.cardBorder).Padding(1, 5)
 			cap.Children(func() {
-				ui.Text(c, s).FontSize(11).TextColor(k.textMuted)
+				ui.Text(c, s).FontSize(a.tspText(11)).TextColor(k.textMuted)
 			})
 		}
 	})
@@ -1455,7 +1465,7 @@ func (a *App) tspIcon(c *ui.Context, k *colors, name string) ui.Element {
 	if glyph == "" {
 		glyph = "•"
 	}
-	return ui.Text(c, glyph).FontSize(13).TextColor(k.textMuted)
+	return ui.Text(c, glyph).FontSize(a.tspText(13)).TextColor(k.textMuted)
 }
 
 // tspTable draws a table: its columns' heads, then its rows' cells by
@@ -1534,7 +1544,7 @@ func (a *App) tspStatus(c *ui.Context, k *colors, status string) {
 		if status == "running" {
 			activityDot(c, color, 8)
 		}
-		ui.Text(c, fmt.Sprint(status)).FontSize(11).TextColor(color)
+		ui.Text(c, fmt.Sprint(status)).FontSize(a.tspText(11)).TextColor(color)
 	})
 }
 
@@ -1644,7 +1654,7 @@ func (a *App) surfaceOverlays(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex
 		// anchor centers it.
 		at, _ := ov.Props["anchor"].(map[string]any)
 		anchored := at["node"] != nil || at["caret"] != nil
-		var near ui.Rect
+		var near tspAnchorBox
 		if anchored {
 			var ok bool
 			if near, ok = a.overlayAnchor(p, at); !ok {
@@ -1656,7 +1666,7 @@ func (a *App) surfaceOverlays(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex
 			width = 60
 		}
 		panel := ui.Scroll(c.Key("tsp-ov-"+ov.ID)).Absolute().MaxHeightPercent(85).
-			Radius(cardR).Background(k.panel).Border(1, k.panelBorder).Padding(12, 14).Font(tspFont)
+			Radius(cardR).Background(k.panel).Border(1, k.panelBorder).Padding(12, 14).Font(a.tspLook().font)
 		if anchored {
 			a.tspOverlayAt(panel, p, at, near, size)
 		} else {
@@ -1686,24 +1696,26 @@ func (a *App) surfaceOverlays(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex
 }
 
 // tspAnchorBox is where a node an overlay is anchored at was drawn, and
-// its kind: a caret anchor needs a field.
+// its kind: a caret anchor needs a field; dock tells one drawn in the
+// pinned dock, as the composer's field.
 type tspAnchorBox struct {
 	r    ui.Rect
 	kind string
+	dock bool
 }
 
 // overlayAnchor returns where the node an anchored overlay names was
 // drawn ({node} or {caret}), as the nodes drew this frame (tspNode
 // records those the overlays named the frame before); false while it
 // is not drawn, or names no field for a caret.
-func (a *App) overlayAnchor(p *Pane, at map[string]any) (ui.Rect, bool) {
+func (a *App) overlayAnchor(p *Pane, at map[string]any) (tspAnchorBox, bool) {
 	caret, _ := at["caret"].(string)
 	id := caret
 	if id == "" {
 		id, _ = at["node"].(string)
 	}
 	if id == "" {
-		return ui.Rect{}, false
+		return tspAnchorBox{}, false
 	}
 	if p.tspAnchorNext == nil {
 		p.tspAnchorNext = map[string]bool{}
@@ -1711,18 +1723,20 @@ func (a *App) overlayAnchor(p *Pane, at map[string]any) (ui.Rect, bool) {
 	p.tspAnchorNext[id] = true
 	box, ok := p.tspAnchorAt[id]
 	if !ok || box.r.W <= 0 || caret != "" && box.kind != "editor" && box.kind != "input" {
-		return ui.Rect{}, false
+		return tspAnchorBox{}, false
 	}
-	return box.r, true
+	return box, true
 }
 
 // tspOverlayAt places an anchored overlay beside what it is anchored at
-// (near, in the window): under a node, or above it with side above,
-// left-aligned with it; under a field, 10 DIPs left of it. It goes to
-// the other side when it does not fit and that side has more room, and
-// is kept 8 DIPs inside the pane, its height capped to the room it has.
-// Its width is the size's: sm 320, md 480, lg 720; full fills the pane.
-func (a *App) tspOverlayAt(panel ui.Element, p *Pane, at map[string]any, near ui.Rect, size string) {
+// (near, in the window). One of a field in the dock, as omp's slash
+// commands at the composer's caret, opens above the composer, as wide
+// as it, as Tern's do. Any other goes under the node, or above it with
+// side above (tspOverlayDown), left-aligned with it; under a field, 10
+// DIPs left of it; kept 8 DIPs inside the pane, its height capped to
+// the room it has. Its width is the size's: sm 320, md 480, lg 720;
+// full fills the pane.
+func (a *App) tspOverlayAt(panel ui.Element, p *Pane, at map[string]any, near tspAnchorBox, size string) {
 	host := p.hostBounds
 	// Clear of the terminal's scroll bar at the right edge.
 	strip := p.term.ScrollbarStrip()
@@ -1730,30 +1744,49 @@ func (a *App) tspOverlayAt(panel ui.Element, p *Pane, at map[string]any, near ui
 		panel.Left(8).Right(8 + strip).Top(8).Bottom(8)
 		return
 	}
+	if _, caret := at["caret"]; caret && near.dock && p.tspCard.W > 0 {
+		card := p.tspCard
+		panel.Left(card.X - host.X).Width(card.W).Bottom(host.Y + host.H - card.Y + 6).MaxHeight(max(card.Y-host.Y-14, 40))
+		return
+	}
 	w := map[string]float32{"md": 480, "lg": 720}[size]
 	if w == 0 {
 		w = 320
 	}
 	w = max(min(w, host.W-16-strip), 0)
-	x := near.X - host.X
+	r := near.r
+	x := r.X - host.X
 	if _, caret := at["caret"]; caret {
 		x -= 10
 	}
 	x = max(8, min(x, host.W-w-8-strip))
 	panel.Left(x).Width(w)
-	below := host.Y + host.H - (near.Y + near.H) - 12
-	above := near.Y - host.Y - 12
-	h := panel.Bounds().H
+	below := host.Y + host.H - (r.Y + r.H) - 12
+	above := r.Y - host.Y - 12
 	side, _ := at["side"].(string)
-	down := side != "above"
-	if down && h > below && above > below || !down && h > above && below > above {
+	if tspOverlayDown(side == "above", below, above, panel.Bounds().H) {
+		panel.Top(r.Y + r.H - host.Y + 4).MaxHeight(max(below, 40))
+	} else {
+		panel.Bottom(host.Y + host.H - r.Y + 4).MaxHeight(max(above, 40))
+	}
+}
+
+// tspOverlayRoom is the room an anchored overlay needs on its side at
+// least, below which it goes to the other side when that has more.
+const tspOverlayRoom = 200
+
+// tspOverlayDown reports whether an anchored overlay goes under what it
+// is anchored at: the side asked for (under, unless above), but for the
+// other when the asked side has less room than the overlay needs (its
+// height last frame, and tspOverlayRoom at least, as the height a cap
+// left it would never tell) and the other has more.
+func tspOverlayDown(above bool, below, aboveRoom, h float32) bool {
+	need := max(h, tspOverlayRoom)
+	down := !above
+	if down && below < need && aboveRoom > below || !down && aboveRoom < need && below > aboveRoom {
 		down = !down
 	}
-	if down {
-		panel.Top(near.Y + near.H - host.Y + 4).MaxHeight(max(below, 40))
-	} else {
-		panel.Bottom(host.Y + host.H - near.Y + 4).MaxHeight(max(above, 40))
-	}
+	return down
 }
 
 // tspChart draws a chart: a bars or spark chart as a bar for each point
@@ -1785,12 +1818,12 @@ func (a *App) tspChart(c *ui.Context, k *colors, key *ui.Context, n *rex.TSPNode
 				}
 				row := ui.Row(c.Key(i)).Gap(8).AlignItems(ui.Center).FillWidth()
 				row.Children(func() {
-					ui.Text(c, label).FontSize(12).TextColor(k.textMuted).Width(140).NoWrap()
+					ui.Text(c, label).FontSize(a.tspText(12)).TextColor(k.textMuted).Width(140).NoWrap()
 					track := ui.Box(c).Height(10).Grow(1).Radius(2).Clip()
 					track.Children(func() {
 						ui.Box(c).WidthPercent(frac * 100).Height(10).Background(k.busy)
 					})
-					ui.Text(c, strconv.FormatFloat(v, 'g', 6, 64)).FontSize(12).TextColor(k.textMuted).Width(70)
+					ui.Text(c, strconv.FormatFloat(v, 'g', 6, 64)).FontSize(a.tspText(12)).TextColor(k.textMuted).Width(70)
 				})
 				if title, _ := pt["title"].(string); title != "" {
 					row.Tooltip(title)
@@ -1805,7 +1838,7 @@ func (a *App) tspChart(c *ui.Context, k *colors, key *ui.Context, n *rex.TSPNode
 				row.Children(func() {
 					if i < len(labels) {
 						l, _ := labels[i].(string)
-						ui.Text(c, l).FontSize(11).TextColor(k.textMuted).Width(60).NoWrap()
+						ui.Text(c, l).FontSize(a.tspText(11)).TextColor(k.textMuted).Width(60).NoWrap()
 					}
 					for j, v := range r {
 						cell := ui.Box(c.Key(j)).Size(12, 12).Radius(2).Background(k.track)
@@ -1834,7 +1867,7 @@ func (a *App) surfaceZoom(c *ui.Context, k *colors, t *Tab, p *Pane) {
 	w, h := bm.Size()
 	open := false
 	view := ui.Column(c.Key("tsp-zoom")).Absolute().Fill().Background(ui.RGBA(0, 0, 0, 0.75)).
-		Center().Gap(8).Padding(16).Focusable().FocusRing(false).Focus().Font(tspFont)
+		Center().Gap(8).Padding(16).Focusable().FocusRing(false).Focus().Font(a.tspLook().font)
 	view.Children(func() {
 		ui.Image(c, bm).MaxWidthPercent(100).MaxHeightPercent(90)
 		ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
@@ -1842,7 +1875,7 @@ func (a *App) surfaceZoom(c *ui.Context, k *colors, t *Tab, p *Pane) {
 			if a.tspZoomAlt != "" {
 				caption = a.tspZoomAlt + "  " + caption
 			}
-			ui.Text(c, caption).FontSize(12).TextColor(ui.RGB(230, 230, 230))
+			ui.Text(c, caption).FontSize(a.tspText(12)).TextColor(ui.RGB(230, 230, 230))
 			if a.tspZoomPath != "" {
 				open = textButton(c, k, "Open file").Tooltip(a.tspZoomPath).Clicked()
 			}

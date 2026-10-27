@@ -106,8 +106,8 @@ func (a *App) tspMedia(c *ui.Context, key *ui.Context, k *colors, p *Pane, n *re
 	if !f.loaded {
 		box := ui.Row(key).Gap(8).Padding(6, 12).Radius(6).Background(k.hover).AlignItems(ui.Center).AlignSelf(ui.Start)
 		box.Children(func() {
-			ui.Text(c, mediaGlyph(kind)).Font(symbolsFont).FontSize(15).TextColor(k.textMuted)
-			ui.Text(c, "Loading "+baseName(file)+"…").FontSize(12).TextColor(k.textMuted)
+			ui.Text(c, mediaGlyph(kind)).Font(symbolsFont).FontSize(a.tspText(15)).TextColor(k.textMuted)
+			ui.Text(c, "Loading "+baseName(file)+"…").FontSize(a.tspText(12)).TextColor(k.textMuted)
 		})
 		return box
 	}
@@ -176,13 +176,13 @@ func (a *App) mediaCard(c *ui.Context, key *ui.Context, k *colors, p *Pane, file
 		if kind == "missing" {
 			color = k.attention
 		}
-		ui.Text(c, mediaGlyph(kind)).Font(symbolsFont).FontSize(20).TextColor(color).Shrink(0)
+		ui.Text(c, mediaGlyph(kind)).Font(symbolsFont).FontSize(a.tspText(20)).TextColor(color).Shrink(0)
 		info := ui.Column(c).Gap(2).Shrink(1).MinWidth(0)
 		info.Children(func() {
 			if file != "" {
-				ui.Text(c, baseName(file)).FontSize(13).Bold().TextColor(k.text).NoWrap()
+				ui.Text(c, baseName(file)).FontSize(a.tspText(13)).Bold().TextColor(k.text).NoWrap()
 			}
-			d := ui.Text(c, detail).FontSize(12).TextColor(k.textMuted)
+			d := ui.Text(c, detail).FontSize(a.tspText(12)).TextColor(k.textMuted)
 			if warn {
 				d.TextColor(k.attention)
 			}

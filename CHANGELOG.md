@@ -20,6 +20,22 @@ refuses a version already published.
 - Text a program prints under its open surface, where it is to print
   nothing, is erased: the ends of its lines showed beside the surface, in
   the strip kept clear for the scroll bar.
+- Settings have an OMP Settings page, for programs that speak the Tern
+  Surface Protocol, such as omp: the protocol's switch (moved from the
+  Terminal page, and now a Default for every host as well as a host's
+  own), the font, size and line height of their text, the font, size and
+  ligatures of their code (commands and output, diffs, code blocks,
+  paths), which follow the terminal's until set, the composer's and the
+  messages' widths at most, the spacing, and whether the working
+  indicators move. A host's switch set on the Terminal page carries over.
+- omp's slash commands and other lists at its composer's caret open
+  above the composer, as wide as it: they were squeezed under the input,
+  inside the composer. A list anchored elsewhere goes to the side with
+  room when its own has too little.
+- In omp's composer, Ctrl+C goes to omp unless text is selected there
+  (and Ctrl+C copies a selection, as the terminal's setting says), so
+  pressing it twice exits; Alt with a letter or digit goes to omp too, so
+  Alt+P switches the model. On macOS, Option does so with Option as Alt.
 
 ## 0.1.5
 

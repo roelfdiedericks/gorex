@@ -82,7 +82,7 @@ func (a *App) tspEffort(c *ui.Context, key *ui.Context, k *colors, sf *rex.Surfa
 	} else if c, ok := a.spanColor(k, lv.tone); ok {
 		arc = c
 	}
-	still := a.reduceMotion || sf.Closed
+	still := !a.tspMotion() || sf.Closed
 	track := k.textFaint.Alpha(0.45)
 	fire, fireHi := arc.Mix(ui.Hex("#ff6a1a"), 0.5), ui.Hex("#ffc24a")
 	el := ui.Box(key).Size(16, 16).Shrink(0).Tooltip("Thinking effort: " + level)
@@ -127,7 +127,7 @@ func (a *App) tspEffort(c *ui.Context, key *ui.Context, k *colors, sf *rex.Surfa
 // the high one and back through the middle, a little after the one
 // before (the protocol's sf-sh: 2.25s in 7 steps, 45ms apart), the
 // classic mode restarting from the left, kitt bouncing back. Less motion,
-// or a kept surface, shows the plain text.
+// the OMP settings' motion off, or a kept surface, shows the plain text.
 func (a *App) tspShimmer(c *ui.Context, key *ui.Context, k *colors, sf *rex.Surface, n *rex.TSPNode) ui.Element {
 	var spans []ui.Span
 	switch v := n.Props["spans"].(type) {
@@ -136,7 +136,7 @@ func (a *App) tspShimmer(c *ui.Context, key *ui.Context, k *colors, sf *rex.Surf
 			m, _ := s.(map[string]any)
 			text, _ := m["t"].(string)
 			style, _ := m["s"].(string)
-			sp := ui.Span{Text: text, Size: 13, Color: k.text}
+			sp := ui.Span{Text: text, Size: a.tspText(13), Color: k.text}
 			for _, tok := range strings.Fields(style) {
 				switch tok {
 				case "strong":
@@ -149,11 +149,11 @@ func (a *App) tspShimmer(c *ui.Context, key *ui.Context, k *colors, sf *rex.Surf
 		}
 	default:
 		text, _ := n.Props["text"].(string)
-		spans = []ui.Span{{Text: text, Size: 13, Color: k.text}}
+		spans = []ui.Span{{Text: text, Size: a.tspText(13), Color: k.text}}
 	}
 	// A label sweeps; a long text, a span a character each frame after
 	// frame, would cost more than it shows: it stays still.
-	if a.reduceMotion || sf.Closed || len(shimmerText(spans)) > tspShimmerMax {
+	if !a.tspMotion() || sf.Closed || len(shimmerText(spans)) > tspShimmerMax {
 		return ui.RichText(key, spans...)
 	}
 	lo, mid, hi := k.textFaint, k.textMuted, k.text
@@ -236,7 +236,7 @@ func shimmerText(spans []ui.Span) string {
 func (a *App) tspRows(c *ui.Context, key *ui.Context, k *colors, n *rex.TSPNode) ui.Element {
 	lines, _ := n.Props["lines"].([]any)
 	th := a.ansiPalette()
-	font := a.editorFont().Family
+	font := a.tspLook().mono
 	var spans []ui.Span
 	count := 0
 	for _, l := range lines {
@@ -245,19 +245,19 @@ func (a *App) tspRows(c *ui.Context, key *ui.Context, k *colors, n *rex.TSPNode)
 			continue
 		}
 		if count > 0 {
-			spans = append(spans, ui.Span{Text: "\n", Font: font, Size: 12})
+			spans = append(spans, ui.Span{Text: "\n", Font: font, Size: a.tspCode(12)})
 		}
-		spans = append(spans, ansiSpans(s, ui.Span{Font: font, Size: 12, Color: k.text}, &th.Palette, k.bgLow)...)
+		spans = append(spans, ansiSpans(s, ui.Span{Font: font, Size: a.tspCode(12), Color: k.text}, &th.Palette, k.bgLow)...)
 		count++
 	}
 	block := ui.Column(key).Radius(6).Background(k.bgLow).Padding(6, 10).Gap(2).Clip()
 	block.Children(func() {
 		mark := ui.Row(c).FillWidth().Justify(ui.End)
 		mark.Children(func() {
-			ui.Text(c, "fallback").FontSize(10).TextColor(k.textFaint).Tooltip(fmt.Sprintf("Fallback rows (%d)", count))
+			ui.Text(c, "fallback").FontSize(a.tspText(10)).TextColor(k.textFaint).Tooltip(fmt.Sprintf("Fallback rows (%d)", count))
 		})
 		if len(spans) > 0 {
-			ui.RichText(c, spans...).NoWrap().Selectable()
+			ui.RichText(c, spans...).FontFeatures(a.tspLook().monoFeatures...).NoWrap().Selectable()
 		}
 	})
 	return block

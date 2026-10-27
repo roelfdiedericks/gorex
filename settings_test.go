@@ -68,3 +68,80 @@ func TestEffective(t *testing.T) {
 		}
 	}
 }
+
+// A document before version 2 has the Tern Surface Protocol switch under
+// the terminal, where only a host set it: read, it is omp.tsp, on or off;
+// a document that has omp.tsp keeps it.
+func TestDecodeSettingsMovesTSP(t *testing.T) {
+	for _, c := range []struct {
+		doc  string
+		want *bool
+	}{
+		{`{"v":1,"terminal":{"tsp":true,"size":14}}`, on},
+		{`{"terminal":{"tsp":false}}`, off},
+		{`{"v":1,"terminal":{"size":14}}`, nil},
+		{`{"v":2,"omp":{"tsp":true},"terminal":{"tsp":false}}`, on},
+	} {
+		s := decodeSettings([]byte(c.doc))
+		if (s.OMP.TSP == nil) != (c.want == nil) || s.OMP.TSP != nil && *s.OMP.TSP != *c.want {
+			t.Errorf("%s: omp.tsp %v, want %v", c.doc, s.OMP.TSP, c.want)
+		}
+	}
+	// Saved again, it is version 2's.
+	var sent map[string]map[string]any
+	json.Unmarshal(encodeHost(decodeSettings([]byte(`{"v":1,"terminal":{"tsp":true}}`))), &sent)
+	if sent["omp"]["tsp"] != true || sent["terminal"]["tsp"] != nil {
+		t.Errorf("sent to the host: %v", sent)
+	}
+}
+
+// The Tern Surface Protocol switch is the Defaults' on hosts that leave
+// it, and a host's own over them; new sessions are asked for by it.
+func TestTSPDefaultsAndHost(t *testing.T) {
+	defaults := Settings{OMP: OMP{TSP: on}}
+	if eff := effective(&defaults, &Settings{}); !shellOptions(&eff).TSP {
+		t.Error("the Defaults' switch did not reach a host without its own")
+	}
+	if eff := effective(&defaults, &Settings{OMP: OMP{TSP: off}}); shellOptions(&eff).TSP {
+		t.Error("a host's switch off did not win over the Defaults'")
+	}
+	if eff := effective(&Settings{}, &Settings{OMP: OMP{TSP: on}}); !shellOptions(&eff).TSP {
+		t.Error("a host's switch on did not apply")
+	}
+}
+
+// The surfaces' code follows the terminal's font, size and ligatures
+// until the OMP settings set them; sizes keep their ratios to the base
+// sizes; the message width is none unless set.
+func TestTSPStyle(t *testing.T) {
+	s := builtin
+	s.Terminal.Font, s.Terminal.Size, s.Terminal.Ligatures = "Iosevka", 15, off
+	st := tspStyleOf(&s)
+	if st.mono != termFamily("Iosevka") || st.monoSize != 15 || len(st.monoFeatures) == 0 {
+		t.Errorf("following the terminal: %q %v %v", st.mono, st.monoSize, st.monoFeatures)
+	}
+	if st.font != "system-ui, "+symbolsFont || st.msgW != 0 || st.dockW != 800 || st.gap != 1 {
+		t.Errorf("builtin: %+v", st)
+	}
+	s.OMP.CodeFont, s.OMP.CodeSize, s.OMP.CodeLigatures = "Fira Code", 11, on
+	s.OMP.Font, s.OMP.Size, s.OMP.MessageWidth, s.OMP.Spacing = "Segoe UI", 15.6, 960, "compact"
+	st = tspStyleOf(&s)
+	if st.mono != termFamily("Fira Code") || st.monoSize != 11 || len(st.monoFeatures) != 0 {
+		t.Errorf("overridden code: %q %v %v", st.mono, st.monoSize, st.monoFeatures)
+	}
+	if st.font != "Segoe UI, "+symbolsFont || st.msgW != 960 || st.gap != 0.6 {
+		t.Errorf("overridden: %+v", st)
+	}
+	a := &App{tsp: st}
+	if got := a.tspText(10); got != 12 {
+		t.Errorf("text 10 at 15.6: %v, want 12", got)
+	}
+	if got := a.tspCode(12); got != 11 {
+		t.Errorf("code 12 at 11: %v, want 11", got)
+	}
+	// A host's "No limit" over a Defaults' width.
+	s.OMP.MessageWidth = -1
+	if st := tspStyleOf(&s); st.msgW != 0 {
+		t.Errorf("no limit: %v", st.msgW)
+	}
+}

@@ -31,8 +31,9 @@ type settingsUI struct {
 	// the last copy went.
 	copyFrom, copyMsg string
 	themes            themesUI
-	// fonts are the font row's choices: this PC's monospaced families.
-	fonts []string
+	// fonts are the font rows' choices: this PC's monospaced families;
+	// uiFonts all its families, for the surfaces' text.
+	fonts, uiFonts []string
 	// lastTint is the custom tint seen last, which choosing Custom starts
 	// from.
 	lastTint string
@@ -44,7 +45,15 @@ const (
 	scopeDefaults = "defaults"
 )
 
-var sections = []string{"Appearance", "Terminal", "Editor", "Shell", "General"}
+var sections = []string{"Appearance", "Terminal", "OMP", "Editor", "Shell", "General"}
+
+// pageTitle is a page's name in the sidebar and its header.
+func pageTitle(page string) string {
+	if page == "OMP" {
+		return "OMP Settings"
+	}
+	return page
+}
 
 // pages lists the sidebar's pages of a scope: the sections with rows in
 // that scope, and Hosts under the Defaults.
@@ -89,12 +98,17 @@ func (a *App) openSettings() {
 	a.remotes = loadRemotes()
 	a.focusReq = nil
 	// The monospaced families this PC has, but the icons, and the generic
-	// name, which always resolves.
-	s.fonts = s.fonts[:0]
+	// name, which always resolves; for the surfaces' text, every family,
+	// the system's UI font first.
+	s.fonts, s.uiFonts = s.fonts[:0], append(s.uiFonts[:0], "system-ui")
 	for _, f := range ui.FontFamilies() {
-		if f.Monospaced && f.Name != symbolsFont {
+		if f.Name == symbolsFont {
+			continue
+		}
+		if f.Monospaced {
 			s.fonts = append(s.fonts, f.Name)
 		}
+		s.uiFonts = append(s.uiFonts, f.Name)
 	}
 	s.fonts = append(s.fonts, "monospace")
 }
@@ -155,12 +169,12 @@ func (a *App) settingsSidebar(c *ui.Context, k *colors) {
 		sidebar := ui.Sidebar(c, &s.page, func() {
 			ui.SidebarSection(c, "This window · "+hostLabel, nil, func() {
 				for _, p := range pagesOf(scopeHost) {
-					ui.SidebarItem(c, scopeHost+"/"+p, icon(pageGlyph(p)), p)
+					ui.SidebarItem(c, scopeHost+"/"+p, icon(pageGlyph(p)), pageTitle(p))
 				}
 			})
 			ui.SidebarSection(c, "Defaults · "+thisMachine(), nil, func() {
 				for _, p := range pagesOf(scopeDefaults) {
-					ui.SidebarItem(c, scopeDefaults+"/"+p, icon(pageGlyph(p)), p)
+					ui.SidebarItem(c, scopeDefaults+"/"+p, icon(pageGlyph(p)), pageTitle(p))
 				}
 			})
 		}).Grow(1).Label("Settings pages")
@@ -176,6 +190,8 @@ func pageGlyph(page string) string {
 		return "sparkles"
 	case "Terminal":
 		return "square-terminal"
+	case "OMP":
+		return "bot"
 	case "Editor":
 		return "file-pen"
 	case "Shell":
@@ -215,7 +231,7 @@ func (a *App) searchResults(c *ui.Context, k *colors, q, hostLabel string) {
 			for _, page := range pagesOf(scope) {
 				var hits []field
 				for _, f := range fields {
-					if f.section == page && f.inScope(scope) && fuzzy(strings.ToLower(f.label+" "+f.group+" "+page), q) {
+					if f.section == page && f.inScope(scope) && fuzzy(strings.ToLower(f.label+" "+f.group+" "+pageTitle(page)), q) {
 						hits = append(hits, f)
 					}
 				}
@@ -227,7 +243,7 @@ func (a *App) searchResults(c *ui.Context, k *colors, q, hostLabel string) {
 				} else {
 					ui.Text(c, strings.ToUpper(label)).FontSize(10.5).FontWeight(700).TextColor(k.textFaint).Padding(10, 8, 2, 8)
 				}
-				ui.Text(c, page).FontSize(13).FontWeight(600).TextColor(k.text).Padding(4, 8)
+				ui.Text(c, pageTitle(page)).FontSize(13).FontWeight(600).TextColor(k.text).Padding(4, 8)
 				for _, f := range hits {
 					n++
 					key := scope + "/" + f.key
@@ -264,7 +280,7 @@ func (a *App) settingsPage(c *ui.Context, k *colors) {
 	ui.Column(c).Grow(1).MinWidth(0).Children(func() {
 		ui.Column(c).Padding(18, 22, 12, 22).Gap(4).Shrink(0).Children(func() {
 			ui.Row(c).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, page).FontSize(16).FontWeight(700).TextColor(k.text).Grow(1)
+				ui.Text(c, pageTitle(page)).FontSize(16).FontWeight(700).TextColor(k.text).Grow(1)
 				if iconButton(c, k, "x", "Close", 26, 14).Clicked() {
 					s.open = false
 				}
@@ -534,6 +550,81 @@ func (a *App) settingControl(c *ui.Context, k *colors, scope string, f field) {
 			target.SetInt(mb << 20)
 			changed()
 		}
+	case "omp.tsp":
+		ui.Column(c).Gap(4).AlignItems(ui.End).Children(func() {
+			val := is(effv.Interface().(*bool))
+			if ui.Switch(c, &val).Changed() {
+				target.Set(reflect.ValueOf(&val))
+				changed()
+			}
+			ui.Text(c, "In sessions started after a change").FontSize(11).TextColor(k.textFaint)
+		})
+	case "omp.font":
+		// The font in use: the system's UI font until set. A combobox
+		// shows no placeholder.
+		v := effv.String()
+		if v == "" {
+			v = "system-ui"
+		}
+		if ui.Combobox(c, &v, a.settings.uiFonts).Width(220).Changed() {
+			target.SetString(v)
+			changed()
+		}
+	case "omp.size":
+		stepper(c, k, &target, effv, 9, 24, 0.5, changed)
+	case "omp.lineHeight":
+		stepper(c, k, &target, effv, 1, 2, 0.05, changed)
+	case "omp.codeFont":
+		// The terminal's until set, said beside it.
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+			v := effv.String()
+			if v == "" {
+				ui.Text(c, "Follows terminal").FontSize(11.5).TextColor(k.textFaint)
+				v = a.shown(scope).Terminal.Font
+			}
+			if ui.Combobox(c, &v, a.settings.fonts).Width(220).Changed() {
+				target.SetString(v)
+				changed()
+			}
+		})
+	case "omp.codeSize":
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+			if effv.Float() == 0 {
+				ui.Text(c, "Follows terminal").FontSize(11.5).TextColor(k.textFaint)
+				effv = reflect.ValueOf(a.shown(scope).Terminal.Size)
+			}
+			stepper(c, k, &target, effv, 8, 32, 0.5, changed)
+		})
+	case "omp.codeLigatures":
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+			lig := effv.Interface().(*bool)
+			if lig == nil {
+				ui.Text(c, "Follows terminal").FontSize(11.5).TextColor(k.textFaint)
+				lig = a.shown(scope).Terminal.Ligatures
+			}
+			val := is(lig)
+			if ui.Switch(c, &val).Changed() {
+				target.Set(reflect.ValueOf(&val))
+				changed()
+			}
+		})
+	case "omp.dockWidth":
+		stepper(c, k, &target, effv, 480, 1600, 40, changed)
+	case "omp.messageWidth":
+		v := "No limit"
+		if w := effv.Float(); w > 0 {
+			v = strconv.Itoa(int(w))
+		}
+		if ui.Select(c, &v, []string{"No limit", "720", "800", "960", "1120", "1280", "1600"}).Width(110).Changed() {
+			w := -1
+			if n, err := strconv.Atoi(v); err == nil {
+				w = n
+			}
+			target.SetFloat(float64(w))
+			changed()
+		}
+	case "omp.spacing":
+		choices(c, &target, effv, []string{"compact", "normal", "roomy"}, []string{"Compact", "Normal", "Roomy"}, changed)
 	case "shell.env":
 		v := target.String()
 		if ui.TextArea(c, &v).Width(300).Height(64).Placeholder("KEY=value, one per line").Changed() {

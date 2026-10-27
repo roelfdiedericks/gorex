@@ -206,7 +206,7 @@ func (a *App) tspPrefsSheet(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 		bottom += p.dockH[sf.Image] + 8
 	}
 	sheet := ui.Column(c.Key("tsp-prefs-"+n.ID)).Absolute().Top(8).Right(p.term.ScrollbarStrip()+8).Bottom(bottom).Width(tspPrefsSheetW).MaxWidthPercent(92).
-		Radius(cardR).Background(k.panel).Border(1, k.panelBorder).Padding(10, 12).Gap(8).Font(tspFont).Clip()
+		Radius(cardR).Background(k.panel).Border(1, k.panelBorder).Padding(10, 12).Gap(8).Font(a.tspLook().font).Clip()
 	sheet.Children(func() {
 		head := ui.Row(c.Key("brand")).Gap(8).AlignItems(ui.Center).FillWidth()
 		head.Children(func() {
@@ -274,7 +274,7 @@ func (v *tspPrefsView) title(c *ui.Context) ui.Element {
 	if title == "" {
 		title = "Settings"
 	}
-	return ui.Text(c, title).FontSize(14).Bold().TextColor(v.k.text).SingleLine()
+	return ui.Text(c, title).FontSize(v.a.tspText(14)).Bold().TextColor(v.k.text).SingleLine()
 }
 
 // search draws the program's search field: its text, with the caret
@@ -296,9 +296,9 @@ func (v *tspPrefsView) search(c *ui.Context) ui.Element {
 			pre, post := tspSplitAt(q, int(at))
 			v.caretText(c, pre, post, "Search settings", "")
 		case v.query != "":
-			ui.Text(c, v.query).FontSize(12).TextColor(k.text).SingleLine()
+			ui.Text(c, v.query).FontSize(v.a.tspText(12)).TextColor(k.text).SingleLine()
 		default:
-			ui.Text(c, "Search settings").FontSize(12).TextColor(k.textMuted).SingleLine()
+			ui.Text(c, "Search settings").FontSize(v.a.tspText(12)).TextColor(k.textMuted).SingleLine()
 		}
 	})
 	if box.Clicked() {
@@ -315,7 +315,7 @@ func (v *tspPrefsView) caretText(c *ui.Context, pre, post, placeholder, font str
 	row := ui.Row(c.Key("caret")).AlignItems(ui.Center).MinWidth(0)
 	row.Children(func() {
 		text := func(s string, color ui.Color) {
-			t := ui.Text(c, s).FontSize(12).TextColor(color).NoWrap()
+			t := ui.Text(c, s).FontSize(v.a.tspText(12)).TextColor(color).NoWrap()
 			if font != "" {
 				t.Font(font)
 			}
@@ -363,7 +363,7 @@ func (v *tspPrefsView) rail(c *ui.Context, compact bool) {
 					if compact {
 						ui.Box(c.Key(fmt.Sprintf("gs%d", i))).Height(1).FillWidth().Background(k.panelBorder).Margin(4, 6)
 					} else if g != "" {
-						ui.Text(c.Key(fmt.Sprintf("g%d", i)), g).FontSize(11).Bold().TextColor(k.textMuted).Padding(8, 8, 2, 8)
+						ui.Text(c.Key(fmt.Sprintf("g%d", i)), g).FontSize(v.a.tspText(11)).Bold().TextColor(k.textMuted).Padding(8, 8, 2, 8)
 					}
 				}
 				changed, _ := pg["changed"].(float64)
@@ -401,13 +401,13 @@ func (v *tspPrefsView) rail(c *ui.Context, compact bool) {
 								ui.Box(c).Absolute().Top(-2).Right(-5).Size(6, 6).Radius(3).Background(k.busy)
 							}
 						})
-						ui.Text(c, label).FontSize(10).TextColor(k.textMuted).SingleLine().MaxWidth(width - 6)
+						ui.Text(c, label).FontSize(v.a.tspText(10)).TextColor(k.textMuted).SingleLine().MaxWidth(width - 6)
 						return
 					}
 					v.a.tspIcon(c, k, name)
-					ui.Text(c, label).FontSize(12.5).TextColor(k.text).SingleLine().Grow(1).MinWidth(0)
+					ui.Text(c, label).FontSize(v.a.tspText(12.5)).TextColor(k.text).SingleLine().Grow(1).MinWidth(0)
 					if changed > 0 {
-						ui.Text(c, strconv.Itoa(int(changed))).FontSize(11).TextColor(k.busy)
+						ui.Text(c, strconv.Itoa(int(changed))).FontSize(v.a.tspText(11)).TextColor(k.busy)
 					}
 				})
 				if row.Clicked() && why == "" {
@@ -439,8 +439,8 @@ func (v *tspPrefsView) doc(c *ui.Context) {
 		head := ui.Column(c.Key("head")).Gap(3).FillWidth()
 		head.Children(func() {
 			if v.query != "" {
-				ui.Text(c, "Search").FontSize(11).TextColor(k.textMuted)
-				ui.Text(c, "Results for “"+v.query+"”").FontSize(17).Bold().TextColor(k.text)
+				ui.Text(c, "Search").FontSize(v.a.tspText(11)).TextColor(k.textMuted)
+				ui.Text(c, "Results for “"+v.query+"”").FontSize(v.a.tspText(17)).Bold().TextColor(k.text)
 				return
 			}
 			label, num := v.page, 0
@@ -453,11 +453,11 @@ func (v *tspPrefsView) doc(c *ui.Context) {
 				}
 			}
 			if num > 0 {
-				ui.Text(c, fmt.Sprintf("%02d · %s", num, label)).FontSize(11).TextColor(k.textMuted).Font(v.a.editorFont().Family)
+				ui.Text(c, fmt.Sprintf("%02d · %s", num, label)).FontSize(v.a.tspText(11)).TextColor(k.textMuted).Font(v.a.tspLook().mono)
 			}
-			ui.Text(c, label).FontSize(17).Bold().TextColor(k.text)
+			ui.Text(c, label).FontSize(v.a.tspText(17)).Bold().TextColor(k.text)
 			if lead, _ := v.n.Props["lead"].(string); lead != "" {
-				ui.Text(c, lead).FontSize(12.5).TextColor(k.textMuted)
+				ui.Text(c, lead).FontSize(v.a.tspText(12.5)).TextColor(k.textMuted)
 			}
 		})
 		shown, page := 0, ""
@@ -485,7 +485,7 @@ func (v *tspPrefsView) doc(c *ui.Context) {
 			if v.query != "" {
 				text = "No settings match “" + v.query + "”"
 			}
-			ui.Text(c.Key("none"), text).FontSize(12.5).TextColor(k.textMuted).Padding(10, 2)
+			ui.Text(c.Key("none"), text).FontSize(v.a.tspText(12.5)).TextColor(k.textMuted).Padding(10, 2)
 		}
 		for _, ch := range v.extra {
 			v.a.tspNode(c, k, v.t, v.p, v.sf, ch)
@@ -515,8 +515,8 @@ func (v *tspPrefsView) pageHead(c *ui.Context, id string) {
 			name = "settings"
 		}
 		v.a.tspIcon(c, k, name)
-		ui.Text(c, label).FontSize(13).Bold().TextColor(k.text)
-		ui.Text(c, "›").FontSize(13).TextColor(k.textMuted)
+		ui.Text(c, label).FontSize(v.a.tspText(13)).Bold().TextColor(k.text)
+		ui.Text(c, "›").FontSize(v.a.tspText(13)).TextColor(k.textMuted)
 	})
 	if h.Clicked() && why == "" {
 		v.act("page", id)
@@ -531,7 +531,7 @@ func (v *tspPrefsView) section(c *ui.Context, sec map[string]any, rows []any) {
 	col := ui.Column(c).Gap(5).FillWidth()
 	col.Children(func() {
 		if title, _ := sec["title"].(string); title != "" {
-			ui.Text(c, title).FontSize(11.5).Bold().TextColor(k.textMuted).Padding(0, 2)
+			ui.Text(c, title).FontSize(v.a.tspText(11.5)).Bold().TextColor(k.textMuted).Padding(0, 2)
 		}
 		if len(rows) == 0 {
 			return
@@ -599,7 +599,7 @@ func (v *tspPrefsView) row(c *ui.Context, r map[string]any, rule bool) {
 			text.Children(func() {
 				ui.Row(c).Gap(5).AlignItems(ui.Baseline).Children(func() {
 					if warning != "" {
-						ui.Text(c, "⚠").FontSize(12).TextColor(k.attention)
+						ui.Text(c, "⚠").FontSize(v.a.tspText(12)).TextColor(k.attention)
 					}
 					v.marked(c, label, 13, k.text)
 				})
@@ -607,10 +607,10 @@ func (v *tspPrefsView) row(c *ui.Context, r map[string]any, rule bool) {
 					v.marked(c, hint, 11.5, k.textMuted)
 				}
 				if warning != "" {
-					ui.Text(c, warning).FontSize(11.5).TextColor(k.attention)
+					ui.Text(c, warning).FontSize(v.a.tspText(11.5)).TextColor(k.attention)
 				}
 				if off {
-					ui.Text(c, why).FontSize(11.5).Italic().TextColor(k.textMuted)
+					ui.Text(c, why).FontSize(v.a.tspText(11.5)).Italic().TextColor(k.textMuted)
 				}
 			})
 			if !stack {
@@ -638,7 +638,7 @@ func (v *tspPrefsView) reset(c *ui.Context, id, kind string, changed, off bool) 
 	if !changed || off || kind == "action" || kind == "keys" {
 		return
 	}
-	b := ui.Text(c.Key("reset"), "Reset").FontSize(11).TextColor(v.k.textMuted).Padding(2, 6).Radius(5).Cursor(ui.CursorPointer)
+	b := ui.Text(c.Key("reset"), "Reset").FontSize(v.a.tspText(11)).TextColor(v.k.textMuted).Padding(2, 6).Radius(5).Cursor(ui.CursorPointer)
 	if b.Hovered() {
 		b.Background(v.k.hover)
 	}
@@ -674,7 +674,7 @@ func (v *tspPrefsView) control(c *ui.Context, id, label string, ctl map[string]a
 			for i, ch := range chords {
 				keys, _ := ch.([]any)
 				if i > 0 {
-					ui.Text(c.Key(fmt.Sprintf("or%d", i)), "/").FontSize(11).TextColor(k.textMuted)
+					ui.Text(c.Key(fmt.Sprintf("or%d", i)), "/").FontSize(v.a.tspText(11)).TextColor(k.textMuted)
 				}
 				v.a.tspKeys(c.Key(fmt.Sprintf("chord%d", i)), k, keys)
 			}
@@ -762,9 +762,9 @@ func (v *tspPrefsView) segments(c *ui.Context, id string, ctl map[string]any, of
 				seg.Tooltip(o[2])
 			}
 			seg.Children(func() {
-				t := ui.Text(c, o[1]).FontSize(12).TextColor(k.text).SingleLine()
+				t := ui.Text(c, o[1]).FontSize(v.a.tspText(12)).TextColor(k.text).SingleLine()
 				if mono {
-					t.Font(v.a.editorFont().Family)
+					t.Font(v.a.tspLook().mono)
 				}
 			})
 			if seg.Clicked() && !off && o[0] != value {
@@ -793,7 +793,7 @@ func (v *tspPrefsView) menu(c *ui.Context, id string, ctl map[string]any, off bo
 	}
 	font := ""
 	if mono {
-		font = v.a.editorFont().Family
+		font = v.a.tspLook().mono
 	}
 	open := v.editing(id)
 	btn := ui.Row(c.Key("pick")).Gap(6).AlignItems(ui.Center).Padding(3, 6, 3, 9).Radius(6).Background(k.bgLow).Border(1, k.cardBorder).
@@ -802,7 +802,7 @@ func (v *tspPrefsView) menu(c *ui.Context, id string, ctl map[string]any, off bo
 		btn.Border(1, k.busy)
 	}
 	btn.Children(func() {
-		t := ui.Text(c, current).FontSize(12).TextColor(k.text).SingleLine().Shrink(1)
+		t := ui.Text(c, current).FontSize(v.a.tspText(12)).TextColor(k.text).SingleLine().Shrink(1)
 		if font != "" {
 			t.Font(font)
 		}
@@ -823,7 +823,7 @@ func (v *tspPrefsView) menu(c *ui.Context, id string, ctl map[string]any, off bo
 		highlight = value
 	}
 	pop := ui.PopoverBase(c.Key("menu"), btn, &open, func(panel ui.Element) {
-		panel.Margin(4, 0, 0, 0).Padding(4).Radius(8).Background(k.panel).Border(1, k.panelBorder).Font(tspFont).
+		panel.Margin(4, 0, 0, 0).Padding(4).Radius(8).Background(k.panel).Border(1, k.panelBorder).Font(v.a.tspLook().font).
 			MinWidth(160).MaxWidth(340).Shadow(0, 4, 16, 0, ui.RGBA(0, 0, 0, 0.25))
 		pointed := ui.Local(panel, "pointed", func() string { return "" })
 		list := ui.Scroll(c.Key("options")).MaxHeight(300)
@@ -841,14 +841,14 @@ func (v *tspPrefsView) menu(c *ui.Context, id string, ctl map[string]any, off bo
 						if o[0] == value {
 							mark = "✓"
 						}
-						ui.Text(c, mark).FontSize(12).TextColor(k.busy).Width(12)
+						ui.Text(c, mark).FontSize(v.a.tspText(12)).TextColor(k.busy).Width(12)
 						ui.Column(c).Gap(1).MinWidth(0).Children(func() {
-							t := ui.Text(c, o[1]).FontSize(12.5).TextColor(k.text)
+							t := ui.Text(c, o[1]).FontSize(v.a.tspText(12.5)).TextColor(k.text)
 							if font != "" {
 								t.Font(font)
 							}
 							if o[2] != "" {
-								ui.Text(c, o[2]).FontSize(11).TextColor(k.textMuted)
+								ui.Text(c, o[2]).FontSize(v.a.tspText(11)).TextColor(k.textMuted)
 							}
 						})
 					})
@@ -896,7 +896,7 @@ func (v *tspPrefsView) stepper(c *ui.Context, id string, ctl map[string]any, off
 			}
 		}
 		button("−", -1)
-		ui.Text(c, text).FontSize(12).TextColor(k.text).MinWidth(44).TextAlign(ui.Center).SingleLine()
+		ui.Text(c, text).FontSize(v.a.tspText(12)).TextColor(k.text).MinWidth(44).TextAlign(ui.Center).SingleLine()
 		button("+", 1)
 	})
 }
@@ -973,7 +973,7 @@ func (v *tspPrefsView) textField(c *ui.Context, id string, ctl map[string]any, o
 	}
 	font := ""
 	if mono && !secret {
-		font = v.a.editorFont().Family
+		font = v.a.tspLook().mono
 	}
 	hide := func(s string) string {
 		if secret {
@@ -1002,10 +1002,10 @@ func (v *tspPrefsView) textField(c *ui.Context, id string, ctl map[string]any, o
 			return
 		}
 		if value == "" {
-			ui.Text(c, placeholder).FontSize(12).TextColor(k.textMuted).SingleLine()
+			ui.Text(c, placeholder).FontSize(v.a.tspText(12)).TextColor(k.textMuted).SingleLine()
 			return
 		}
-		t := ui.Text(c, hide(value)).FontSize(12).TextColor(k.text).SingleLine()
+		t := ui.Text(c, hide(value)).FontSize(v.a.tspText(12)).TextColor(k.text).SingleLine()
 		if font != "" {
 			t.Font(font)
 		}
@@ -1043,9 +1043,9 @@ func (v *tspPrefsView) chips(c *ui.Context, id string, ctl map[string]any, off b
 			}
 			chip.Children(func() {
 				if on {
-					ui.Text(c, "✓").FontSize(11).TextColor(k.busy)
+					ui.Text(c, "✓").FontSize(v.a.tspText(11)).TextColor(k.busy)
 				}
-				ui.Text(c, o[1]).FontSize(12).TextColor(k.text).SingleLine()
+				ui.Text(c, o[1]).FontSize(v.a.tspText(12)).TextColor(k.text).SingleLine()
 			})
 			if chip.Clicked() && !off {
 				v.change(id, tspMultiToggle(values, o[0]))
@@ -1103,8 +1103,8 @@ func (v *tspPrefsView) ordered(c *ui.Context, id string, ctl map[string]any, off
 				if on {
 					n = strconv.Itoa(at) + "."
 				}
-				ui.Text(c, n).FontSize(11).TextColor(k.textMuted).Width(18).TextAlign(ui.End)
-				t := ui.Text(c, o[1]).FontSize(12.5).SingleLine().Grow(1).MinWidth(0)
+				ui.Text(c, n).FontSize(v.a.tspText(11)).TextColor(k.textMuted).Width(18).TextAlign(ui.End)
+				t := ui.Text(c, o[1]).FontSize(v.a.tspText(12.5)).SingleLine().Grow(1).MinWidth(0)
 				if on {
 					t.TextColor(k.text)
 				} else {
@@ -1191,7 +1191,7 @@ func (v *tspPrefsView) editorCard(c *ui.Context) {
 func (v *tspPrefsView) marked(c *ui.Context, s string, size float32, color ui.Color) ui.Element {
 	marks := tspMatches(s, v.query)
 	if marks == nil {
-		return ui.Text(c, s).FontSize(size).TextColor(color)
+		return ui.Text(c, s).FontSize(v.a.tspText(size)).TextColor(color)
 	}
 	rs := []rune(s)
 	var spans []ui.Span
@@ -1200,7 +1200,7 @@ func (v *tspPrefsView) marked(c *ui.Context, s string, size float32, color ui.Co
 		if i < len(rs) && marks[i] == marks[start] {
 			continue
 		}
-		sp := ui.Span{Text: string(rs[start:i]), Size: size, Color: color}
+		sp := ui.Span{Text: string(rs[start:i]), Size: v.a.tspText(size), Color: color}
 		if marks[start] {
 			sp.Background, sp.Color = v.k.busy.Alpha(0.3), v.k.text
 		}
@@ -1208,7 +1208,7 @@ func (v *tspPrefsView) marked(c *ui.Context, s string, size float32, color ui.Co
 		start = i
 	}
 	if len(spans) == 0 {
-		return ui.Text(c, s).FontSize(size).TextColor(color)
+		return ui.Text(c, s).FontSize(v.a.tspText(size)).TextColor(color)
 	}
 	return ui.RichText(c, spans...)
 }

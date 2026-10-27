@@ -112,6 +112,10 @@ type Pane struct {
 	// dockH is how tall each live surface's pinned dock was drawn (by
 	// anchor), the space the surface keeps for it.
 	dockH map[uint32]float32
+	// tspCard is where the dock's composer (its card, and the meter's
+	// labels over it) was drawn last, in the window: the popups of its
+	// fields open above it (tspOverlayAt).
+	tspCard ui.Rect
 	// tspNeed is how many rows each inline surface's content took in the
 	// last frame (by anchor), more than it has when its head is cut.
 	tspNeed map[uint32]int
@@ -244,6 +248,8 @@ type App struct {
 	k            *colors
 	reduceMotion bool
 	uiTheme      ui.Theme
+	// tsp is how surfaces are drawn, by the OMP settings (tspLook).
+	tsp tspStyle
 
 	// focusReq asks the view to give the keyboard focus to a pane's
 	// terminal.

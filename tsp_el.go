@@ -372,7 +372,7 @@ func (e *tspEls) newFrame(a *App, c *ui.Context, k *colors) {
 	e.used = 0
 	e.hoverWas, e.hoverNow = e.hoverNow, e.hoverWas
 	clear(e.hoverNow)
-	mono, ansi := a.editorFont().Family, a.ansiPalette()
+	mono, ansi := a.tspLook().mono, a.ansiPalette()
 	if e.k != k || e.env.dark != a.dark || e.env.mono != mono || e.env.vars == nil || e.env.vars["--ansi1"] != cssHex(ansi.Palette[1]) {
 		e.k, e.env.dark, e.env.mono = k, a.dark, mono
 		e.env.vars = elVars(k, a.dark, mono, &ansi.Palette)
@@ -385,7 +385,7 @@ func (e *tspEls) newFrame(a *App, c *ui.Context, k *colors) {
 	e.env.vw, e.env.vh = c.Size()
 	prefs := c.Preferences()
 	e.env.reduceMotion, e.env.highContrast = prefs.ReduceMotion, prefs.HighContrast
-	e.base.inherit(&elStyle{color: k.text, fontSize: 13, weight: 400, whiteSpace: "normal", listStyle: "disc", tc: k.text})
+	e.base.inherit(&elStyle{color: k.text, fontSize: a.tspText(13), weight: 400, whiteSpace: "normal", listStyle: "disc", tc: k.text})
 	e.base.display, e.base.col = "flex", true
 }
 

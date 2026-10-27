@@ -45,7 +45,7 @@ func (a *App) tspPicker(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surfa
 		width = 82
 	}
 	sheet := ui.Column(c.Key("tsp-picker-"+n.ID)).Absolute().LeftPercent((100-width)/2).WidthPercent(width).TopPercent(4).MaxHeightPercent(92).
-		Radius(cardR).Background(k.panel).Border(1, k.panelBorder).Padding(12, 14).Gap(8).Font(tspFont).Clip()
+		Radius(cardR).Background(k.panel).Border(1, k.panelBorder).Padding(12, 14).Gap(8).Font(a.tspLook().font).Clip()
 	sheet.Children(func() {
 		a.tspPickerHead(c, k, t, p, sf, n)
 		if tabs, _ := pr["tabs"].([]any); len(tabs) > 0 {
@@ -62,7 +62,7 @@ func (a *App) tspPicker(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surfa
 					chip.Children(func() {
 						a.tspRich(c, k, tb["label"], 12, id == active)
 						if count, ok := tb["count"].(float64); ok {
-							ui.Text(c, fmt.Sprint(int(count))).FontSize(11).TextColor(k.textMuted)
+							ui.Text(c, fmt.Sprint(int(count))).FontSize(a.tspText(11)).TextColor(k.textMuted)
 						}
 					})
 					if chip.Clicked() {
@@ -100,7 +100,7 @@ func (a *App) tspPicker(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surfa
 				if label == "" {
 					label = "Confirm"
 				}
-				btn := ui.Text(c, label).FontSize(12).TextColor(k.text).Padding(2, 10).Radius(5).Background(k.attention.Alpha(0.3)).Unselectable()
+				btn := ui.Text(c, label).FontSize(a.tspText(12)).TextColor(k.text).Padding(2, 10).Radius(5).Background(k.attention.Alpha(0.3)).Unselectable()
 				if btn.Clicked() {
 					what, _ := cf["act"].(string)
 					act(what, "")
@@ -163,7 +163,7 @@ func (a *App) tspPickerHead(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 			a.tspIcon(c, k, icon)
 		}
 		if title, _ := pr["title"].(string); title != "" {
-			ui.Text(c, title).FontSize(14).Bold().TextColor(k.text)
+			ui.Text(c, title).FontSize(a.tspText(14)).Bold().TextColor(k.text)
 		}
 		if sub := pr["subtitle"]; sub != nil {
 			a.tspRich(c, k, sub, 12, false).TextColor(k.textMuted).SingleLine().Shrink(1)
@@ -178,9 +178,9 @@ func (a *App) tspPickerHead(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 		}
 		noun, _ := pr["noun"].(string)
 		if total, ok := pr["total"].(float64); ok && int(total) != shown {
-			ui.Text(c, fmt.Sprintf("%d of %d %s", shown, int(total), noun)).FontSize(11).TextColor(k.textMuted)
+			ui.Text(c, fmt.Sprintf("%d of %d %s", shown, int(total), noun)).FontSize(a.tspText(11)).TextColor(k.textMuted)
 		} else if shown > 0 {
-			ui.Text(c, strings.TrimSpace(fmt.Sprintf("%d %s", shown, noun))).FontSize(11).TextColor(k.textMuted)
+			ui.Text(c, strings.TrimSpace(fmt.Sprintf("%d %s", shown, noun))).FontSize(a.tspText(11)).TextColor(k.textMuted)
 		}
 	})
 	if q, ok := pr["query"]; ok && q != nil {
@@ -262,7 +262,7 @@ func (a *App) tspPickerList(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 				col, _ := col.(map[string]any)
 				head, _ := col["head"].(string)
 				minCh, _ := col["min"].(float64)
-				ui.Text(c.Key(fmt.Sprintf("h%d", i)), head).FontSize(10).TextColor(k.textMuted).MinWidth(float32(max(minCh, 4)) * 7).TextAlign(ui.End).Shrink(0)
+				ui.Text(c.Key(fmt.Sprintf("h%d", i)), head).FontSize(a.tspText(10)).TextColor(k.textMuted).MinWidth(float32(max(minCh, 4)) * 7).TextAlign(ui.End).Shrink(0)
 			}
 		})
 	}
@@ -274,7 +274,7 @@ func (a *App) tspPickerList(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 			case "loading":
 				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
 					activityDot(c, k.busy, 8)
-					ui.Text(c, "Loading…").FontSize(12).TextColor(k.textMuted)
+					ui.Text(c, "Loading…").FontSize(a.tspText(12)).TextColor(k.textMuted)
 				})
 			case "error":
 				a.tspRich(c, k, pr["message"], 12, false).TextColor(k.attention)
@@ -286,7 +286,7 @@ func (a *App) tspPickerList(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 					h.Children(func() {
 						a.tspRich(c, k, g["label"], 11, true).TextColor(k.textMuted)
 						if count, ok := g["count"].(float64); ok {
-							ui.Text(c, fmt.Sprint(int(count))).FontSize(11).TextColor(k.textMuted)
+							ui.Text(c, fmt.Sprint(int(count))).FontSize(a.tspText(11)).TextColor(k.textMuted)
 						}
 					})
 					continue
@@ -348,7 +348,7 @@ func (a *App) tspPickerRow(c *ui.Context, k *colors, it map[string]any, layout s
 			if open {
 				glyph = "▾"
 			}
-			ui.Text(c, glyph).FontSize(11).TextColor(k.textMuted)
+			ui.Text(c, glyph).FontSize(a.tspText(11)).TextColor(k.textMuted)
 		}
 		switch {
 		case it["dot"] != nil:
@@ -371,7 +371,7 @@ func (a *App) tspPickerRow(c *ui.Context, k *colors, it map[string]any, layout s
 			if r := []rune(initials); len(r) > 2 {
 				initials = string(r[:2])
 			}
-			ui.Text(c, initials).FontSize(10).Bold().TextColor(k.text).Width(20).Height(20).Radius(10).Background(k.busy.Alpha(0.35)).TextAlign(ui.Center).Shrink(0)
+			ui.Text(c, initials).FontSize(a.tspText(10)).Bold().TextColor(k.text).Width(20).Height(20).Radius(10).Background(k.busy.Alpha(0.35)).TextAlign(ui.Center).Shrink(0)
 		}
 		text := ui.Column(c).Gap(1).Grow(1).MinWidth(0)
 		text.Children(func() {
@@ -380,7 +380,7 @@ func (a *App) tspPickerRow(c *ui.Context, k *colors, it map[string]any, layout s
 				mono, _ := it["mono"].(bool)
 				a.tspPickerLabel(c, k, it["label"], mono, hits).SingleLine().Shrink(1)
 				if current {
-					ui.Text(c, "●").FontSize(10).TextColor(k.busy)
+					ui.Text(c, "●").FontSize(a.tspText(10)).TextColor(k.busy)
 				}
 				if d := it["detail"]; d != nil && layout != "cards" {
 					a.tspRich(c, k, d, 12, false).TextColor(k.textMuted).SingleLine().Shrink(1)
@@ -391,7 +391,7 @@ func (a *App) tspPickerRow(c *ui.Context, k *colors, it map[string]any, layout s
 						ch, _ := ch.(map[string]any)
 						t, _ := ch["text"].(string)
 						on, _ := ch["on"].(bool)
-						chip := ui.Text(c.Key(fmt.Sprintf("rc%d", i)), t).FontSize(11).Padding(1, 6).Radius(8).Background(k.hover)
+						chip := ui.Text(c.Key(fmt.Sprintf("rc%d", i)), t).FontSize(a.tspText(11)).Padding(1, 6).Radius(8).Background(k.hover)
 						if on {
 							chip.TextColor(k.busy)
 						} else {
@@ -428,7 +428,7 @@ func (a *App) tspPickerRow(c *ui.Context, k *colors, it map[string]any, layout s
 					} else if format == "elapsed" || format == "time" {
 						s = elapsedText(v / 1000)
 					}
-					ui.Text(c, s).FontSize(11).TextColor(k.textMuted)
+					ui.Text(c, s).FontSize(a.tspText(11)).TextColor(k.textMuted)
 				case nil:
 				default:
 					t := a.tspRich(c, k, v, 11, false)
@@ -452,7 +452,7 @@ func (a *App) tspPickerLabel(c *ui.Context, k *colors, v any, mono bool, hits []
 	}
 	font := ""
 	if mono {
-		font = a.editorFont().Family
+		font = a.tspLook().mono
 	}
 	cut := 0
 	if mono {
@@ -485,7 +485,7 @@ func (a *App) tspPickerLabel(c *ui.Context, k *colors, v any, mono bool, hits []
 			}
 		}
 		m, dim := style(start)
-		sp := ui.Span{Text: string(utf16.Decode(units[start:i])), Size: 13, Font: font, Color: k.text}
+		sp := ui.Span{Text: string(utf16.Decode(units[start:i])), Size: a.tspText(13), Font: font, Color: k.text}
 		if dim {
 			sp.Color = k.textMuted
 		} else if mono {
@@ -498,7 +498,7 @@ func (a *App) tspPickerLabel(c *ui.Context, k *colors, v any, mono bool, hits []
 		start = i
 	}
 	if len(spans) == 0 {
-		return ui.Text(c, "").FontSize(13)
+		return ui.Text(c, "").FontSize(a.tspText(13))
 	}
 	return ui.RichText(c, spans...)
 }
@@ -517,7 +517,7 @@ func (a *App) tspPickerScopes(c *ui.Context, k *colors, pr map[string]any, scope
 				id, _ := sc["id"].(string)
 				if g, _ := sc["group"].(string); g != "" && g != group {
 					group = g
-					ui.Text(c.Key(fmt.Sprintf("sg%d", i)), g).FontSize(11).Bold().TextColor(k.textMuted).Padding(6, 6, 2, 6)
+					ui.Text(c.Key(fmt.Sprintf("sg%d", i)), g).FontSize(a.tspText(11)).Bold().TextColor(k.textMuted).Padding(6, 6, 2, 6)
 				}
 				row := ui.Row(c.Key(fmt.Sprintf("sc%d", i))).Gap(6).AlignItems(ui.Center).Padding(3, 6).Radius(5).Unselectable()
 				if id == active {
@@ -529,7 +529,7 @@ func (a *App) tspPickerScopes(c *ui.Context, k *colors, pr map[string]any, scope
 					}
 					a.tspRich(c, k, sc["label"], 12, id == active).Grow(1).SingleLine()
 					if count, ok := sc["count"].(float64); ok {
-						ui.Text(c, fmt.Sprint(int(count))).FontSize(11).TextColor(k.textMuted)
+						ui.Text(c, fmt.Sprint(int(count))).FontSize(a.tspText(11)).TextColor(k.textMuted)
 					}
 				})
 				if row.Clicked() {

@@ -1,6 +1,11 @@
 package main
 
-import "testing"
+import (
+	"runtime"
+	"testing"
+
+	"github.com/egoist/mygo/ui"
+)
 
 // A one-line field's change goes to its program as the keys that make
 // it: the caret moves to the end of the part that differs, Backspace
@@ -72,5 +77,40 @@ func TestTSPFieldHear(t *testing.T) {
 	}
 	if len(f.sent) != tspMaxSent {
 		t.Errorf("waiting %d texts", len(f.sent))
+	}
+}
+
+// A chord typed in a program's field goes to the program but for the
+// field's own: Ctrl+C is the program's interrupt but for a selection
+// where Ctrl+C copies; Alt with a letter or digit is ESC and the key
+// (on macOS only with Option as Alt), with an arrow the field's; the
+// other Ctrl chords are the program's but the editing ones.
+func TestTSPChordBytes(t *testing.T) {
+	for _, c := range []struct {
+		key                              ui.Key
+		mods                             ui.Modifiers
+		selected, ctrlCCopies, optionAlt bool
+		want                             string
+		situation                        string
+	}{
+		{ui.KeyC, ui.Ctrl, false, true, false, "\x03", "Ctrl+C with nothing selected"},
+		{ui.KeyC, ui.Ctrl, true, true, false, "", "Ctrl+C copying a selection"},
+		{ui.KeyC, ui.Ctrl, true, false, false, "\x03", "Ctrl+C with a selection, the setting off"},
+		{ui.KeyC, ui.Ctrl | ui.Shift, true, true, false, "", "Ctrl+Shift+C"},
+		{ui.KeyP, ui.Alt, false, false, true, "\x1bp", "Alt+P"},
+		{ui.KeyP, ui.Alt | ui.Shift, false, false, true, "\x1bP", "Alt+Shift+P"},
+		{ui.Key3, ui.Alt, false, false, true, "\x1b3", "Alt+3"},
+		{ui.KeyLeft, ui.Alt, false, false, true, "", "Alt+Left, a word move"},
+		{ui.KeyR, ui.Ctrl, false, false, false, "\x12", "Ctrl+R"},
+		{ui.KeyV, ui.Ctrl, false, false, false, "", "Ctrl+V, the field's paste"},
+	} {
+		if got := string(tspChordBytes(c.key, c.mods, c.selected, c.ctrlCCopies, c.optionAlt)); got != c.want {
+			t.Errorf("%s: %q, want %q", c.situation, got, c.want)
+		}
+	}
+	if runtime.GOOS == "darwin" {
+		if b := tspChordBytes(ui.KeyP, ui.Alt, false, false, false); b != nil {
+			t.Errorf("Option+P without Option as Alt: %q", b)
+		}
 	}
 }

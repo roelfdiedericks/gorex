@@ -41,7 +41,7 @@ func (a *App) tspTool(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pane
 				if collapsed {
 					glyph = "▸"
 				}
-				ui.Text(c, glyph).FontSize(12).TextColor(k.textMuted)
+				ui.Text(c, glyph).FontSize(a.tspText(12)).TextColor(k.textMuted)
 			}
 			a.tspIcon(c, k, tspToolIcon(name))
 			a.tspRich(c, k, n.Props["title"], 13, true).Shrink(0)
@@ -60,27 +60,27 @@ func (a *App) tspTool(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pane
 				a.tspRich(c, k, note, 12, false).TextColor(k.textMuted)
 			}
 			if exit, _ := n.Props["exit"].(float64); exit != 0 {
-				ui.Text(c, fmt.Sprintf("exit %d", int(exit))).FontSize(11).TextColor(k.attention).Padding(1, 6).Radius(4).Background(k.hover)
+				ui.Text(c, fmt.Sprintf("exit %d", int(exit))).FontSize(a.tspText(11)).TextColor(k.attention).Padding(1, 6).Radius(4).Background(k.hover)
 			}
 			if took, ok := n.Props["took"].(float64); ok && status != "running" {
-				ui.Text(c, elapsedText(took/1000)).FontSize(12).TextColor(k.textMuted)
+				ui.Text(c, elapsedText(took/1000)).FontSize(a.tspText(12)).TextColor(k.textMuted)
 			} else if age, ok := n.Props["age"].(float64); ok {
 				var stopped *float64
 				if status != "running" && status != "pending" {
 					stopped = &age
 				}
-				ui.Text(c, elapsedText(a.liveMS(c, p, sf, n.ID, age, stopped)/1000)).FontSize(12).TextColor(k.textMuted)
+				ui.Text(c, elapsedText(a.liveMS(c, p, sf, n.ID, age, stopped)/1000)).FontSize(a.tspText(12)).TextColor(k.textMuted)
 			}
 			if status != "" && status != "done" {
 				a.tspStatus(c, k, status)
 			} else if status == "done" && !flat {
-				ui.Text(c, "✓").FontSize(12).TextColor(k.busy)
+				ui.Text(c, "✓").FontSize(a.tspText(12)).TextColor(k.busy)
 			}
 			a.tspActions(c, k, p, sf, n, n.Props["tools"])
 		})
 		a.tspFoldHead(h, p, sf, n, collapsed)
 		if intent != "" && status == "running" {
-			ui.Text(c, intent).FontSize(12).TextColor(k.textMuted).Italic()
+			ui.Text(c, intent).FontSize(a.tspText(12)).TextColor(k.textMuted).Italic()
 		}
 		if len(body) == 0 {
 			return
@@ -125,7 +125,7 @@ func (a *App) tspTool(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pane
 // the mono face, a path with its directory dim and its name strong, a
 // pattern or a query quoted in the accent color.
 func (a *App) tspToolTarget(c *ui.Context, k *colors, v any, kind string) ui.Element {
-	mono := a.editorFont().Family
+	mono := a.tspLook().mono
 	s, isString := v.(string)
 	if !isString {
 		return a.tspRich(c, k, v, 12, false).Font(mono).SingleLine()
@@ -134,16 +134,16 @@ func (a *App) tspToolTarget(c *ui.Context, k *colors, v any, kind string) ui.Ele
 	case "path":
 		dir, file := path.Split(s)
 		return ui.RichText(c,
-			ui.Span{Text: dir, Font: mono, Size: 12, Color: k.textMuted},
-			ui.Span{Text: file, Font: mono, Size: 12, Color: k.text, Weight: 600},
+			ui.Span{Text: dir, Font: mono, Size: a.tspCode(12), Color: k.textMuted},
+			ui.Span{Text: file, Font: mono, Size: a.tspCode(12), Color: k.text, Weight: 600},
 		).SingleLine()
 	case "pattern", "query":
-		return ui.Text(c, "“"+s+"”").Font(mono).FontSize(12).TextColor(k.busy).SingleLine()
+		return ui.Text(c, "“"+s+"”").Font(mono).FontSize(a.tspCode(12)).TextColor(k.busy).SingleLine()
 	case "text":
-		return ui.Text(c, s).FontSize(12).TextColor(k.text).SingleLine()
+		return ui.Text(c, s).FontSize(a.tspText(12)).TextColor(k.text).SingleLine()
 	}
 	first, _, _ := strings.Cut(s, "\n")
-	return ui.Text(c, first).Font(mono).FontSize(12).TextColor(k.text).SingleLine()
+	return ui.Text(c, first).Font(mono).FontFeatures(a.tspLook().monoFeatures...).FontSize(a.tspCode(12)).TextColor(k.text).SingleLine()
 }
 
 // tspToolIcon is the icon of a tool by its name.
@@ -185,7 +185,7 @@ func (a *App) tspChips(c *ui.Context, k *colors, v any) {
 		case "warning", "error":
 			color = k.attention
 		}
-		chip := ui.Text(c.Key(fmt.Sprintf("chip%d", i)), text).FontSize(11).TextColor(color).Padding(1, 6).Radius(4).Background(k.hover).Shrink(0)
+		chip := ui.Text(c.Key(fmt.Sprintf("chip%d", i)), text).FontSize(a.tspText(11)).TextColor(color).Padding(1, 6).Radius(4).Background(k.hover).Shrink(0)
 		if title, _ := ch["title"].(string); title != "" {
 			chip.Tooltip(title)
 		}
@@ -226,7 +226,7 @@ func (a *App) tspActions(c *ui.Context, k *colors, p *Pane, sf *rex.Surface, n *
 		}
 		btn.Children(func() {
 			if label != "" {
-				ui.Text(c, label).FontSize(12).TextColor(color)
+				ui.Text(c, label).FontSize(a.tspText(12)).TextColor(color)
 			}
 			if len(keys) > 0 {
 				a.tspKeys(c, k, keys)
