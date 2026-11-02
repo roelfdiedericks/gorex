@@ -21,12 +21,14 @@ import (
 // one reached over ssh (remote); or one on this machine of a host's own:
 // for a host reached over plain ssh, whose sessions run ssh to it
 // (plain), or a serial host's, whose session opens its port (serial, its
-// key; line its speed and framing, as "115200 8N1").
+// key; port the port's name, as "COM8", and line its speed and framing,
+// as "115200 8N1").
 type binding struct {
 	remote bool
 	plain  bool
 	target remote.Target
 	serial string
+	port   string
 	line   string
 }
 

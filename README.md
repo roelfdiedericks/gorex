@@ -101,8 +101,9 @@ terminal plugin (Ghostty's libghostty-vt). No webview, no cgo: one ~15 MB app.
   (115200 by default, or any other, as 74880), framing (8N1, 7E1… or
   data bits, parity and stop bits of its own), what Enter sends (CR, CR
   LF or LF) and Backspace (DEL or BS), and local echo. Its name is the
-  adapter's and the speed's, as "Prolific PL2303 (COM13) · 115200", until
-  you give it one. Its window has the port's one session, in a session
+  port's, the adapter's and the speed's, as "COM13 · Prolific PL2303 ·
+  115200", until you give it one; the host chip tells the port under it
+  too. Its window has the port's one session, in a session
   server of its own on this PC (`hosts/serial-…`), which keeps the port
   open while GoRex is closed; no more tabs or splits, nor editor tabs. An
   adapter unplugged is waited for, and found again by its serial number,

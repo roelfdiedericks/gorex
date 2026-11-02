@@ -49,7 +49,7 @@ func (r savedRemote) config() serialport.Config {
 // serialBinding is the binding of the serial host r.
 func serialBinding(r savedRemote) binding {
 	c := r.config()
-	return binding{serial: r.Key, line: strconv.Itoa(c.Baud) + " " + c.Framing()}
+	return binding{serial: r.Key, port: filepath.Base(r.Port), line: strconv.Itoa(c.Baud) + " " + c.Framing()}
 }
 
 // serialOptions are what the session of the serial host r opens its port
@@ -65,9 +65,10 @@ func serialOptions(r savedRemote) *rex.SerialOptions {
 }
 
 // serialName is the name a serial host gets when the user gives it none:
-// its adapter's and its speed, as "FT232R USB UART (COM5) · 115200".
+// its port's, its adapter's and its speed, as "COM5 · FT232R USB UART ·
+// 115200", the port first, which tells two adapters of a kind apart.
 func serialName(p serialport.Port, baud int) string {
-	return p.Title() + " (" + filepath.Base(p.Path) + ") · " + strconv.Itoa(baud)
+	return filepath.Base(p.Path) + " · " + p.Title() + " · " + strconv.Itoa(baud)
 }
 
 // findSerial returns the serial host of a name, the user's or its own,
@@ -94,7 +95,8 @@ func (a *App) openSaved(r savedRemote) {
 // settings as they are now: those the dialog changed, which a session
 // made before had not.
 func (a *App) applySerial(r savedRemote) {
-	a.bind.line = serialBinding(r).line
+	b := serialBinding(r)
+	a.bind.port, a.bind.line = b.port, b.line
 	serialLine = a.bind.line
 	if a.client == nil {
 		return

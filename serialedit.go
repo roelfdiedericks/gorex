@@ -172,7 +172,7 @@ func (a *App) serialFields(c *ui.Context, k *colors, f *hostForm, row func(strin
 		a.watchPorts(f)
 	}
 	row("Name", func() {
-		placeholder := "the port's, as Prolific PL2303 (COM13) · 115200"
+		placeholder := "the port's, as COM13 · Prolific PL2303 · 115200"
 		if s.port.Path != "" {
 			c, _ := s.config()
 			placeholder = serialName(s.port, c.Baud)

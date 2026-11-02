@@ -72,7 +72,7 @@ func (a *App) hostChip(c *ui.Context, k *colors) {
 	switch {
 	case a.bind.serial != "":
 		// The server, of a serial port, is this machine's.
-		glyph, model = "cable", "serial · "+a.bind.line
+		glyph, model = "cable", "serial · "+a.bind.port+" · "+a.bind.line
 	case a.bind.plain:
 		// What the server tells is this machine's, not the host's.
 		glyph, model = "globe", "plain ssh"
