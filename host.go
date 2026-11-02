@@ -231,12 +231,14 @@ func (a *App) hostsSection(c *ui.Context, k *colors) {
 		current       bool
 		// open switches the window to the host, and window opens it in
 		// a window of its own, as GoRex's arguments; key is a saved
-		// host's, for its settings and to forget it.
+		// host's, for its settings and to forget it; pc marks this
+		// machine, whose settings are the Defaults.
 		open   func()
 		window []string
 		key    string
+		pc     bool
 	}
-	entries := []entry{{title: thisMachine(), detail: "local sessions", current: !a.bind.away(), open: func() { a.openHost("") }}}
+	entries := []entry{{title: thisMachine(), detail: "local sessions", current: !a.bind.away(), open: func() { a.openHost("") }, pc: true}}
 	listed := false
 	for _, r := range a.remotes {
 		cur := r.bindKey() == a.bind.key()
@@ -314,10 +316,23 @@ func (a *App) hostsSection(c *ui.Context, k *colors) {
 					ui.Text(c, e.title).FontSize(13).FontWeight(600).TextColor(k.text).SingleLine().Ellipsis("…").Shrink(0).MaxWidth(300)
 					ui.Text(c, e.detail).FontSize(12).TextColor(k.textFaint).SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
 				})
-				if e.key == "" {
+				switch {
+				case e.pc:
+					// This machine is reached by no connection: its
+					// settings are the Defaults.
+					if b := iconButton(c, k, "settings-2", "This PC's Settings", 24, 13).Tooltip("This PC's Settings"); b.Clicked() {
+						a.hostOpen = false
+						a.later(c, func() {
+							a.settings.page = scopeDefaults + "/Appearance"
+							a.openSettings()
+						})
+					}
+				case e.key == "":
 					slot()
-				} else if b := iconButton(c, k, "settings-2", "Host Settings", 24, 13).Tooltip("Host Settings"); b.Clicked() {
-					a.later(c, func() { a.editHost(e.key, false) })
+				default:
+					if b := iconButton(c, k, "settings-2", "Host Settings", 24, 13).Tooltip("Host Settings"); b.Clicked() {
+						a.later(c, func() { a.editHost(e.key, false) })
+					}
 				}
 				if e.current {
 					if b := iconButton(c, k, "rotate-ccw", "Reconnect", 24, 13).Tooltip("Reconnect"); b.Clicked() {
