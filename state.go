@@ -1095,6 +1095,8 @@ func (p *Pane) label() (name, detail string) {
 			return name, "waiting for the port"
 		case "released":
 			return name, "released"
+		case "busy":
+			return name, "in use by another host"
 		case "failed":
 			return name, "can't open"
 		}

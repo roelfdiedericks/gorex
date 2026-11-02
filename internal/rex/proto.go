@@ -185,7 +185,9 @@ type CreateOptions struct {
 // is found again after it was unplugged; its speed and framing (data
 // bits, parity N, E, O, M or S, stop bits 1, 1.5 or 2); and what typing
 // sends: Enter CR, or "crlf" or "lf"; Backspace DEL, or "bs" for BS; and
-// Echo has what is typed show, for devices that echo nothing.
+// Echo has what is typed show, for devices that echo nothing. Name is the
+// host's, which another host's session that finds the port open here
+// tells.
 type SerialOptions struct {
 	Path      string `json:"path"`
 	VID       string `json:"vid,omitempty"`
@@ -198,6 +200,7 @@ type SerialOptions struct {
 	Enter     string `json:"enter,omitempty"`
 	Backspace string `json:"backspace,omitempty"`
 	Echo      bool   `json:"echo,omitempty"`
+	Name      string `json:"name,omitempty"`
 }
 
 // SessionInfo describes a session and what runs in it now.
@@ -227,10 +230,12 @@ type SessionInfo struct {
 	// Status is what its programs say they are doing, by the Program
 	// Status Protocol (OSC 7501) or OSC 9;4 progress; nil when none says.
 	Status *ProgramStatus `json:"status,omitempty"`
-	// Port is the path of a serial session's port, and PortState how it
-	// is: "open", "waiting" for it to be plugged in, "released", or
-	// "failed" to open.
+	// Port is the path of a serial session's port, PortHost the name of
+	// its host, and PortState how it is: "open", "waiting" for it to be
+	// plugged in, "released", "busy" in another host's session, which
+	// Enter takes it from, or "failed" to open.
 	Port      string `json:"port,omitempty"`
+	PortHost  string `json:"portHost,omitempty"`
 	PortState string `json:"portState,omitempty"`
 }
 

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"net"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -18,10 +18,10 @@ import (
 // while the dialog shows them, so that one plugged in shows up.
 type serialForm struct {
 	// port is the one chosen; ports those of the latest list, and held
-	// the hosts whose sessions have them open, by path.
+	// those other hosts' sessions have open.
 	port    serialport.Port
 	ports   []serialport.Port
-	held    map[string]string
+	held    []rex.PortUse
 	listErr string
 	pick    bool
 	stop    chan struct{}
@@ -109,7 +109,11 @@ func (a *App) watchPorts(f *hostForm) {
 		defer tick.Stop()
 		for {
 			ports, err := serialport.List()
-			held := heldPorts(f.old, ports)
+			skip := ""
+			if f.old != "" {
+				skip = hostDir(f.old)
+			}
+			held := rex.PortsInUse(filepath.Join(rex.Dir(), "hosts"), skip)
 			win.Update(func() {
 				if a.hostForm != f {
 					return
@@ -146,31 +150,13 @@ func want(p serialport.Port) serialport.Want {
 	return serialport.Want{Path: p.Path, VID: p.VID, PID: p.PID, Serial: p.Serial}
 }
 
-// heldPorts returns the ports of ports other serial hosts than the one of
-// key hold, those whose servers run, by path: the names of the hosts.
-func heldPorts(key string, ports []serialport.Port) map[string]string {
-	held := map[string]string{}
-	for _, r := range loadRemotes() {
-		if r.Kind != kindSerial || r.Key == key {
-			continue
-		}
-		p, ok := serialport.Find(serialport.Want{Path: r.Port, VID: r.PortVID, PID: r.PortPID, Serial: r.PortSerial}, ports)
-		if !ok {
-			continue
-		}
-		if conn, err := net.Dial("unix", rex.SocketPath(hostDir(r.Key))); err == nil {
-			conn.Close()
-			held[p.Path] = r.title()
-		}
-	}
-	return held
-}
-
-// portNote says what keeps a port from the host: another's session, or
-// its being unplugged.
+// portNote says what keeps a port from the host: another's session that
+// has it open, or its being unplugged.
 func (s *serialForm) portNote(p serialport.Port) string {
-	if who := s.held[p.Path]; who != "" {
-		return "in use by " + who
+	for _, u := range s.held {
+		if strings.EqualFold(u.Path, p.Path) {
+			return "in use by " + u.Host
+		}
 	}
 	if s.ports != nil && !slices.ContainsFunc(s.ports, func(q serialport.Port) bool { return q.Path == p.Path }) {
 		return "not plugged in"

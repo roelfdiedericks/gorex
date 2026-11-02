@@ -53,13 +53,14 @@ func serialBinding(r savedRemote) binding {
 }
 
 // serialOptions are what the session of the serial host r opens its port
-// with.
+// with, and its name, which another host's session finding the port open
+// tells.
 func serialOptions(r savedRemote) *rex.SerialOptions {
 	c := r.config()
 	return &rex.SerialOptions{
 		Path: r.Port, VID: r.PortVID, PID: r.PortPID, Serial: r.PortSerial,
 		Baud: c.Baud, DataBits: c.DataBits, Parity: c.Parity, StopBits: c.StopBits,
-		Enter: r.Enter, Backspace: r.Backspace, Echo: r.Echo,
+		Enter: r.Enter, Backspace: r.Backspace, Echo: r.Echo, Name: r.title(),
 	}
 }
 

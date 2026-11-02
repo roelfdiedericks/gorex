@@ -842,7 +842,7 @@ func (s *session) info() SessionInfo {
 	}
 	s.mu.Unlock()
 	if st, ok := s.p.(*serialTTY); ok {
-		in.Port, in.PortState = st.status()
+		in.Port, in.PortState, in.PortHost = st.status()
 		in.Idle, in.Program = true, s.shell
 		return in
 	}

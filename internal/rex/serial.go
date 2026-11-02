@@ -29,11 +29,12 @@ type serialTTY struct {
 	mu sync.Mutex
 	// port is the port open, nil while there is none; path the one it is
 	// or was last at; state as SessionInfo.PortState; opened tells that it
-	// was open before.
+	// was open before; holder, while busy, the session that has it.
 	port   serial.Port
 	path   string
 	state  string
 	opened bool
+	holder PortUse
 	notes  [][]byte
 	// suspended is set while an upgrade in place pauses the session: the
 	// port is closed, for the server that replaces this one to open.
@@ -91,8 +92,9 @@ func (t *serialTTY) wake() {
 }
 
 // open opens the port: where its adapter is now, or at its path. Not
-// there, the tty waits for it; failing otherwise, as another program
-// having it, it says why and waits for Enter.
+// there, the tty waits for it; open in another host's session here, it
+// says whose, and Enter takes it over; failing otherwise, as another
+// program having it, it says why and waits for Enter.
 func (t *serialTTY) open() {
 	t.mu.Lock()
 	path, want, cfg := t.o.Path, t.want, t.cfg
@@ -103,6 +105,12 @@ func (t *serialTTY) open() {
 		}
 	}
 	port, err := serialport.Open(path, cfg)
+	var oe *serialport.OpenError
+	var holder PortUse
+	held := false
+	if errors.As(err, &oe) && oe.Busy {
+		holder, held = heldBy(path)
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.closed || t.suspended {
@@ -120,12 +128,16 @@ func (t *serialTTY) open() {
 		return
 	}
 	if err != nil {
-		var oe *serialport.OpenError
-		if errors.As(err, &oe) && oe.Missing {
+		if oe != nil && oe.Missing {
 			if t.state != "waiting" {
 				t.state = "waiting"
 				t.note(t.path + " is not there: waiting for it")
 			}
+			return
+		}
+		if held {
+			t.state, t.holder = "busy", holder
+			t.note(path + " is open in “" + holder.Host + "”. Press Enter to take it over.")
 			return
 		}
 		t.state = "failed"
@@ -240,17 +252,21 @@ func (t *serialTTY) write(b []byte) (int, error) {
 
 // input sends what is typed: Enter and Backspace as the options say, and
 // shown when they echo it. A port released, or that failed to open, opens
-// again on Enter.
+// again on Enter; one another host's session has, Enter takes over.
 func (t *serialTTY) input(p []byte) {
 	t.mu.Lock()
-	state, o := t.state, t.o
+	state, o, holder := t.state, t.o, t.holder
 	t.mu.Unlock()
-	if state == "released" || state == "failed" {
+	if state == "released" || state == "failed" || state == "busy" {
 		if bytes.ContainsAny(p, "\r\n") {
 			t.mu.Lock()
 			t.state = "opening"
 			t.mu.Unlock()
-			go t.open()
+			if state == "busy" {
+				go t.takeOver(holder)
+			} else {
+				go t.open()
+			}
 		}
 		return
 	}
@@ -342,11 +358,25 @@ func (t *serialTTY) sendBreak() {
 	}
 }
 
-// status is the port's path and state, for SessionInfo.
-func (t *serialTTY) status() (string, string) {
+// takeOver has the session of another host here that has the port
+// release it, which says so there, and opens it.
+func (t *serialTTY) takeOver(u PortUse) {
+	if err := ReleasePort(u.Dir, u.SID); err != nil {
+		t.mu.Lock()
+		t.state = "failed"
+		t.note("Can't take " + u.Path + " from “" + u.Host + "”: " + err.Error() + ". Press Enter to try again.")
+		t.mu.Unlock()
+		return
+	}
+	t.open()
+}
+
+// status is the port's path and state, and its host's name, for
+// SessionInfo.
+func (t *serialTTY) status() (path, state, host string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.path, t.state
+	return t.path, t.state, t.o.Name
 }
 
 // suspend closes the port for an upgrade in place; read stops.

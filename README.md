@@ -109,7 +109,9 @@ terminal plugin (Ghostty's libghostty-vt). No webview, no cgo: one ~15 MB app.
   or its USB IDs when it has none, at whatever path it comes back. Send
   Break (⇧⌘B, Ctrl+Shift+B; the palette, the Shell menu) sends a 300 ms
   break; Release Port closes the port for another program, and Enter in
-  the pane opens it again. Settings changed in the host dialog apply to
+  the pane opens it again. A port another serial host has open, the pane
+  says whose, and Enter takes it over: that host's session releases it,
+  as Release Port does. Settings changed in the host dialog apply to
   the open port at once. `GoRex serial <name>` opens a window on one. On
   Linux, a port of the `dialout` group (`uucp` on some systems) needs
   your user in that group, as GoRex says when it can't open one.
