@@ -24,6 +24,11 @@ func TestReadHandshake(t *testing.T) {
 		t.Errorf("got %q %q %v", kind, value, err)
 	}
 
+	kind, value, err = readHandshake(bufio.NewReader(strings.NewReader("motd\nGOREX-GLIBC 2.12 2.17\n")))
+	if err != nil || kind != "glibc" || value != "2.12 2.17" {
+		t.Errorf("got %q %q %v", kind, value, err)
+	}
+
 	if kind, value, err = readHandshake(bufio.NewReader(strings.NewReader("only noise\n"))); err == nil {
 		t.Errorf("noise read as %q %q", kind, value)
 	}

@@ -7,15 +7,18 @@
 //	go run ./tools/remotepayload -out dev/remote -targets linux/amd64
 //
 // The platforms build side by side, and go build relinks only what
-// changed. The libraries are those of the MyGo that go.mod pins, checked
-// against its SHA-256 sums; they come from MyGo's download cache, where the
-// mygo CLI keeps them, and are downloaded there when missing.
+// changed. The libraries are GoRex's own, for the platforms it builds them
+// for (remote-libs, by tools/libbuild), and otherwise those of the MyGo
+// that go.mod pins; both are checked against their SHA-256 sums. MyGo's
+// come from MyGo's download cache, where the mygo CLI keeps them, and are
+// downloaded there when missing. GoRex's own must be built from the
+// Ghostty commit MyGo binds: when MyGo's pin moves to another, this fails
+// until tools/libbuild has built them again.
 package main
 
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -27,25 +30,29 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"gorex/internal/remotelibs"
 )
 
 // allTargets are the platforms of the hosts GoRex connects to.
 var allTargets = []string{"linux/amd64", "linux/arm64", "darwin/amd64", "darwin/arm64"}
-
-type nativeFile struct {
-	Name   string `json:"name"`
-	SHA256 string `json:"sha256"`
-	URL    string `json:"url"`
-}
 
 func main() {
 	log.SetFlags(0)
 	out := flag.String("out", "resources/remote", "directory of the servers, one directory per platform")
 	targets := flag.String("targets", strings.Join(allTargets, ","), "comma separated GOOS/GOARCH targets")
 	flag.Parse()
-	libs, err := libraries()
+	commit, mygoLibs, err := remotelibs.MyGo()
 	if err != nil {
 		log.Fatal(err)
+	}
+	own, err := remotelibs.Read(".")
+	if err != nil {
+		log.Fatal(err)
+	}
+	if own != nil && own.Ghostty != commit {
+		log.Fatalf("GoRex's own libghostty-vt (%s) is built from Ghostty %s, but the pinned MyGo binds %s: build them again, on Linux, with go run ./tools/libbuild",
+			filepath.Join(remotelibs.Dir, remotelibs.ManifestName), own.Ghostty, commit)
 	}
 	var (
 		wg   sync.WaitGroup
@@ -57,12 +64,19 @@ func main() {
 		if !ok {
 			log.Fatalf("bad target %q: want GOOS/GOARCH", t)
 		}
-		lib, ok := libs[goos+"-"+goarch]
+		platform := goos + "-" + goarch
+		lib, ok := mygoLibs[platform]
 		if !ok {
 			log.Fatalf("MyGo's terminal plugin has no libghostty-vt for %s/%s", goos, goarch)
 		}
+		name, sum, src := lib.Name, lib.SHA256, func() (string, error) { return cached(lib) }
+		if own != nil {
+			if f, ok := own.Files[platform]; ok {
+				name, sum, src = f.Name, f.SHA256, func() (string, error) { return own.Path(".", platform), nil }
+			}
+		}
 		wg.Go(func() {
-			if err := buildTarget(*out, goos, goarch, lib); err != nil {
+			if err := buildTarget(*out, goos, goarch, name, sum, src); err != nil {
 				mu.Lock()
 				errs = append(errs, fmt.Errorf("%s/%s: %w", goos, goarch, err))
 				mu.Unlock()
@@ -75,71 +89,11 @@ func main() {
 	}
 }
 
-// libraries reads the libghostty-vt files of the pinned MyGo's terminal
-// plugin, by GOOS-GOARCH.
-func libraries() (map[string]nativeFile, error) {
-	dir, err := mygoDir()
-	if err != nil {
-		return nil, err
-	}
-	b, err := os.ReadFile(filepath.Join(dir, "plugins", "terminal", "mygo-plugin.json"))
-	if err != nil {
-		return nil, err
-	}
-	var manifest struct {
-		Libraries []struct {
-			Name  string                `json:"name"`
-			Files map[string]nativeFile `json:"files"`
-		} `json:"libraries"`
-	}
-	if err := json.Unmarshal(b, &manifest); err != nil {
-		return nil, fmt.Errorf("reading MyGo's terminal plugin: %w", err)
-	}
-	for _, l := range manifest.Libraries {
-		if l.Name == "libghostty-vt" {
-			return l.Files, nil
-		}
-	}
-	return nil, fmt.Errorf("MyGo's terminal plugin has no libghostty-vt")
-}
-
-// mygoDir finds the pinned MyGo's directory: a replacement's, or the
-// module cache's, downloading it there when it is not yet.
-func mygoDir() (string, error) {
-	list := func() (string, error) {
-		out, err := exec.Command("go", "list", "-m", "-json", "github.com/egoist/mygo").Output()
-		if err != nil {
-			return "", fmt.Errorf("finding MyGo: %w", err)
-		}
-		var mod struct {
-			Dir     string
-			Replace *struct{ Dir string }
-		}
-		if err := json.Unmarshal(out, &mod); err != nil {
-			return "", fmt.Errorf("finding MyGo: %w", err)
-		}
-		if mod.Replace != nil && mod.Replace.Dir != "" {
-			return mod.Replace.Dir, nil
-		}
-		return mod.Dir, nil
-	}
-	dir, err := list()
-	if err != nil || dir != "" {
-		return dir, err
-	}
-	if out, err := exec.Command("go", "mod", "download", "github.com/egoist/mygo").CombinedOutput(); err != nil {
-		return "", fmt.Errorf("downloading MyGo: %v\n%s", err, out)
-	}
-	if dir, err = list(); err == nil && dir == "" {
-		err = fmt.Errorf("finding MyGo: go list -m gives no directory")
-	}
-	return dir, err
-}
-
 // buildTarget builds the server for goos/goarch in out/<goos>-<goarch>,
-// with the library beside it. go build relinks the server only when it
-// changed, and the library is copied only when it differs.
-func buildTarget(out, goos, goarch string, lib nativeFile) error {
+// with the library beside it: name, of SHA-256 sum, which src gives. go
+// build relinks the server only when it changed, and the library is
+// copied only when it differs.
+func buildTarget(out, goos, goarch, name, sum string, src func() (string, error)) error {
 	dir := filepath.Join(out, goos+"-"+goarch)
 	build := exec.Command("go", "build", "-trimpath", "-ldflags=-s -w", "-o", filepath.Join(dir, "gorex"), ".")
 	build.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS="+goos, "GOARCH="+goarch)
@@ -147,20 +101,23 @@ func buildTarget(out, goos, goarch string, lib nativeFile) error {
 	if err := build.Run(); err != nil {
 		return fmt.Errorf("building the server: %w", err)
 	}
-	dst := filepath.Join(dir, lib.Name)
-	if fileSum(dst) == lib.SHA256 {
+	dst := filepath.Join(dir, name)
+	if fileSum(dst) == sum {
 		return nil
 	}
-	src, err := cached(lib)
+	path, err := src()
 	if err != nil {
 		return err
 	}
-	return copyFile(src, dst)
+	if s := fileSum(path); s != sum {
+		return fmt.Errorf("%s: its SHA-256 is %q, not %s", path, s, sum)
+	}
+	return copyFile(path, dst)
 }
 
 // cached returns the library in MyGo's download cache, where the mygo CLI
 // keeps it, downloading it there when it is missing.
-func cached(f nativeFile) (string, error) {
+func cached(f remotelibs.NativeFile) (string, error) {
 	dir, err := os.UserCacheDir()
 	if err != nil {
 		return "", err

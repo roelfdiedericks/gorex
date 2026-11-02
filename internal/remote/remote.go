@@ -152,7 +152,7 @@ func bridge(t Target, profile string, p Payload, logf func(string), login *askpa
 	stop := cmd.limit(30 * time.Second)
 	br := bufio.NewReaderSize(stdout, 64<<10)
 	kind, value, err := readHandshake(br)
-	if err != nil || kind == "deploy" {
+	if err != nil || kind == "deploy" || kind == "glibc" {
 		stdin.Close()
 		if err != nil {
 			// Nothing reads its output any more: a host still printing
@@ -168,6 +168,10 @@ func bridge(t Target, profile string, p Payload, logf func(string), login *askpa
 			return nil, "", fmt.Errorf("ssh %s: %w", t.Spec, err)
 		case err != nil:
 			return nil, "", cmd.err()
+		case kind == "glibc":
+			has, needs, _ := strings.Cut(value, " ")
+			logf("host: glibc " + has + ", the server needs " + needs + " or later")
+			return nil, "", &StopError{"GoRex can't run on " + t.Spec + ": its glibc is " + has + ", and GoRex's server needs " + needs + " or later"}
 		}
 		return nil, value, nil
 	}

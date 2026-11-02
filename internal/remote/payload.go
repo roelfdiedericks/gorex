@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"gorex/internal/remotelibs"
 )
 
 // platform is a system GoRex has a server for.
@@ -43,10 +45,11 @@ func platformOf(system string) (platform, bool) {
 }
 
 // server is the directory of a platform's server, and its ID, which names
-// the directory it lands in on a host: another build, another ID.
+// the directory it lands in on a host: another build, another ID; and the
+// glibc its files need, as "2.17", "" for none.
 type server struct {
 	platform
-	dir, id string
+	dir, id, glibc string
 }
 
 // files are the server's files: the server, and the libghostty-vt beside
@@ -72,6 +75,15 @@ func LoadPayload(resources string) (Payload, error) {
 			return Payload{}, err
 		}
 		s.id = id
+		for _, f := range s.files() {
+			g, err := remotelibs.Glibc(f)
+			if err != nil {
+				return Payload{}, err
+			}
+			if remotelibs.Compare(g, s.glibc) > 0 {
+				s.glibc = g
+			}
+		}
 		p.servers = append(p.servers, s)
 	}
 	if len(p.servers) == 0 {
@@ -117,7 +129,9 @@ func (p Payload) forSystem(system string) (server, error) {
 // with its modes and the mount it is on (noexec). The server loads the
 // libghostty-vt beside it, and nothing else: it never downloads one. A
 // server that can't start says so on its error output too, as the shell
-// does when exec fails.
+// does when exec fails. On a host whose glibc is older than the server's
+// files need, it starts nothing and copies nothing: it answers with the
+// host's glibc and the one needed.
 func (p Payload) bridgeScript(profile string) string {
 	var b strings.Builder
 	b.WriteString(`case "$(uname -s) $(uname -m)" in `)
@@ -128,9 +142,14 @@ func (p Payload) bridgeScript(profile string) string {
 			}
 			b.WriteString(`"` + u + `"`)
 		}
-		b.WriteString(`) id=` + s.id + ` lib=` + s.lib + `;; `)
+		b.WriteString(`) id=` + s.id + ` lib=` + s.lib + ` g=` + s.glibc + `;; `)
 	}
-	b.WriteString(`*) id=;; esac; d="$HOME/.cache/gorex/$id"; `)
+	b.WriteString(`*) id= g=;; esac; d="$HOME/.cache/gorex/$id"; `)
+	// getconf names the glibc as "glibc 2.24", and nothing on a host
+	// without one, which is not checked.
+	b.WriteString(`if [ -n "$g" ]; then h=$(getconf GNU_LIBC_VERSION 2>/dev/null); h=${h#glibc }; ` +
+		`if [ -n "$h" ] && [ "$(printf '%s\n%s\n' "$g" "$h" | sort -t. -k1,1n -k2,2n | head -n 1)" != "$g" ]; then ` +
+		`echo "` + glibcMarker + `$h $g"; exit 0; fi; fi; `)
 	b.WriteString(`if [ -n "$id" ] && [ -x "$d/gorex" ]; then export MYGO_GHOSTTY_VT="$d/$lib"; exec "$d/gorex" -bridge ` + shQuote(profile) + `; fi; `)
 	b.WriteString(`if [ -z "$id" ]; then echo "host: GoRex has no server for $(uname -s) $(uname -m)" >&2; ` +
 		`elif [ -e "$d/gorex" ]; then echo "host: $d/gorex is there, but can't be run:" >&2; ls -ld "$d" "$d/gorex" "$d/$lib" 2>&1 | sed 's/^/host: /' >&2; ` +

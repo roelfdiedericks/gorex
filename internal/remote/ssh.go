@@ -201,6 +201,10 @@ func (t *tail) last() string {
 
 const deployMarker = "GOREX-DEPLOY "
 
+// glibcMarker answers instead of a bridge on a host whose glibc is older
+// than the server needs, with the host's and the one needed.
+const glibcMarker = "GOREX-GLIBC "
+
 // handshakeLines is how many lines of a host's login noise readHandshake
 // reads past, before giving up on it.
 const handshakeLines = 200
@@ -210,8 +214,9 @@ const handshakeLines = 200
 var errNoisyHost = fmt.Errorf("no answer from GoRex among the first %d lines the host printed", handshakeLines)
 
 // readHandshake reads the first line of the remote script's own: a
-// bridge's ready line, or the request of a deployment with the system
-// that needs it. It skips what the shell's startup files print.
+// bridge's ready line, the request of a deployment with the system that
+// needs it, or the glibc of a host too old for the server. It skips what
+// the shell's startup files print.
 func readHandshake(r *bufio.Reader) (kind, value string, err error) {
 	for range handshakeLines {
 		line, err := r.ReadString('\n')
@@ -221,6 +226,9 @@ func readHandshake(r *bufio.Reader) (kind, value string, err error) {
 		}
 		if v, ok := strings.CutPrefix(line, deployMarker); ok {
 			return "deploy", v, nil
+		}
+		if v, ok := strings.CutPrefix(line, glibcMarker); ok {
+			return "glibc", v, nil
 		}
 		if err != nil {
 			if err == io.EOF {
