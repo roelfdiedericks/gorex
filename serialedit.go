@@ -237,17 +237,18 @@ func (a *App) serialFields(c *ui.Context, k *colors, f *hostForm, row func(strin
 }
 
 // portPicker draws the port chosen, and on a click the ports to choose
-// from: each its name above, the system's below.
+// from: each its name above, and below the system's, and what keeps the
+// port from the host.
 func (a *App) portPicker(c *ui.Context, k *colors, s *serialForm) {
 	lines := func(p serialport.Port, note string) {
 		ui.Column(c).Grow(1).MinWidth(0).Children(func() {
+			ui.Text(c, p.Title()).FontSize(13).FontWeight(600).TextColor(k.text).SingleLine().Ellipsis("…")
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, p.Title()).FontSize(13).FontWeight(600).TextColor(k.text).SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
+				ui.Text(c, p.Detail()).FontSize(11.5).TextColor(k.textFaint).SingleLine().Shrink(0)
 				if note != "" {
-					ui.Text(c, note).FontSize(11.5).TextColor(k.attention).SingleLine().Shrink(0)
+					ui.Text(c, note).FontSize(11.5).TextColor(k.attention).SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
 				}
 			})
-			ui.Text(c, p.Detail()).FontSize(11.5).TextColor(k.textFaint).SingleLine().Ellipsis("…")
 		})
 	}
 	anchor := ui.Row(c).FillWidth().MinHeight(42).Padding(4, 10).Gap(8).Radius(8).Border(1, k.panelBorder).

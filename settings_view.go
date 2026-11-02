@@ -55,11 +55,15 @@ func pageTitle(page string) string {
 	return page
 }
 
-// pages lists the sidebar's pages of a scope: the sections with rows in
-// that scope, and Hosts under the Defaults.
-func pagesOf(scope string) []string {
+// pagesOf lists the sidebar's pages of a scope: the sections with rows in
+// that scope, and Hosts under the Defaults. A serial port's window has no
+// Shell page of its own: its session runs no shell.
+func (a *App) pagesOf(scope string) []string {
 	var ps []string
 	for _, sec := range sections {
+		if sec == "Shell" && scope == scopeHost && a.bind.serial != "" {
+			continue
+		}
 		for _, f := range fields {
 			if f.section == sec && f.inScope(scope) {
 				ps = append(ps, sec)
@@ -168,12 +172,12 @@ func (a *App) settingsSidebar(c *ui.Context, k *colors) {
 		}
 		sidebar := ui.Sidebar(c, &s.page, func() {
 			ui.SidebarSection(c, "This window · "+hostLabel, nil, func() {
-				for _, p := range pagesOf(scopeHost) {
+				for _, p := range a.pagesOf(scopeHost) {
 					ui.SidebarItem(c, scopeHost+"/"+p, icon(pageGlyph(p)), pageTitle(p))
 				}
 			})
 			ui.SidebarSection(c, "Defaults · "+thisMachine(), nil, func() {
-				for _, p := range pagesOf(scopeDefaults) {
+				for _, p := range a.pagesOf(scopeDefaults) {
 					ui.SidebarItem(c, scopeDefaults+"/"+p, icon(pageGlyph(p)), pageTitle(p))
 				}
 			})
@@ -228,7 +232,7 @@ func (a *App) searchResults(c *ui.Context, k *colors, q, hostLabel string) {
 			if scope == scopeDefaults {
 				label = "Defaults · " + thisMachine()
 			}
-			for _, page := range pagesOf(scope) {
+			for _, page := range a.pagesOf(scope) {
 				var hits []field
 				for _, f := range fields {
 					if f.section == page && f.inScope(scope) && fuzzy(strings.ToLower(f.label+" "+f.group+" "+pageTitle(page)), q) {
