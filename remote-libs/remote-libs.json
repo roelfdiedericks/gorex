@@ -1,0 +1,14 @@
+{
+  "ghostty": "befcdfd2c3a1cb24d9ec886e93c95b2b5daa7028",
+  "glibc": "2.17",
+  "files": {
+    "linux-amd64": {
+      "name": "libghostty-vt.so",
+      "sha256": "cc4eec4d95b589eb036ab8b1843dc82a90061faec1e65bbc960b644ff1faa313"
+    },
+    "linux-arm64": {
+      "name": "libghostty-vt.so",
+      "sha256": "845351e88038230db1429eec402d5c8118f81ff53274380c2af6c283df4dbd21"
+    }
+  }
+}
