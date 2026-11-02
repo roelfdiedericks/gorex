@@ -86,10 +86,11 @@ func (a *App) view(c *ui.Context) {
 	a.shortcuts(c)
 	a.palette(c, k)
 	a.connectionLog(c, k)
-	a.loginDialog(c, k)
-	a.cantRunDialog(c, k)
 	a.settingsDialog(c, k)
 	a.hostDialog(c, k)
+	// What connecting asks shows over every other dialog.
+	a.loginDialog(c, k)
+	a.cantRunDialog(c, k)
 	a.toasts(c, k)
 	if a.saveDue && time.Since(a.lastSave) > time.Second {
 		a.save()

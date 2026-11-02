@@ -111,6 +111,11 @@ func (a *App) saveHost(f *hostForm, connect bool) {
 			if a.bind.host() && r.Key == a.bind.target.Key() {
 				a.hostLabel = r.Label
 			}
+			if connect {
+				// The window connects, and what connecting asks shows
+				// over it: the settings stay closed.
+				f.fromSettings = false
+			}
 			a.closeHostForm()
 			if connect {
 				if b, err := hostBinding(spec, ""); err != nil {
