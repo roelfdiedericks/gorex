@@ -33,9 +33,9 @@ terminal plugin (Ghostty's libghostty-vt). No webview, no cgo: one ~15 MB app.
   have a context menu.
 - **Host chip** with the machine's name and model; its popover shows the
   chip, memory, OS and the session server, and lists the hosts: click one
-  to switch the window to it, ⧉ to open it in a new window, ↻ to reconnect,
-  ⚙ and ✕ (on hover) for its settings and to forget it, Add Host… for a
-  new one, or type `user@host` to connect to another.
+  to switch the window to it, ⚙ for its settings, ⧉ to open it in a new
+  window, ↻ to reconnect, ✕ to forget it (which asks first), Add Host… for
+  a new one, or type `user@host` to connect to another.
 - **Command palette** (⇧⌘P, Ctrl+Shift+P, or the ⌘ button): every command, and every pane
   to jump to, fuzzy-matched; the servers to switch the window to (below).
 - **Remote sessions over ssh.** `GoRex ssh user@host` opens a window on

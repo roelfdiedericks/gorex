@@ -91,7 +91,7 @@ func (a *App) hostChip(c *ui.Context, k *colors) {
 	if chip.Clicked() {
 		a.hostOpen = !a.hostOpen
 		if a.hostOpen {
-			a.remotes, a.hostErr = loadRemotes(), ""
+			a.remotes, a.hostErr, a.hostForget = loadRemotes(), "", ""
 		}
 	}
 	chip.Children(func() {
@@ -102,7 +102,7 @@ func (a *App) hostChip(c *ui.Context, k *colors) {
 		})
 	})
 	ui.PopoverBase(c, chip, &a.hostOpen, func(panel ui.Element) {
-		panel.Margin(8, 0, 0, 0).Width(480).Padding(14).Radius(14).Background(k.panel).Border(1, k.panelBorder).
+		panel.Margin(8, 0, 0, 0).Width(560).Padding(14).Radius(14).Background(k.panel).Border(1, k.panelBorder).
 			Shadow(0, 12, 32, 0, k.shadowFocused).Gap(12)
 		a.hostPanel(c, k, name, glyph)
 	})
@@ -271,14 +271,30 @@ func (a *App) hostsSection(c *ui.Context, k *colors) {
 				a.later(c, a.openSettings)
 			}
 		})
+		// Each row's actions stand in columns of their own, a gap where a
+		// host has none: its settings, a window of its own (Reconnect for
+		// the window's own host), and forgetting it, which asks first.
+		slot := func() { ui.Box(c).Size(24, 24).Shrink(0) }
 		for _, e := range entries {
 			row := ui.Row(c.Key("host/"+e.key+"/"+e.title)).Height(34).Padding(0, 4, 0, 6).Gap(4).Radius(8).AlignItems(ui.Center)
+			if e.key != "" && a.hostForget == e.key {
+				row.Background(k.hover).Children(func() {
+					ui.Text(c, "Forget "+e.title+"?").FontSize(13).FontWeight(600).TextColor(k.text).SingleLine().Ellipsis("…").Grow(1).MinWidth(0)
+					if textButton(c, k, "Cancel").Clicked() {
+						a.hostForget = ""
+					}
+					if textButton(c, k, "Forget").Clicked() {
+						forgetRemote(e.key)
+						a.remotes, a.hostForget = loadRemotes(), ""
+					}
+				})
+				continue
+			}
 			if e.current {
 				row.Background(k.panelSel)
 			} else if row.Hovered() {
 				row.Background(k.hover)
 			}
-			hovered := row.Hovered()
 			row.Children(func() {
 				main := ui.Row(c).Grow(1).MinWidth(0).Height(34).Gap(8).AlignItems(ui.Center).
 					Role(ui.RoleButton).Label("Switch to " + e.title)
@@ -295,39 +311,29 @@ func (a *App) hostsSection(c *ui.Context, k *colors) {
 							ui.Icon(c, icon("check")).Size(14, 14).TextColor(k.text)
 						}
 					})
-					ui.Text(c, e.title).FontSize(13).FontWeight(600).TextColor(k.text).SingleLine().Ellipsis("…").Shrink(0).MaxWidth(220)
+					ui.Text(c, e.title).FontSize(13).FontWeight(600).TextColor(k.text).SingleLine().Ellipsis("…").Shrink(0).MaxWidth(300)
 					ui.Text(c, e.detail).FontSize(12).TextColor(k.textFaint).SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
 				})
-				if e.key != "" && hovered {
-					if b := iconButton(c, k, "settings-2", "Host Settings", 24, 13).Tooltip("Host Settings"); b.Clicked() {
-						a.later(c, func() { a.editHost(e.key, false) })
-					}
+				if e.key == "" {
+					slot()
+				} else if b := iconButton(c, k, "settings-2", "Host Settings", 24, 13).Tooltip("Host Settings"); b.Clicked() {
+					a.later(c, func() { a.editHost(e.key, false) })
 				}
 				if e.current {
 					if b := iconButton(c, k, "rotate-ccw", "Reconnect", 24, 13).Tooltip("Reconnect"); b.Clicked() {
 						a.hostOpen = false
 						a.later(c, func() { a.switchTo(a.bind, true) })
 					}
-					return
-				}
-				if b := iconButton(c, k, "app-window", "Open in New Window", 24, 13).Tooltip("Open in New Window"); b.Clicked() {
+				} else if b := iconButton(c, k, "app-window", "Open in New Window", 24, 13).Tooltip("Open in New Window"); b.Clicked() {
 					a.hostOpen = false
 					if err := launchWindow(e.window); err != nil {
 						a.err = "Can't open a window: " + err.Error()
 					}
 				}
-				if e.key == "" {
-					return
-				}
-				// Forgetting shows on hover; its room stays, so that the
-				// button beside it doesn't move.
-				if !hovered {
-					ui.Box(c).Size(24, 24).Shrink(0)
-					return
-				}
-				if b := iconButton(c, k, "x", "Forget", 24, 12).Tooltip("Forget"); b.Clicked() {
-					forgetRemote(e.key)
-					a.remotes = loadRemotes()
+				if e.key == "" || e.current {
+					slot()
+				} else if b := iconButton(c, k, "x", "Forget", 24, 12).Tooltip("Forget"); b.Clicked() {
+					a.hostForget = e.key
 				}
 			})
 		}

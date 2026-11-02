@@ -354,9 +354,11 @@ type App struct {
 	paletteSel   int
 	hostOpen     bool
 	// hostQuery is the ssh destination typed in the host's popover, and
-	// hostErr why connecting to it failed.
+	// hostErr why connecting to it failed; hostForget is the key of the
+	// host its list asks to forget.
 	hostQuery    string
 	hostErr      string
+	hostForget   string
 	renaming     *Tab
 	renameText   string
 	renameFocus  bool
