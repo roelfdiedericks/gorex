@@ -30,6 +30,8 @@ type command struct {
 	// Serial marks a command of serial hosts' windows, which the palette
 	// lists only there.
 	Serial bool
+	// Shown, when set, says whether the palette lists it now.
+	Shown func(a *App) bool
 }
 
 var (
@@ -79,6 +81,11 @@ var (
 	// Ctrl+Break, which MyGo has no key for yet.
 	cmdSendBreak   = command{Title: "Send Break", Accel: "CmdOrCtrl+Shift+B", Keys: "⇧⌘B", Other: ctrlShift(ui.KeyB), Run: func(a *App) { a.sendBreak() }, Serial: true}
 	cmdReleasePort = command{Title: "Release Port", Run: func(a *App) { a.releasePort() }, Serial: true}
+	// The host's settings and its server's restart, as the host chip's
+	// menu has them: settings for a host that has some saved, a restart
+	// while a server answers.
+	cmdHostSettings  = command{Title: "Host Settings…", Run: func(a *App) { a.hostSettings() }, Shown: func(a *App) bool { return !a.bind.away() || a.hostKey() != "" }}
+	cmdRestartServer = command{Title: "Restart Session Server…", Run: func(a *App) { a.restartAsk = true }, Shown: func(a *App) bool { return a.client != nil }}
 )
 
 // paletteCommands are those the command palette lists, before the tabs.
@@ -90,7 +97,7 @@ var paletteCommands = []*command{
 	&cmdGrowLeft, &cmdGrowRight, &cmdGrowUp, &cmdGrowDown,
 	&cmdBigger, &cmdSmaller, &cmdDefaultSize, &cmdLight, &cmdDark, &cmdSystem,
 	&cmdClearScroll, &cmdRestart, &cmdReconnect, &cmdConnLog, &cmdSettings, &cmdUpdates, &cmdEndAll,
-	&cmdSendBreak, &cmdReleasePort,
+	&cmdSendBreak, &cmdReleasePort, &cmdHostSettings, &cmdRestartServer,
 }
 
 // commands are all of them.
@@ -470,7 +477,7 @@ func (a *App) paletteItems() []paletteItem {
 	}
 	editorTab := a.tab() != nil && a.tab().Kind == paneEditor
 	for _, cmd := range paletteCommands {
-		if cmd.Hidden || !match(cmd.Title) || cmd.Editor && !editorTab || cmd.Serial && a.bind.serial == "" {
+		if cmd.Hidden || !match(cmd.Title) || cmd.Editor && !editorTab || cmd.Serial && a.bind.serial == "" || cmd.Shown != nil && !cmd.Shown(a) {
 			continue
 		}
 		cmd := cmd

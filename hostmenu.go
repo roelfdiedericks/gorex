@@ -16,20 +16,13 @@ func (a *App) hostMenu(m *ui.Menu) {
 	if m.Item("Reconnect").Chosen() {
 		a.switchTo(b, true)
 	}
-	settings := m.Item("Host Settings…")
-	key := a.hostKey()
-	if b.away() && key == "" {
+	settings := m.Item(cmdHostSettings.Title)
+	if !cmdHostSettings.Shown(a) {
 		// A host connected to for the first time has none yet.
 		settings.Disabled(true)
 	}
 	if settings.Chosen() {
-		if b.away() {
-			a.editHost(key, false)
-		} else {
-			// This machine's settings are the Defaults.
-			a.settings.page = scopeDefaults + "/Appearance"
-			a.openSettings()
-		}
+		a.hostSettings()
 	}
 	if m.Item("Open in New Window").Chosen() {
 		if err := launchWindow(a.windowArgs()); err != nil {
@@ -55,7 +48,7 @@ func (a *App) hostMenu(m *ui.Menu) {
 	}
 	m.Separator()
 	// The server answers the restart: not connected, there is none to.
-	if m.Item("Restart Session Server…").Disabled(a.client == nil).Chosen() {
+	if m.Item(cmdRestartServer.Title).Disabled(!cmdRestartServer.Shown(a)).Chosen() {
 		a.restartAsk = true
 	}
 	m.Separator()
@@ -92,6 +85,19 @@ func (a *App) hostMenu(m *ui.Menu) {
 	if m.Item("Settings…").Chosen() {
 		a.openSettings()
 	}
+}
+
+// hostSettings opens the settings of the window's host: its dialog, or
+// for this machine the Defaults, which are its own.
+func (a *App) hostSettings() {
+	if a.bind.away() {
+		if key := a.hostKey(); key != "" {
+			a.editHost(key, false)
+		}
+		return
+	}
+	a.settings.page = scopeDefaults + "/Appearance"
+	a.openSettings()
 }
 
 // hostKey is the key of the window's host among the saved ones, "" for
