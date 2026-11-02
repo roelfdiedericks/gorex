@@ -3,6 +3,7 @@ package main
 import (
 	"runtime"
 	"strings"
+	"time"
 	"unicode/utf16"
 	"unicode/utf8"
 
@@ -14,8 +15,9 @@ import (
 // A program's text fields (editor, input) are native: MyGo's text widgets,
 // which the user types into, with the caret, selection, wrapping and
 // input methods of any field, and the program is told what changed (edit
-// events, as the hello reply's features promise), sends on Enter (send)
-// and undoes on Cmd+Z (undo); it answers with the text and caret it
+// events, as the hello reply's features promise), sends on Enter (the
+// composer's send button pressed, else a send of the text) and undoes on
+// Cmd+Z (undo); it answers with the text and caret it
 // has, which the field takes when they differ from what it last said, as
 // after a slash command or a history recall. Keys that type no text,
 // Escape, Tab, the arrows at the edges, chords, go to the program through
@@ -36,7 +38,20 @@ type tspField struct {
 	sent       []tspSent
 	caretRunes int
 	selected   bool
+	press      *tspPress
 }
+
+// tspPress is an Enter waiting for the program to have the field's text,
+// to press the composer's send button then: the button's node and the
+// action its click sends, and when to give up and send the text instead.
+type tspPress struct {
+	id, act string
+	until   time.Time
+}
+
+// tspPressWait is how long an Enter waits for the program to catch up
+// with what was typed before pressing the send button.
+const tspPressWait = time.Second
 
 // tspSent is a text a field sent its program, with its caret.
 type tspSent struct {
@@ -134,6 +149,21 @@ func (a *App) tspField(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pan
 		ev["sf"], ev["id"] = sf.ID, id
 		go stream.TSPEvent(ev)
 	}
+	press := func(pr *tspPress) {
+		go stream.TSPEvent(map[string]any{"ev": "action", "sf": sf.ID, "id": pr.id, "act": pr.act})
+	}
+	// An Enter waiting for the program to catch up presses the send button
+	// once it has, or sends the text when it never does.
+	if pr := f.press; pr != nil {
+		switch {
+		case f.said == f.text:
+			f.press = nil
+			press(pr)
+		case time.Now().After(pr.until):
+			f.press = nil
+			send(map[string]any{"ev": "send", "text": f.text})
+		}
+	}
 	var el ui.Element
 	if area {
 		maxLines := 18
@@ -209,7 +239,27 @@ func (a *App) tspField(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pan
 			term.Send([]byte{'\r'})
 			return true
 		case tk.Key == ui.KeyEnter && tk.Mods == 0 && sendable:
-			send(map[string]any{"ev": "send", "text": tk.Text()})
+			// Enter presses the composer's send button, as a click on it:
+			// omp then sends its own draft, with the images pasted into
+			// it, which a send of the text loses (omp empties its draft,
+			// images and all, before taking the text). The button waits
+			// for omp to have what was typed; without one, the text goes.
+			b, act := tspSendButton(sf.Root)
+			if b == nil {
+				send(map[string]any{"ev": "send", "text": tk.Text()})
+				return true
+			}
+			pr := &tspPress{id: b.ID, act: act, until: time.Now().Add(tspPressWait)}
+			if f.said == tk.Text() {
+				press(pr)
+				return true
+			}
+			f.press = pr
+			if win := a.win; win != nil {
+				// A frame after the wait, to send the text if omp never
+				// caught up.
+				time.AfterFunc(tspPressWait+50*time.Millisecond, func() { win.Update(func() {}) })
+			}
 			return true
 		case tk.Key == ui.KeyZ && tk.Mods&(ui.Ctrl|ui.Cmd) != 0 && tk.Mods&ui.Shift == 0:
 			send(map[string]any{"ev": "undo"})
@@ -271,6 +321,27 @@ func (a *App) tspField(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pan
 		f.send(f.text, cur)
 	}
 	return el
+}
+
+// tspSendButton finds the composer's send button under n (omp's
+// omp.composer.send) and the action a click on it sends; nil without one.
+func tspSendButton(n *rex.TSPNode) (*rex.TSPNode, string) {
+	if n == nil {
+		return nil, ""
+	}
+	if role, _ := n.Props["role"].(string); role == "omp.composer.send" {
+		if actions, ok := n.Props["actions"].(map[string]any); ok {
+			if act, _ := actions["click"].(string); act != "" {
+				return n, act
+			}
+		}
+	}
+	for _, ch := range n.Children {
+		if b, act := tspSendButton(ch); b != nil {
+			return b, act
+		}
+	}
+	return nil, ""
 }
 
 // tspEditChord reports whether a chord is the field's own: copy, cut,

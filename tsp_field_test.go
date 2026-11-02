@@ -5,7 +5,36 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+
+	"gorex/internal/rex"
 )
+
+// Enter presses the composer's send button where omp shows one that takes
+// a click; while dictation holds the draft its button has no action, and
+// Enter sends the text as before.
+func TestTSPSendButton(t *testing.T) {
+	button := func(actions map[string]any) *rex.TSPNode {
+		p := map[string]any{"role": "omp.composer.send", "keys": []any{"enter"}}
+		if actions != nil {
+			p["actions"] = actions
+		}
+		return &rex.TSPNode{ID: "composer.send", Kind: "kbd", Props: p}
+	}
+	tree := func(b *rex.TSPNode) *rex.TSPNode {
+		return &rex.TSPNode{ID: "root", Kind: "col", Children: []*rex.TSPNode{
+			{ID: "composer", Kind: "row", Children: []*rex.TSPNode{{ID: "composer.field", Kind: "editor"}, b}},
+		}}
+	}
+	if b, act := tspSendButton(tree(button(map[string]any{"click": "submit"}))); b == nil || b.ID != "composer.send" || act != "submit" {
+		t.Errorf("with a send button: %v %q, want composer.send submit", b, act)
+	}
+	if b, _ := tspSendButton(tree(button(nil))); b != nil {
+		t.Errorf("dictating, the button without an action: %v, want none", b.ID)
+	}
+	if b, _ := tspSendButton(tree(&rex.TSPNode{ID: "x", Kind: "kbd", Props: map[string]any{"actions": map[string]any{"click": "submit"}}})); b != nil {
+		t.Errorf("another button: %v, want none", b.ID)
+	}
+}
 
 // A one-line field's change goes to its program as the keys that make
 // it: the caret moves to the end of the part that differs, Backspace
