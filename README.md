@@ -37,7 +37,8 @@ terminal plugin (Ghostty's libghostty-vt). No webview, no cgo: one ~15 MB app.
   Defaults), ⧉ to open it in a new window, ↻ to reconnect, ✕ to forget it
   (which asks first), Add Host… for a new one, or type `user@host` to
   connect to another. Right-clicked, the chip has a menu: Reconnect, Host
-  Settings…, Open in New Window, Copy Address, Connection Log…, Send
+  Settings…, Open in New Window, Copy Address (`user@host`, as ssh takes
+  it), Copy ssh Command (with the host's options), Connection Log…, Send
   Break and Release Port on a serial port, Restart Session Server…
   (which says first whether the sessions keep running: they do where the
   server can replace itself in place, not on Windows), Switch to the

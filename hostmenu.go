@@ -2,8 +2,11 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/egoist/mygo/ui"
+
+	"gorex/internal/remote"
 )
 
 // hostMenu is the host chip's context menu: what the window can do with
@@ -35,6 +38,9 @@ func (a *App) hostMenu(m *ui.Menu) {
 	}
 	if addr := a.hostAddress(); addr != "" && m.Item("Copy Address").Chosen() {
 		a.services.WriteClipboard(addr)
+	}
+	if a.bind.host() && m.Item("Copy ssh Command").Chosen() {
+		a.services.WriteClipboard(sshCommand(a.bind.target))
 	}
 	if m.Item("Connection Log…").Chosen() {
 		a.logOpen = true
@@ -116,17 +122,66 @@ func (a *App) windowArgs() []string {
 	return nil
 }
 
-// hostAddress is what reaches the window's host: user@host:port, a serial
-// port's name; "" for this machine.
+// hostAddress is what reaches the window's host: as ssh takes it after
+// "ssh " (sshAddress), or a serial port's name; "" for this machine.
 func (a *App) hostAddress() string {
 	switch b := a.bind; {
 	case b.serial != "":
 		r, _ := findRemote(b.serial)
 		return r.Port
 	case b.host():
-		return b.target.Key()
+		return sshAddress(b.target)
 	}
 	return ""
+}
+
+// sshAddress is the host of t as ssh takes it after "ssh ": user@host, or
+// ssh://user@host:port on a port other than 22.
+func sshAddress(t remote.Target) string {
+	if t.Port == "" || t.Port == "22" {
+		return t.User + "@" + t.Host
+	}
+	host := t.Host
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	return "ssh://" + t.User + "@" + host + ":" + t.Port
+}
+
+// sshCommand is an ssh command line that reaches the host of t as GoRex
+// does, to paste in another terminal: the host's options (its identity
+// file and more), its port when not 22, -A where the agent goes along,
+// and user@host.
+func sshCommand(t remote.Target) string {
+	args := []string{"ssh"}
+	for i := 0; i < len(t.Opts); i++ {
+		o := t.Opts[i]
+		if o == "-p" {
+			// The port, as ssh resolved it, follows.
+			i++
+			continue
+		}
+		if strings.HasPrefix(o, "-p") {
+			continue
+		}
+		args = append(args, shellQuote(o))
+	}
+	if t.Port != "" && t.Port != "22" {
+		args = append(args, "-p", t.Port)
+	}
+	if t.Agent == "yes" || t.Agent == "" && forwardsAgent(t.Key()) {
+		args = append(args, "-A")
+	}
+	return strings.Join(append(args, shellQuote(t.User+"@"+t.Host)), " ")
+}
+
+// shellQuote quotes s for a POSIX shell when it has more than letters,
+// digits and the punctuation of paths and options.
+func shellQuote(s string) string {
+	if s != "" && strings.Trim(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@%+=:,./_-~") == "" {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // restartDialog asks before the window's session server restarts: in
