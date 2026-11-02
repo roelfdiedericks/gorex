@@ -456,6 +456,28 @@ func (a *App) importDialog(c *ui.Context, k *colors) {
 			if textButton(c, k, "Choose KiTTY folder…").Clicked() && !f.loading {
 				a.chooseKittyFolder(f)
 			}
+			// One button ticks every session that can be imported, or,
+			// when all are, none.
+			all, some := true, false
+			for _, r := range f.rows {
+				if r.blocked == "" {
+					some = true
+					all = all && r.checked
+				}
+			}
+			if some && !f.loading {
+				label := "Select All"
+				if all {
+					label = "Select None"
+				}
+				if textButton(c, k, label).Clicked() {
+					for _, r := range f.rows {
+						if r.blocked == "" {
+							r.checked = !all
+						}
+					}
+				}
+			}
 			ui.Box(c).Grow(1)
 			if textButton(c, k, "Cancel").Clicked() {
 				a.importForm = nil
