@@ -407,6 +407,9 @@ func (a *App) attachBinding(win *mygo.Window, b binding, gen int64, client *rex.
 		}
 		touchRemote(r)
 	}
+	// The host's lists show it as it is now, a host the window fell back
+	// to plain ssh for too.
+	a.remotes, a.hostLabel = loadRemotes(), labelOf(b)
 }
 
 // detachAll detaches the window from its sessions, which go on, and from

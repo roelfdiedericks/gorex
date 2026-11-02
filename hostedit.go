@@ -108,6 +108,9 @@ func (a *App) saveHost(f *hostForm, connect bool) {
 			r.Key = t.Key()
 			putRemote(f.old, r)
 			a.remotes = loadRemotes()
+			if a.bind.host() && r.Key == a.bind.target.Key() {
+				a.hostLabel = r.Label
+			}
 			a.closeHostForm()
 			if connect {
 				if b, err := hostBinding(spec, ""); err != nil {

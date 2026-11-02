@@ -254,6 +254,9 @@ type App struct {
 	cantRun *cantRunAsk
 	// hostForm is the host dialog's, while it shows (hostedit.go).
 	hostForm *hostForm
+	// hostLabel is the user's name for the host the window shows, from
+	// its dialog (labelOf), "" for none.
+	hostLabel string
 	// remotes are the known remote servers, for the palette.
 	remotes []savedRemote
 	// defaults are this PC's settings, host the current host's overrides,

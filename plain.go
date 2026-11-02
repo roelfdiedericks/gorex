@@ -65,11 +65,12 @@ func exitCode(client *rex.Client, sid string) int {
 // sshEnded keeps the pane of a plain host whose ssh ended with code, as
 // when the link went or the host could not be reached, rather than
 // closing it as a logout does: it says so, under what ssh said, and Enter
-// connects it again.
+// connects it again. Windows tells the code as 32 bits unsigned: ssh's -1
+// comes as 4294967295.
 func (a *App) sshEnded(p *Pane, code int) {
 	p.ended = true
 	if p.term != nil {
-		p.term.Feed(fmt.Appendf(nil, "\r\n\x1b[0;2m[ssh ended, code %d] Press Enter to connect again.\x1b[0m\r\n", code))
+		p.term.Feed(fmt.Appendf(nil, "\r\n\x1b[0;2m[ssh ended, code %d] Press Enter to connect again.\x1b[0m\r\n", int32(code)))
 	}
 	a.changed()
 }

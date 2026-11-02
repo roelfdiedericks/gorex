@@ -314,6 +314,7 @@ func (a *App) switchTo(b binding, force bool) {
 	a.reset()
 	a.hello = rex.Hello{}
 	a.bind = b
+	a.hostLabel = labelOf(b)
 	// Until the host's own settings are known, the Defaults.
 	a.host = Settings{}
 	a.applySettings()

@@ -18,13 +18,13 @@ import (
 // its settings change.
 
 // cantRunAsk is the window's question when GoRex's server can't run on
-// the host of b, while connecting to it (gen): with reason, and whether
-// another folder may do.
+// the host of b, while connecting to it (gen): with reason, the note a
+// host made plain keeps (cantRunNote), and whether another folder may do.
 type cantRunAsk struct {
-	b       binding
-	reason  string
-	folders bool
-	gen     int64
+	b            binding
+	reason, note string
+	folders      bool
+	gen          int64
 }
 
 // serverCantRun does what the settings say for a host where GoRex's
@@ -33,18 +33,34 @@ type cantRunAsk struct {
 // the one that failed.
 func (a *App) serverCantRun(b binding, e *remote.StopError) {
 	folders := e.CantRun == remote.NoStart && b.target.Dir == ""
+	note := cantRunNote(b, e)
 	switch a.eff.General.ServerFallback {
 	case "plain":
-		a.goPlain(b, e.Reason)
+		a.goPlain(b, note)
 	case "folders":
 		if folders {
-			a.findFolder(b, e.Reason)
+			a.findFolder(b, note)
 		} else {
-			a.goPlain(b, e.Reason)
+			a.goPlain(b, note)
 		}
 	default:
-		a.cantRun = &cantRunAsk{b: b, reason: e.Reason, folders: folders, gen: a.gen.Load()}
+		a.cantRun = &cantRunAsk{b: b, reason: e.Reason, note: note, folders: folders, gen: a.gen.Load()}
 	}
+}
+
+// cantRunNote says why GoRex's server can't run on the host of b, for e,
+// as the note of a host made plain keeps it: e's reason, but where the
+// server did not start, which folder, as the Connection Log's lines that
+// tell more are not kept.
+func cantRunNote(b binding, e *remote.StopError) string {
+	if e.CantRun != remote.NoStart {
+		return e.Reason
+	}
+	dir := b.target.Dir
+	if dir == "" {
+		dir = "~/.cache/gorex"
+	}
+	return "GoRex's server does not run from " + dir + " there"
 }
 
 // goPlain makes the host of b a plain host, why the note of it, and
@@ -129,10 +145,10 @@ func (a *App) cantRunDialog(c *ui.Context, k *colors) {
 				end(nil)
 			}
 			if textButton(c, k, "Connect with plain ssh").Clicked() {
-				end(func() { a.goPlain(q.b, q.reason) })
+				end(func() { a.goPlain(q.b, q.note) })
 			}
 			if q.folders && textButton(c, k, "Try other folders").Clicked() {
-				end(func() { a.findFolder(q.b, q.reason) })
+				end(func() { a.findFolder(q.b, q.note) })
 			}
 		})
 	})

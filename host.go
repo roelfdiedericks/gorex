@@ -12,27 +12,40 @@ import (
 )
 
 // hostName names the machine the window shows: the name its settings
-// give it, else, for a plain host, the user's or its destination, else
-// its server's, else how it is reached. A plain host's server is this
-// machine's, which names this machine.
+// give it, else its own (ownHostName).
 func (a *App) hostName() string {
 	if a.eff.Appearance.Name != "" {
 		return a.eff.Appearance.Name
 	}
-	if a.bind.plain {
-		if r, ok := findRemote(a.bind.target.Key()); ok && r.Label != "" {
-			return r.Label
-		}
+	return a.ownHostName()
+}
+
+// ownHostName names the machine the window shows when its settings give
+// it no name: as the user named it in the host's dialog, else as its
+// server does, but for a plain host, whose server is this machine's, else
+// as it is reached.
+func (a *App) ownHostName() string {
+	if a.hostLabel != "" {
+		return a.hostLabel
+	}
+	if a.bind.host() && (a.bind.plain || a.hello.Host.Name == "") {
 		return a.bind.target.Spec
 	}
 	if a.hello.Host.Name != "" {
 		return a.hello.Host.Name
 	}
-	if a.bind.remote {
-		return a.bind.target.Spec
-	}
 	name, _ := os.Hostname()
 	return strings.TrimSuffix(name, ".local")
+}
+
+// labelOf is the user's name for the host of b, from its dialog: "" for
+// none, and for this machine.
+func labelOf(b binding) string {
+	if !b.host() {
+		return ""
+	}
+	r, _ := findRemote(b.target.Key())
+	return r.Label
 }
 
 // hostChip shows the machine the sessions run on; a click shows more of

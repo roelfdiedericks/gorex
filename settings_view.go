@@ -666,7 +666,7 @@ func (a *App) placeholder(f field) string {
 		}
 		return "the login shell, $SHELL"
 	case "appearance.name":
-		return a.hello.Host.Name
+		return a.ownHostName()
 	case "terminal.font":
 		return "JetBrains Mono"
 	case "editor.font":
