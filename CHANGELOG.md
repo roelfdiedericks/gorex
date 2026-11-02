@@ -4,6 +4,40 @@ The version of each release is its heading here, which `mygo.json`'s
 `version` must match: `make website` refuses to build otherwise, and
 refuses a version already published.
 
+## 0.1.10
+
+- Plain ssh hosts: a host where GoRex's server can't run, or that you
+  want so, is reached with ssh alone. Its tabs and panes each run `ssh`
+  from this PC, in a session server of the host's own here, with its own
+  tabs and layout, and it is switched to from the host list as any host.
+  Its sessions outlive the window, but not their connections: one that
+  ends other than by logging out says so, and Enter connects it again.
+  Editor tabs and the files of omp's cards, which need GoRex's server on
+  the host, show greyed out.
+- Host settings: Add Host… (in the host list, Settings, Hosts, and the
+  palette) and each host's settings (⚙ in the host list, Edit… in
+  Settings, Hosts) give a host a name, its ssh destination, an identity
+  file, more ssh options every ssh to it takes (`-p 2222 -o
+  ProxyJump=bastion`), Forward ssh agent, and how GoRex reaches it: with
+  its server there, in a folder of your choice (`~/.cache/gorex` when
+  empty), or with plain ssh, with a command to run there. Serial ports
+  are to come.
+- When GoRex's server can't run on a host (no server for its system, too
+  old a glibc, or a folder that runs no programs, as a home mounted
+  noexec), Settings, General, *When GoRex's server can't run on a host*
+  decides: ask (the default), with Try other folders and Connect with
+  plain ssh; try other folders, then plain ssh; or plain ssh. Other
+  folders are folders of your own in the runtime folder, `/var/tmp`,
+  `/dev/shm` and `/tmp`, the first where a program runs. The host's
+  settings keep what was done, and later connections follow them.
+  Failing logins and hosts out of reach never fall back.
+- A folder GoRex makes for its server on a host is yours alone, and
+  GoRex runs no server from a folder of another user's.
+- `gorex ssh --plain user@host` connects with plain ssh, and `--server`
+  with GoRex's server, over the host's settings.
+- ssh's password prompts and the question of a host where GoRex's server
+  can't run show over the settings and every other dialog.
+
 ## 0.1.9
 
 - GoRex connects to Linux hosts with glibc 2.17 or later, as Debian 8,
