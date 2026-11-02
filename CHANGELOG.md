@@ -4,7 +4,7 @@ The version of each release is its heading here, which `mygo.json`'s
 `version` must match: `make website` refuses to build otherwise, and
 refuses a version already published.
 
-## Unreleased
+## 0.1.8
 
 - A long omp transcript draws fast: of the hundreds of messages and
   tools of a day's session, only those near the view are built and laid
