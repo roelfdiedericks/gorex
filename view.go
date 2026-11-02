@@ -88,6 +88,7 @@ func (a *App) view(c *ui.Context) {
 	a.connectionLog(c, k)
 	a.settingsDialog(c, k)
 	a.hostDialog(c, k)
+	a.restartDialog(c, k)
 	// What connecting asks shows over every other dialog.
 	a.loginDialog(c, k)
 	a.cantRunDialog(c, k)

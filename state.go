@@ -359,6 +359,8 @@ type App struct {
 	hostQuery    string
 	hostErr      string
 	hostForget   string
+	// restartAsk has the window ask before its session server restarts.
+	restartAsk   bool
 	renaming     *Tab
 	renameText   string
 	renameFocus  bool

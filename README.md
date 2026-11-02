@@ -36,7 +36,12 @@ terminal plugin (Ghostty's libghostty-vt). No webview, no cgo: one ~15 MB app.
   to switch the window to it, ⚙ for its settings (This PC's are the
   Defaults), ⧉ to open it in a new window, ↻ to reconnect, ✕ to forget it
   (which asks first), Add Host… for a new one, or type `user@host` to
-  connect to another.
+  connect to another. Right-clicked, the chip has a menu: Reconnect, Host
+  Settings…, Open in New Window, Copy Address, Connection Log…, Send
+  Break and Release Port on a serial port, Restart Session Server…
+  (which says first whether the sessions keep running: they do where the
+  server can replace itself in place, not on Windows), Switch to the
+  hosts used last, Add Host… and Settings….
 - **Command palette** (⇧⌘P, Ctrl+Shift+P, or the ⌘ button): every command, and every pane
   to jump to, fuzzy-matched; the servers to switch the window to (below).
 - **Remote sessions over ssh.** `GoRex ssh user@host` opens a window on

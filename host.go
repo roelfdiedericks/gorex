@@ -94,6 +94,7 @@ func (a *App) hostChip(c *ui.Context, k *colors) {
 			a.remotes, a.hostErr, a.hostForget = loadRemotes(), "", ""
 		}
 	}
+	chip.ContextMenu(func(m *ui.Menu) { a.hostMenu(m) })
 	chip.Children(func() {
 		ui.Icon(c, icon(glyph)).Size(19, 19).TextColor(k.textMuted)
 		ui.Column(c).MinWidth(0).Children(func() {
