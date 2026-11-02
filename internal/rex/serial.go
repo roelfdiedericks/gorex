@@ -42,6 +42,20 @@ type serialTTY struct {
 	// poke wakes read: a note, an open, the end.
 	poke chan struct{}
 	done chan struct{}
+	// in carries what the open port's pump read, and its end; rest is
+	// what read has yet to hand on of a chunk, and ack its pump's, told
+	// when the chunk is all handed on. rest and ack are read's alone.
+	in   chan chunk
+	rest []byte
+	ack  chan struct{}
+}
+
+// chunk is what a pump read of port: data, which the pump keeps till ack,
+// or, nil, that the port ended.
+type chunk struct {
+	port serial.Port
+	data []byte
+	ack  chan struct{}
 }
 
 // serialBreak is how long a break lasts: long enough for the consoles that
@@ -57,6 +71,7 @@ func openSerial(o SerialOptions) *serialTTY {
 		path: o.Path,
 		poke: make(chan struct{}, 1),
 		done: make(chan struct{}),
+		in:   make(chan chunk),
 	}
 	t.open()
 	return t
@@ -123,6 +138,35 @@ func (t *serialTTY) open() {
 		t.note("Connected to " + path + " at " + strconv.Itoa(t.o.Baud) + " " + t.cfg.Framing())
 	}
 	t.port, t.path, t.state, t.opened = port, path, "open", true
+	go t.pump(port)
+}
+
+// pump reads port while it is open, for read, which reads it so and the
+// notes as they come; it tells read when the port ends, closed here or
+// unplugged.
+func (t *serialTTY) pump(port serial.Port) {
+	buf := make([]byte, 4096)
+	ack := make(chan struct{}, 1)
+	for {
+		n, _ := port.Read(buf)
+		c := chunk{port: port}
+		if n > 0 {
+			c.data, c.ack = buf[:n], ack
+		}
+		select {
+		case t.in <- c:
+		case <-t.done:
+			return
+		}
+		if n == 0 {
+			return
+		}
+		select {
+		case <-ack:
+		case <-t.done:
+			return
+		}
+	}
 }
 
 func (t *serialTTY) read(b []byte) (int, error) {
@@ -144,37 +188,40 @@ func (t *serialTTY) read(b []byte) (int, error) {
 			t.mu.Unlock()
 			return 0, os.ErrDeadlineExceeded
 		}
-		port, state := t.port, t.state
+		state := t.state
 		t.mu.Unlock()
-		if port != nil {
-			if n, _ := port.Read(b); n > 0 {
-				return n, nil
+		if len(t.rest) > 0 {
+			n := copy(b, t.rest)
+			if t.rest = t.rest[n:]; len(t.rest) == 0 {
+				t.ack <- struct{}{}
+			}
+			return n, nil
+		}
+		var retry <-chan time.Time
+		if state == "waiting" {
+			retry = time.After(time.Second)
+		}
+		select {
+		case c := <-t.in:
+			if c.data != nil {
+				t.rest, t.ack = c.data, c.ack
+				continue
 			}
 			// The port ended: closed here, as released, or unplugged.
 			t.mu.Lock()
-			if t.port == port {
+			if t.port == c.port {
 				t.port = nil
-				port.Close()
+				c.port.Close()
 				if !t.closed && !t.suspended {
 					t.state = "waiting"
 					t.note(t.path + " is gone: waiting for it")
 				}
 			}
 			t.mu.Unlock()
-			continue
-		}
-		if state == "waiting" {
-			select {
-			case <-t.poke:
-			case <-t.done:
-			case <-time.After(time.Second):
-				t.open()
-			}
-			continue
-		}
-		select {
 		case <-t.poke:
 		case <-t.done:
+		case <-retry:
+			t.open()
 		}
 	}
 }

@@ -107,7 +107,7 @@ terminal plugin (Ghostty's libghostty-vt). No webview, no cgo: one ~15 MB app.
   open while GoRex is closed; no more tabs or splits, nor editor tabs. An
   adapter unplugged is waited for, and found again by its serial number,
   or its USB IDs when it has none, at whatever path it comes back. Send
-  Break (⇧⌘B on macOS; the palette and the Shell menu) sends a 300 ms
+  Break (⇧⌘B, Ctrl+Shift+B; the palette, the Shell menu) sends a 300 ms
   break; Release Port closes the port for another program, and Enter in
   the pane opens it again. Settings changed in the host dialog apply to
   the open port at once. `GoRex serial <name>` opens a window on one. On
@@ -170,7 +170,7 @@ terminal plugin (Ghostty's libghostty-vt). No webview, no cgo: one ~15 MB app.
 | ⇧⌘O | Ctrl+Shift+O | New editor tab |
 | ⌘S, ⇧⌘M | Ctrl+S, Ctrl+Shift+M | Save; show the file's changes (in editor tabs) |
 | ⌥⌘Q | | Quit and end all sessions |
-| ⇧⌘B | | Send Break, on a serial port |
+| ⇧⌘B | Ctrl+Shift+B | Send Break, on a serial port |
 
 Elsewhere than on macOS, Control and a letter are the terminal's (Ctrl+C,
 Ctrl+D, Ctrl+W…), so GoRex's shortcuts take Shift too, as copying and

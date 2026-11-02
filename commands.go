@@ -75,9 +75,9 @@ var (
 	cmdReloadFile    = command{Title: "Reload File", Run: func(a *App) { a.reloadFocused() }, Editor: true}
 	cmdRefreshFiles  = command{Title: "Refresh Files", Run: func(a *App) { a.refreshFocusedBrowser() }, Editor: true}
 	cmdChangeRoot    = command{Title: "Change Root…", Run: func(a *App) { a.changeRootFocused() }, Editor: true}
-	// Send Break has ⇧⌘B on macOS. Elsewhere it would take Ctrl+Break,
-	// which MyGo has no key for yet.
-	cmdSendBreak   = command{Title: "Send Break", Accel: "CmdOrCtrl+Shift+B", Keys: "⇧⌘B", Run: func(a *App) { a.sendBreak() }, Serial: true}
+	// Send Break has Ctrl+Shift+B elsewhere than on macOS, for want of
+	// Ctrl+Break, which MyGo has no key for yet.
+	cmdSendBreak   = command{Title: "Send Break", Accel: "CmdOrCtrl+Shift+B", Keys: "⇧⌘B", Other: ctrlShift(ui.KeyB), Run: func(a *App) { a.sendBreak() }, Serial: true}
 	cmdReleasePort = command{Title: "Release Port", Run: func(a *App) { a.releasePort() }, Serial: true}
 )
 
@@ -389,7 +389,7 @@ func (a *App) shortcuts(c *ui.Context) {
 	}
 	editorTab := a.tab() != nil && a.tab().Kind == paneEditor
 	for _, cmd := range commands {
-		if cmd.Editor && !editorTab {
+		if cmd.Editor && !editorTab || cmd.Serial && a.bind.serial == "" {
 			continue
 		}
 		if cmd.Other != (shortcut{}) && c.Shortcut(cmd.Other.Mods, cmd.Other.Key) {
