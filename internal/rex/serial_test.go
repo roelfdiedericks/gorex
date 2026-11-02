@@ -88,7 +88,7 @@ func TestSerialTTY(t *testing.T) {
 	defer master.Close()
 	tt := openSerial(SerialOptions{Path: slave, Baud: 115200, DataBits: 8, Parity: "N", StopBits: "1", Enter: "crlf"})
 	defer tt.close()
-	if path, state := tt.status(); path != slave || state != "open" {
+	if path, state, _ := tt.status(); path != slave || state != "open" {
 		t.Fatalf("status %q %q, want %q open", path, state, slave)
 	}
 	r := readAll(t, tt)
@@ -104,14 +104,14 @@ func TestSerialTTY(t *testing.T) {
 
 	tt.release()
 	r.until(t, slave+" released. Press Enter to connect again.")
-	if _, state := tt.status(); state != "released" {
+	if _, state, _ := tt.status(); state != "released" {
 		t.Fatalf("released, state %q", state)
 	}
 	tt.input([]byte("x"))
 	tt.input([]byte("\r"))
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		if _, state := tt.status(); state == "open" {
+		if _, state, _ := tt.status(); state == "open" {
 			break
 		}
 		if time.Now().After(deadline) {
