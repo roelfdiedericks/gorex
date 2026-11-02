@@ -32,9 +32,12 @@ type savedRemote struct {
 	// Label is the user's name for the host, over Name, its own.
 	Label string `json:"label,omitempty"`
 	// Identity is the key ssh logs in with (-i), and Options more of
-	// ssh's options, as typed (-p 2222 -o ProxyJump=bastion).
+	// ssh's options, as typed (-p 2222 -o ProxyJump=bastion). PuttyKey is
+	// the PuTTY key file (.ppk) of a host imported from PuTTY or KiTTY,
+	// which ssh can't read: its dialog says so until it has an Identity.
 	Identity string `json:"identity,omitempty"`
 	Options  string `json:"options,omitempty"`
+	PuttyKey string `json:"puttyKey,omitempty"`
 	// ServerDir is the folder GoRex's server lands in on the host, its
 	// ~/.cache/gorex when "".
 	ServerDir string `json:"serverDir,omitempty"`

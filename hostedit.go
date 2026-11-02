@@ -96,6 +96,10 @@ func (a *App) saveHost(f *hostForm, connect bool) {
 	}
 	r.Target, r.Label = spec, strings.TrimSpace(f.label)
 	r.Identity, r.Options = strings.TrimSpace(f.identity), strings.TrimSpace(f.options)
+	if r.Identity != "" {
+		// The key the host was imported with is replaced.
+		r.PuttyKey = ""
+	}
 	r.ServerDir, r.Command = strings.TrimSpace(f.serverDir), strings.TrimSpace(f.command)
 	r.ForwardAgent = f.agent
 	r.Kind = kindServer
@@ -203,6 +207,9 @@ func (a *App) hostDialog(c *ui.Context, k *colors) {
 			row("Name", func() { input(&f.label, "as the host names itself", false) })
 			row("Destination", func() { input(&f.target, "user@host, or a Host of ~/.ssh/config", f.old == "") })
 			row("Identity file", func() { input(&f.identity, "ssh's default keys", false) })
+			if f.orig.PuttyKey != "" && strings.TrimSpace(f.identity) == "" {
+				help("PuTTY key " + f.orig.PuttyKey + " isn't usable by ssh: export it from PuTTYgen (Conversions → Export OpenSSH key) and choose the exported file here.")
+			}
 			row("More ssh options", func() { input(&f.options, "-p 2222 -o ProxyJump=bastion", false) })
 			row("Forward ssh agent", func() { ui.Switch(c, &f.agent) })
 			switch f.kind {

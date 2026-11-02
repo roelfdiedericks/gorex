@@ -45,6 +45,15 @@ terminal plugin (Ghostty's libghostty-vt). No webview, no cgo: one ~15 MB app.
   hosts used last, Add Host… and Settings….
 - **Command palette** (⇧⌘P, Ctrl+Shift+P, or the ⌘ button): every command, and every pane
   to jump to, fuzzy-matched; the servers to switch the window to (below).
+- **Import from PuTTY and KiTTY** (Windows; Import Hosts from PuTTY /
+  KiTTY… in the palette): the saved ssh sessions of PuTTY and KiTTY, in
+  the registry or in the folder of a KiTTY that keeps them in one (found
+  by its kitty.ini, or chosen), become hosts named as their sessions: the
+  user, port, agent forwarding, an ssh jump host, compression and key
+  carry over, a session without a user takes Default Settings'. Each row
+  says what doesn't carry over (other proxies, a remote command) and which
+  sessions are hosts GoRex has already. ssh can't read PuTTY's .ppk keys:
+  the host's settings say to export one from PuTTYgen.
 - **Remote sessions over ssh.** `GoRex ssh user@host` opens a window on
   the sessions of a GoRex server on that host, as VS Code's Remote-SSH
   does: GoRex copies the server for the host's system to `~/.cache/gorex/<id>/` there (or the host's Server folder) the

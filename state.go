@@ -360,7 +360,9 @@ type App struct {
 	hostErr      string
 	hostForget   string
 	// restartAsk has the window ask before its session server restarts.
-	restartAsk   bool
+	restartAsk bool
+	// importForm is the import dialog of PuTTY's and KiTTY's sessions.
+	importForm   *importForm
 	renaming     *Tab
 	renameText   string
 	renameFocus  bool
