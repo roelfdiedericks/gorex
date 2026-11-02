@@ -67,6 +67,9 @@ type sessionState struct {
 	// Screen is the title and the snapshot of the screen and scrollback,
 	// which the new server's terminal starts from.
 	Screen []byte `json:"screen,omitempty"`
+	// Serial is a serial session's port, which the new server opens
+	// again: its descriptor, of no use to go.bug.st/serial, is not kept.
+	Serial *SerialOptions `json:"serial,omitempty"`
 }
 
 func statePath() string { return filepath.Join(Dir(), "upgrade.json") }
@@ -141,7 +144,12 @@ func (s *Server) upgrade(exe string) error {
 			if title := ss.vt.Title(); title != "" {
 				ses.Screen = append([]byte("\x1b]2;"+title+"\x07"), ses.Screen...)
 			}
-			keep = append(keep, ss.p.master)
+			if st, ok := ss.p.(*serialTTY); ok {
+				o := st.options()
+				ses.Serial = &o
+			} else {
+				keep = append(keep, ss.p.(*pty).master)
+			}
 		}
 		st.Sessions = append(st.Sessions, ses)
 	}
@@ -163,7 +171,7 @@ func (s *Server) upgrade(exe string) error {
 	st.Listener, st.Lock = fds[0], fds[1]
 	live := fds[2:]
 	for i := range st.Sessions {
-		if !st.Sessions[i].Exited {
+		if !st.Sessions[i].Exited && st.Sessions[i].Serial == nil {
 			st.Sessions[i].FD, live = live[0], live[1:]
 		}
 	}
@@ -198,16 +206,22 @@ func upgradeEnv(exe string) []string {
 }
 
 // pause stops the session's reader and reports whether it waits to go on;
-// a session whose reader is done has nothing more to read.
+// a session whose reader is done has nothing more to read. A serial
+// session's port closes.
 func (s *session) pause() (bool, error) {
 	s.pausing.Store(true)
-	if err := s.p.master.SetReadDeadline(time.Now()); err != nil {
-		s.pausing.Store(false)
-		select {
-		case <-s.readDone:
-			return false, nil
-		default:
-			return false, err
+	switch p := s.p.(type) {
+	case *serialTTY:
+		p.suspend()
+	case *pty:
+		if err := p.master.SetReadDeadline(time.Now()); err != nil {
+			s.pausing.Store(false)
+			select {
+			case <-s.readDone:
+				return false, nil
+			default:
+				return false, err
+			}
 		}
 	}
 	select {
@@ -218,10 +232,16 @@ func (s *session) pause() (bool, error) {
 	}
 }
 
-// unpause has the reader of a session that paused go on.
+// unpause has the reader of a session that paused go on, a serial
+// session's port open again.
 func (s *session) unpause(paused bool) {
-	if s.p.master != nil {
-		s.p.master.SetReadDeadline(time.Time{})
+	switch p := s.p.(type) {
+	case *serialTTY:
+		p.unsuspend()
+	case *pty:
+		if p.master != nil {
+			p.master.SetReadDeadline(time.Time{})
+		}
 	}
 	s.pausing.Store(false)
 	if paused {
@@ -304,13 +324,18 @@ func resumeSession(st sessionState, emit func(Response)) (*session, error) {
 		close(s.readDone)
 		return s, nil
 	}
-	syscall.CloseOnExec(st.FD)
-	proc, err := os.FindProcess(st.PID)
-	if err != nil {
-		unix.Close(st.FD)
-		return nil, err
+	if st.Serial != nil {
+		// The port opens again, as it was closed for the upgrade.
+		s.p = openSerial(*st.Serial)
+	} else {
+		syscall.CloseOnExec(st.FD)
+		proc, err := os.FindProcess(st.PID)
+		if err != nil {
+			unix.Close(st.FD)
+			return nil, err
+		}
+		s.p = &pty{master: os.NewFile(uintptr(st.FD), "/dev/ptmx"), proc: proc}
 	}
-	s.p = &pty{master: os.NewFile(uintptr(st.FD), "/dev/ptmx"), proc: proc}
 	// The snapshot carries no anchors: those in the scrollback go into
 	// it, at the starts of their rows, and those on the screen are
 	// placed at their rows after it. A state without the anchors' rows

@@ -27,6 +27,9 @@ type command struct {
 	// Editor marks a command of editor tabs: its shortcut applies only
 	// while one is active, and the palette lists it only then.
 	Editor bool
+	// Serial marks a command of serial hosts' windows, which the palette
+	// lists only there.
+	Serial bool
 }
 
 var (
@@ -72,6 +75,10 @@ var (
 	cmdReloadFile    = command{Title: "Reload File", Run: func(a *App) { a.reloadFocused() }, Editor: true}
 	cmdRefreshFiles  = command{Title: "Refresh Files", Run: func(a *App) { a.refreshFocusedBrowser() }, Editor: true}
 	cmdChangeRoot    = command{Title: "Change Root…", Run: func(a *App) { a.changeRootFocused() }, Editor: true}
+	// Send Break has ⇧⌘B on macOS. Elsewhere it would take Ctrl+Break,
+	// which MyGo has no key for yet.
+	cmdSendBreak   = command{Title: "Send Break", Accel: "CmdOrCtrl+Shift+B", Keys: "⇧⌘B", Run: func(a *App) { a.sendBreak() }, Serial: true}
+	cmdReleasePort = command{Title: "Release Port", Run: func(a *App) { a.releasePort() }, Serial: true}
 )
 
 // paletteCommands are those the command palette lists, before the tabs.
@@ -83,6 +90,7 @@ var paletteCommands = []*command{
 	&cmdGrowLeft, &cmdGrowRight, &cmdGrowUp, &cmdGrowDown,
 	&cmdBigger, &cmdSmaller, &cmdDefaultSize, &cmdLight, &cmdDark, &cmdSystem,
 	&cmdClearScroll, &cmdRestart, &cmdReconnect, &cmdConnLog, &cmdSettings, &cmdUpdates, &cmdEndAll,
+	&cmdSendBreak, &cmdReleasePort,
 }
 
 // commands are all of them.
@@ -179,6 +187,8 @@ func (a *App) menu() *mygo.Menu {
 			item(&cmdCloseTab),
 			mygo.Separator(),
 			item(&cmdRestart),
+			item(&cmdSendBreak),
+			item(&cmdReleasePort),
 			item(&cmdEndAll),
 		}},
 		{Label: "Edit", Submenu: []*mygo.MenuItem{
@@ -430,20 +440,23 @@ func (a *App) paletteItems() []paletteItem {
 			items = append(items, paletteItem{title: "Connect to " + rest, glyph: "server", run: func() { a.openHost(rest) }})
 		}
 	}
-	if a.bind.host() && match(thisMachine()+" local sessions") {
+	if a.bind.away() && match(thisMachine()+" local sessions") {
 		items = append(items, paletteItem{title: thisMachine(), detail: "local sessions", glyph: "monitor",
 			run: func() { a.switchTo(binding{}, false) }})
 	}
 	for _, r := range a.remotes {
-		if r.bindKey() == a.bind.key() || !match(r.title()+" "+r.Target) {
+		if r.bindKey() == a.bind.key() || !match(r.title()+" "+r.Target+" "+r.Port) {
 			continue
 		}
 		detail, glyph := r.Target, "server"
-		if r.Kind == kindPlain {
+		switch r.Kind {
+		case kindPlain:
 			detail, glyph = "plain ssh · "+r.Target, "globe"
+		case kindSerial:
+			detail, glyph = "serial · "+r.Port, "cable"
 		}
 		items = append(items, paletteItem{title: r.title(), detail: detail, glyph: glyph, keys: "Host",
-			run: func() { a.openHost(r.Target) }})
+			run: func() { a.openSaved(r) }})
 	}
 	if match("Add Host…") {
 		items = append(items, paletteItem{title: "Add Host…", glyph: "plus", run: func() { a.editHost("", false) }})
@@ -452,12 +465,12 @@ func (a *App) paletteItems() []paletteItem {
 		if !match("Forget " + r.title() + " " + r.Target) {
 			continue
 		}
-		items = append(items, paletteItem{title: "Forget " + r.title(), detail: r.Target, glyph: "x",
+		items = append(items, paletteItem{title: "Forget " + r.title(), detail: r.Target + r.Port, glyph: "x",
 			run: func() { forgetRemote(r.Key); a.remotes = loadRemotes() }})
 	}
 	editorTab := a.tab() != nil && a.tab().Kind == paneEditor
 	for _, cmd := range paletteCommands {
-		if cmd.Hidden || !match(cmd.Title) || cmd.Editor && !editorTab {
+		if cmd.Hidden || !match(cmd.Title) || cmd.Editor && !editorTab || cmd.Serial && a.bind.serial == "" {
 			continue
 		}
 		cmd := cmd

@@ -16,9 +16,9 @@ import (
 )
 
 // savedRemote is a host the app connected to over ssh, or the user added,
-// which the host list and the palette offer to switch to. Its settings
-// are this PC's: ForwardAgent has ssh forward the agent to it
-// (remote.Target.Agent).
+// or a serial port's (serialhost.go), which the host list and the palette
+// offer to switch to. Its settings are this PC's: ForwardAgent has ssh
+// forward the agent to it (remote.Target.Agent).
 type savedRemote struct {
 	Key          string    `json:"key"`
 	Target       string    `json:"target"`
@@ -26,7 +26,8 @@ type savedRemote struct {
 	LastUsed     time.Time `json:"lastUsed"`
 	ForwardAgent bool      `json:"forwardAgent,omitempty"`
 	// Kind is how the window reaches the host: kindServer, with GoRex's
-	// server there, or kindPlain, with ssh alone.
+	// server there, kindPlain, with ssh alone, or kindSerial, a serial
+	// port of this machine's.
 	Kind string `json:"kind,omitempty"`
 	// Label is the user's name for the host, over Name, its own.
 	Label string `json:"label,omitempty"`
@@ -43,12 +44,28 @@ type savedRemote struct {
 	// Note says why a host is plain: what kept GoRex's server from
 	// running there.
 	Note string `json:"note,omitempty"`
+	// Port is a serial host's port as it was chosen, and PortVID,
+	// PortPID and PortSerial its adapter's USB IDs and serial number,
+	// by which it is found again when it comes back at another path.
+	Port       string `json:"port,omitempty"`
+	PortVID    string `json:"portVid,omitempty"`
+	PortPID    string `json:"portPid,omitempty"`
+	PortSerial string `json:"portSerial,omitempty"`
+	// Baud and Framing (8N1) are a serial host's speed and framing;
+	// Enter ("", "crlf", "lf"), Backspace ("", "bs") and Echo what typing
+	// sends there (rex.SerialOptions).
+	Baud      int    `json:"baud,omitempty"`
+	Framing   string `json:"framing,omitempty"`
+	Enter     string `json:"enter,omitempty"`
+	Backspace string `json:"backspace,omitempty"`
+	Echo      bool   `json:"echo,omitempty"`
 }
 
 // The kinds of hosts (savedRemote.Kind).
 const (
 	kindServer = ""
 	kindPlain  = "plain"
+	kindSerial = "serial"
 )
 
 // title names the remote as the user did, or as its server does.
@@ -64,8 +81,11 @@ func (r savedRemote) title() string {
 
 // bindKey is the key of the binding of the host (binding.key).
 func (r savedRemote) bindKey() string {
-	if r.Kind == kindPlain {
+	switch r.Kind {
+	case kindPlain:
 		return "plain/" + r.Key
+	case kindSerial:
+		return "serial/" + r.Key
 	}
 	return "ssh/" + r.Key
 }

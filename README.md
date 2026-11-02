@@ -69,8 +69,8 @@ terminal plugin (Ghostty's libghostty-vt). No webview, no cgo: one ~15 MB app.
   ProxyJump=bastion`, which every ssh to it takes), Forward ssh agent, and
   how GoRex reaches it: with **GoRex's server** there, in the folder of the
   host's Server folder (`~/.cache/gorex` when empty; one GoRex makes is the
-  user's alone, and none of another user's is used), or with **plain ssh**.
-  Serial ports are to come.
+  user's alone, and none of another user's is used), with **plain ssh**,
+  or as a **serial port** of this PC (below).
 - **Plain ssh hosts.** A host where GoRex's server can't run, or that you
   want so, is reached with ssh alone: its tabs and panes run `ssh` from
   this PC, in a session server of the host's own on this PC (in
@@ -93,6 +93,26 @@ terminal plugin (Ghostty's libghostty-vt). No webview, no cgo: one ~15 MB app.
   user@host` connects with plain ssh, and `--server` with GoRex's server,
   over the host's settings; failing logins and unreachable hosts never
   fall back.
+- **Serial ports.** A serial host (Add Host…, Connect with Serial port)
+  is a port of this PC, as a switch's, a router's or a board's console:
+  the port, picked from a list that shows what is plugged in, each with
+  its adapter's name over its path, USB IDs and serial number, and which
+  port another serial host has open or is not plugged in; its speed
+  (115200 by default, or any other, as 74880), framing (8N1, 7E1… or
+  data bits, parity and stop bits of its own), what Enter sends (CR, CR
+  LF or LF) and Backspace (DEL or BS), and local echo. Its name is the
+  adapter's and the speed's, as "Prolific PL2303 (COM13) · 115200", until
+  you give it one. Its window has the port's one session, in a session
+  server of its own on this PC (`hosts/serial-…`), which keeps the port
+  open while GoRex is closed; no more tabs or splits, nor editor tabs. An
+  adapter unplugged is waited for, and found again by its serial number,
+  or its USB IDs when it has none, at whatever path it comes back. Send
+  Break (⇧⌘B on macOS; the palette and the Shell menu) sends a 300 ms
+  break; Release Port closes the port for another program, and Enter in
+  the pane opens it again. Settings changed in the host dialog apply to
+  the open port at once. `GoRex serial <name>` opens a window on one. On
+  Linux, a port of the `dialout` group (`uucp` on some systems) needs
+  your user in that group, as GoRex says when it can't open one.
 - **Pasting images.** A program that reads the clipboard itself (the
   Kitty clipboard protocol, as omp does) is told what a paste holds and
   takes the image, on any host: a screenshot pastes into its prompt over
@@ -150,6 +170,7 @@ terminal plugin (Ghostty's libghostty-vt). No webview, no cgo: one ~15 MB app.
 | ⇧⌘O | Ctrl+Shift+O | New editor tab |
 | ⌘S, ⇧⌘M | Ctrl+S, Ctrl+Shift+M | Save; show the file's changes (in editor tabs) |
 | ⌥⌘Q | | Quit and end all sessions |
+| ⇧⌘B | | Send Break, on a serial port |
 
 Elsewhere than on macOS, Control and a letter are the terminal's (Ctrl+C,
 Ctrl+D, Ctrl+W…), so GoRex's shortcuts take Shift too, as copying and
@@ -209,6 +230,7 @@ resizes from its sides and bottom, not its top.
 | `main.go` | the app, its window, `-server` and `-bridge` |
 | `bind.go`, `remotes.go` | the server a window shows: connecting, reconnecting, switching, known remotes |
 | `plain.go`, `fallback.go`, `hostedit.go` | plain ssh hosts; what a window does where GoRex's server can't run; the host dialog |
+| `serialhost.go`, `serialedit.go` | serial hosts: their windows, Send Break and Release Port; the host dialog's serial port |
 | `state.go` | tabs, the tree of splits, panes, saving and restoring the layout |
 | `editor.go`, `browser_view.go`, `editor_view.go` | editor tabs: the file browser, editor panes, opening, saving, what survives a reconnect |
 | `view.go`, `tabs.go`, `host.go`, `commands.go` | the interface: title bar, tabs, panes, host popover, menus and palette |
@@ -216,6 +238,7 @@ resizes from its sides and bottom, not its top.
 | `style.go`, `settings.go`, `settings_app.go`, `settings_view.go` | colors, fonts, terminal themes; the settings' layers, their dialogue and the theme picker |
 | `internal/rex` | the session server and its client: PTYs, foreground processes, headless screens, the socket protocol, the ssh bridge |
 | `internal/remote` | reaching a server over ssh: copying the host's server there, the multiplexed link |
+| `internal/serialport` | this machine's serial ports, as each system lists them; finding an adapter again; opening one |
 
 `go run ./tools/remotepayload` builds the servers GoRex copies to ssh
 hosts, one directory per platform in `resources/remote/` (Linux and macOS,

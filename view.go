@@ -149,13 +149,16 @@ func (a *App) titleBar(c *ui.Context, k *colors) {
 			if iconButton(c, k, "settings-2", "Settings", 30, 17).Tooltip(tip("Settings", &cmdSettings)).Clicked() {
 				a.openSettings()
 			}
-			if b := iconButton(c, k, "folder-tree", "New Editor Tab", 30, 17); a.bind.plain {
+			if b := iconButton(c, k, "folder-tree", "New Editor Tab", 30, 17); a.bind.noFiles() {
 				// The host's files are out of GoRex's reach.
-				b.Opacity(0.45).Tooltip(plainReason)
+				b.Opacity(0.45).Tooltip(a.noFilesReason())
 			} else if b.Tooltip(tip("New Editor Tab", &cmdNewEditorTab)).Clicked() {
 				a.newEditorTab("")
 			}
-			if iconButton(c, k, "plus", "New Tab", 30, 19).Tooltip(tip("New Tab", &cmdNewTab)).Clicked() {
+			if b := iconButton(c, k, "plus", "New Tab", 30, 19); a.bind.serial != "" {
+				// A serial port opens once: its session is the one.
+				b.Opacity(0.45).Tooltip(serialReason)
+			} else if b.Tooltip(tip("New Tab", &cmdNewTab)).Clicked() {
 				a.newTab(a.currentDir())
 			}
 		})
@@ -498,13 +501,16 @@ func (a *App) paneHeader(c *ui.Context, k *colors, t *Tab, p *Pane, focused, hov
 			if !show {
 				return
 			}
-			if iconButton(c, k, "columns-2", "Split Right", 26, 16).Tooltip(tip("Split Right", &cmdSplitRight)).Clicked() {
-				t.setFocus(p)
-				a.split(false)
-			}
-			if iconButton(c, k, "rows-2", "Split Down", 26, 16).Tooltip(tip("Split Down", &cmdSplitDown)).Clicked() {
-				t.setFocus(p)
-				a.split(true)
+			if a.bind.serial == "" {
+				// A serial port's one session takes no splits.
+				if iconButton(c, k, "columns-2", "Split Right", 26, 16).Tooltip(tip("Split Right", &cmdSplitRight)).Clicked() {
+					t.setFocus(p)
+					a.split(false)
+				}
+				if iconButton(c, k, "rows-2", "Split Down", 26, 16).Tooltip(tip("Split Down", &cmdSplitDown)).Clicked() {
+					t.setFocus(p)
+					a.split(true)
+				}
 			}
 			zoom, label := "maximize-2", "Zoom"
 			if t.Zoom == p {

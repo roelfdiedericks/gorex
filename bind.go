@@ -18,17 +18,22 @@ import (
 )
 
 // binding is the server a window shows the sessions of: this machine's;
-// one reached over ssh (remote); or, for a host reached over plain ssh,
-// one on this machine of that host's own, whose sessions run ssh to it
-// (plain).
+// one reached over ssh (remote); or one on this machine of a host's own:
+// for a host reached over plain ssh, whose sessions run ssh to it
+// (plain), or a serial host's, whose session opens its port (serial, its
+// key; line its speed and framing, as "115200 8N1").
 type binding struct {
 	remote bool
 	plain  bool
 	target remote.Target
+	serial string
+	line   string
 }
 
 func (b binding) key() string {
 	switch {
+	case b.serial != "":
+		return "serial/" + b.serial
 	case b.plain:
 		return "plain/" + b.target.Key()
 	case b.remote:
@@ -38,27 +43,41 @@ func (b binding) key() string {
 }
 
 func (b binding) label() string {
-	if !b.host() {
-		return thisMachine()
+	switch {
+	case b.serial != "":
+		return labelOf(b)
+	case b.host():
+		return b.target.Spec
 	}
-	return b.target.Spec
+	return thisMachine()
 }
 
 // host reports whether b is another machine's, reached over ssh.
 func (b binding) host() bool { return b.remote || b.plain }
 
+// away reports whether b is other than this machine's own sessions: a
+// host's, or a serial port's.
+func (b binding) away() bool { return b.host() || b.serial != "" }
+
+// noFiles reports whether b's window can't reach the files of its
+// sessions' machine, as for a plain host or a serial port.
+func (b binding) noFiles() bool { return b.plain || b.serial != "" }
+
 // dir is the directory of the local server of b: the app's, or a plain
-// host's own.
+// or serial host's own.
 func (b binding) dir() string {
-	if b.plain {
-		return plainDir(b.target.Key())
+	switch {
+	case b.serial != "":
+		return hostDir(b.serial)
+	case b.plain:
+		return hostDir(b.target.Key())
 	}
 	return rex.Dir()
 }
 
-// plainDir is the directory of the server of the plain host of key, its
-// sessions, layout and settings, among the app's data.
-func plainDir(key string) string {
+// hostDir is the directory of the server of the plain or serial host of
+// key, its sessions, layout and settings, among the app's data.
+func hostDir(key string) string {
 	name := []rune(key)
 	for i, c := range name {
 		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("._-@", c)) {
@@ -406,6 +425,13 @@ func (a *App) attachBinding(win *mygo.Window, b binding, gen int64, client *rex.
 			r.Name = h.Host.Name
 		}
 		touchRemote(r)
+	}
+	if b.serial != "" {
+		editRemote(b.serial, "", func(r *savedRemote) { r.LastUsed = time.Now() })
+		if r, ok := findRemote(b.serial); ok {
+			// A session the server kept since has the settings of then.
+			a.applySerial(r)
+		}
 	}
 	// The host's lists show it as it is now, a host the window fell back
 	// to plain ssh for too.

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"os"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -181,10 +182,12 @@ type Pane struct {
 
 // hostHome and hostGOOS describe the machine the window's server runs on;
 // plainHost is the destination of the plain host the window shows, ""
-// for another: its server is this machine's, whose sessions run ssh.
+// for another: its server is this machine's, whose sessions run ssh;
+// serialLine the speed and framing of the serial host it shows, as
+// "115200 8N1", "" for another.
 var hostHome, _ = os.UserHomeDir()
 var hostGOOS = runtime.GOOS
-var plainHost string
+var plainHost, serialLine string
 
 // setHost takes the machine the window's server runs on, of b, from its
 // hello. A remote server too old to tell its OS runs on Linux.
@@ -200,7 +203,7 @@ func setHost(h rex.Hello, b binding) {
 	if hostHome == "" && !b.remote {
 		hostHome, _ = os.UserHomeDir()
 	}
-	plainHost = ""
+	plainHost, serialLine = "", b.line
 	if b.plain {
 		plainHost = b.target.Spec
 	}
@@ -469,10 +472,15 @@ func (a *App) newPane(dir string, cols, rows int) *Pane {
 	o := shellOptions(&a.eff)
 	o.Dir, o.Cols, o.Rows = dir, cols, rows
 	var err error
-	if a.bind.plain {
+	switch {
+	case a.bind.plain:
 		// A plain host's sessions run ssh to it, whatever its shell.
 		o.Command, err = plainCommand(a.bind)
 		o.Login = false
+	case a.bind.serial != "":
+		// A serial host's session is its port's.
+		r, _ := findRemote(a.bind.serial)
+		o.Serial = serialOptions(r)
 	}
 	if err != nil {
 		client = nil
@@ -723,7 +731,7 @@ func (a *App) ring(p *Pane) {
 // newTab opens a tab with a shell in dir, after the active tab; none while
 // the window connects to its server.
 func (a *App) newTab(dir string) *Tab {
-	if a.client == nil {
+	if a.client == nil || a.onePane() {
 		return nil
 	}
 	t := &Tab{ID: a.id()}
@@ -758,7 +766,7 @@ func (a *App) currentDir() string {
 // file browser, the editor pane focused last splits.
 func (a *App) split(vertical bool) *Pane {
 	t := a.tab()
-	if t == nil || t.Focus == nil || a.client == nil {
+	if t == nil || t.Focus == nil || a.client == nil || a.onePane() {
 		return nil
 	}
 	old := t.treeFocus()
@@ -1076,6 +1084,21 @@ func (p *Pane) label() (name, detail string) {
 		return "files", shortDir(p.files.root)
 	case paneEditor:
 		return p.edit.label()
+	}
+	if in := p.info; in.Port != "" {
+		// A serial port's session: the port, and how it is.
+		name = filepath.Base(in.Port)
+		switch in.PortState {
+		case "open":
+			return name, serialLine
+		case "waiting":
+			return name, "waiting for the port"
+		case "released":
+			return name, "released"
+		case "failed":
+			return name, "can't open"
+		}
+		return name, "opening"
 	}
 	if plainHost != "" {
 		// The session is ssh to the host, from a folder of this

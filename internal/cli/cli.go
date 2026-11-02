@@ -57,6 +57,7 @@ func help(w io.Writer, _ []string) int {
 	fmt.Fprintf(w, "GoRex, a terminal of tabs, panes and sessions that stay\n\n")
 	line("gorex", "open a window on this machine's sessions")
 	line("gorex ssh [-A | -a] [--plain | --server] user@host", "open a window on the sessions of host, over ssh: of GoRex's server there, or of ssh alone, as the host's settings say, unless --server or --plain does; -A forwards your ssh agent there, -a doesn't, over the host's setting and ssh's config")
+	line("gorex serial <name>", "open a window on the serial host of that name, one added in GoRex's Add Host dialog")
 	for _, c := range commands {
 		line("gorex "+c.name+" "+c.args, c.help)
 	}

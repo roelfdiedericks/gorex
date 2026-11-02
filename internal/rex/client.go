@@ -301,6 +301,23 @@ func (c *Client) Create(o CreateOptions) (s SessionInfo, err error) {
 
 func (c *Client) Kill(sid string) error { return c.call(Request{Op: "kill", SID: sid}, nil) }
 
+// SerialBreak sends a break on the serial port of session sid.
+func (c *Client) SerialBreak(sid string) error {
+	return c.call(Request{Op: "serialBreak", SID: sid}, nil)
+}
+
+// SerialRelease closes the serial port of session sid, which keeps its
+// screen; Enter typed there opens the port again.
+func (c *Client) SerialRelease(sid string) error {
+	return c.call(Request{Op: "serialRelease", SID: sid}, nil)
+}
+
+// SerialSet changes the serial port of session sid to o, as its host's
+// settings changed: another port, speed or framing, or what typing sends.
+func (c *Client) SerialSet(sid string, o SerialOptions) error {
+	return c.call(Request{Op: "serialSet", SID: sid, Serial: &o}, nil)
+}
+
 // Resize tells the session the size of its screen in cells, and of a cell
 // in pixels when cellWidth and cellHeight are not zero.
 func (c *Client) Resize(sid string, cols, rows, cellWidth, cellHeight int) error {

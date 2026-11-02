@@ -56,16 +56,16 @@ func TestSplitArgs(t *testing.T) {
 	}
 }
 
-// A plain host's server keeps its state in a folder of the app's named
-// after the host's key, of characters every system takes in a name, one
-// folder for each host.
-func TestPlainDir(t *testing.T) {
-	keys := []string{"root@gear.cisp.co.za:22", "root@gear.cisp.co.za:2222", "me@[fe80::1%eth0]:22", "me@box:22"}
+// A plain or serial host's server keeps its state in a folder of the
+// app's named after the host's key, of characters every system takes in
+// a name, one folder for each host.
+func TestHostDir(t *testing.T) {
+	keys := []string{"root@gear.cisp.co.za:22", "root@gear.cisp.co.za:2222", "me@[fe80::1%eth0]:22", "me@box:22", "serial-0a1b2c3d"}
 	seen := map[string]string{}
 	for _, key := range keys {
-		name := filepath.Base(plainDir(key))
+		name := filepath.Base(hostDir(key))
 		if strings.ContainsAny(name, `:/\%[] `) {
-			t.Errorf("plainDir(%q) is named %q", key, name)
+			t.Errorf("hostDir(%q) is named %q", key, name)
 		}
 		if other, ok := seen[name]; ok {
 			t.Errorf("%q and %q share the folder %q", key, other, name)

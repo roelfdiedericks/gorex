@@ -812,21 +812,27 @@ func (a *App) hostsPage(c *ui.Context, k *colors) {
 						ui.Column(c).Grow(1).MinWidth(0).Children(func() {
 							ui.Text(c, r.title()).FontSize(13).FontWeight(600).TextColor(k.text).SingleLine().Ellipsis("…")
 							detail := r.Target + " · " + roundDur(time.Since(r.LastUsed)) + " ago"
-							if r.Kind == kindPlain {
+							switch r.Kind {
+							case kindPlain:
 								detail = "plain ssh · " + detail
+							case kindSerial:
+								detail = "serial · " + r.Port + " · " + roundDur(time.Since(r.LastUsed)) + " ago"
 							}
 							ui.Text(c, detail).FontSize(11.5).TextColor(k.textFaint).SingleLine().Ellipsis("…")
 						})
 						// This PC's setting for the host, which ssh's
-						// own configuration may add to (ForwardAgent).
-						ui.Row(c).Gap(6).AlignItems(ui.Center).Shrink(0).Children(func() {
-							ui.Text(c, "Forward ssh agent").FontSize(11.5).TextColor(k.textMuted)
-							on := r.ForwardAgent
-							if ui.Switch(c, &on).Changed() {
-								setForwardAgent(r.Key, on)
-								a.remotes = loadRemotes()
-							}
-						})
+						// own configuration may add to (ForwardAgent):
+						// none for a serial port.
+						if r.Kind != kindSerial {
+							ui.Row(c).Gap(6).AlignItems(ui.Center).Shrink(0).Children(func() {
+								ui.Text(c, "Forward ssh agent").FontSize(11.5).TextColor(k.textMuted)
+								on := r.ForwardAgent
+								if ui.Switch(c, &on).Changed() {
+									setForwardAgent(r.Key, on)
+									a.remotes = loadRemotes()
+								}
+							})
+						}
 						if textButton(c, k, "Edit…").Clicked() {
 							a.later(c, func() { a.editHost(r.Key, true) })
 						}
@@ -847,7 +853,7 @@ func (a *App) hostsPage(c *ui.Context, k *colors) {
 			ui.Column(c).Radius(10).Background(k.hover).Clip().Padding(10, 14).Gap(8).Children(func() {
 				sources := []string{"Defaults · " + thisMachine()}
 				for _, r := range a.remotes {
-					if r.bindKey() != a.bind.key() {
+					if r.bindKey() != a.bind.key() && r.Kind != kindSerial {
 						sources = append(sources, r.title()+" ("+r.Target+")")
 					}
 				}

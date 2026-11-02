@@ -35,6 +35,8 @@ type Request struct {
 	Cols   int            `json:"cols,omitempty"`
 	Rows   int            `json:"rows,omitempty"`
 	Create *CreateOptions `json:"create,omitempty"`
+	// Serial is what serialSet changes a serial port's session to.
+	Serial *SerialOptions `json:"serial,omitempty"`
 	// CellWidth and CellHeight are the size of the window's cells in
 	// pixels, for resize and attach: the session's terminal answers
 	// programs in them, and its pseudo-terminal reports the screen in
@@ -173,6 +175,29 @@ type CreateOptions struct {
 	// TSP has the session answer programs that speak the Tern Surface
 	// Protocol, whose surfaces the windows then draw.
 	TSP bool `json:"tsp,omitempty"`
+	// Serial, when set, has the session talk to a serial port instead
+	// of running a program.
+	Serial *SerialOptions `json:"serial,omitempty"`
+}
+
+// SerialOptions are a serial port's, for a session of one: the path it
+// was chosen at and its adapter's USB IDs and serial number, by which it
+// is found again after it was unplugged; its speed and framing (data
+// bits, parity N, E, O, M or S, stop bits 1, 1.5 or 2); and what typing
+// sends: Enter CR, or "crlf" or "lf"; Backspace DEL, or "bs" for BS; and
+// Echo has what is typed show, for devices that echo nothing.
+type SerialOptions struct {
+	Path      string `json:"path"`
+	VID       string `json:"vid,omitempty"`
+	PID       string `json:"pid,omitempty"`
+	Serial    string `json:"serial,omitempty"`
+	Baud      int    `json:"baud"`
+	DataBits  int    `json:"dataBits"`
+	Parity    string `json:"parity"`
+	StopBits  string `json:"stopBits"`
+	Enter     string `json:"enter,omitempty"`
+	Backspace string `json:"backspace,omitempty"`
+	Echo      bool   `json:"echo,omitempty"`
 }
 
 // SessionInfo describes a session and what runs in it now.
@@ -202,6 +227,11 @@ type SessionInfo struct {
 	// Status is what its programs say they are doing, by the Program
 	// Status Protocol (OSC 7501) or OSC 9;4 progress; nil when none says.
 	Status *ProgramStatus `json:"status,omitempty"`
+	// Port is the path of a serial session's port, and PortState how it
+	// is: "open", "waiting" for it to be plugged in, "released", or
+	// "failed" to open.
+	Port      string `json:"port,omitempty"`
+	PortState string `json:"portState,omitempty"`
 }
 
 // Hello is the server's answer to "hello".

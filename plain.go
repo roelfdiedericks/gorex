@@ -17,6 +17,15 @@ import (
 // server on the host.
 const plainReason = "Not on a plain ssh host: GoRex's server does not run there"
 
+// noFilesReason says why the window does not reach its host's files: a
+// plain host's or a serial port's reason.
+func (a *App) noFilesReason() string {
+	if a.bind.serial != "" {
+		return serialReason
+	}
+	return plainReason
+}
+
 // plainCommand returns what a session of the plain host b runs: ssh to
 // it, which gives up on a link that stopped answering, with the host's
 // options, forwarding the agent as gorex ssh -A or -a, or the host's

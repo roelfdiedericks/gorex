@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -39,13 +40,18 @@ func (a *App) ownHostName() string {
 }
 
 // labelOf is the user's name for the host of b, from its dialog: "" for
-// none, and for this machine.
+// none, and for this machine. A serial host's is its name, the user's or
+// the one it got from its port, as it has no server to name it.
 func labelOf(b binding) string {
-	if !b.host() {
-		return ""
+	switch {
+	case b.serial != "":
+		r, _ := findRemote(b.serial)
+		return r.title()
+	case b.host():
+		r, _ := findRemote(b.target.Key())
+		return r.Label
 	}
-	r, _ := findRemote(b.target.Key())
-	return r.Label
+	return ""
 }
 
 // hostChip shows the machine the sessions run on; a click shows more of
@@ -64,6 +70,9 @@ func (a *App) hostChip(c *ui.Context, k *colors) {
 	}
 	glyph := "mac-studio"
 	switch {
+	case a.bind.serial != "":
+		// The server, of a serial port, is this machine's.
+		glyph, model = "cable", "serial · "+a.bind.line
 	case a.bind.plain:
 		// What the server tells is this machine's, not the host's.
 		glyph, model = "globe", "plain ssh"
@@ -110,6 +119,8 @@ func (a *App) hostPanel(c *ui.Context, k *colors, name, glyph string) {
 			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
 				where := thisMachine()
 				switch {
+				case a.bind.serial != "":
+					where = "serial port"
 				case a.bind.plain:
 					where = "plain ssh"
 				case a.bind.remote:
@@ -143,10 +154,14 @@ func (a *App) hostPanel(c *ui.Context, k *colors, name, glyph string) {
 		})
 	}
 	ui.Column(c).Gap(7).Children(func() {
-		if a.bind.host() {
+		switch {
+		case a.bind.host():
 			row("Connection", "ssh "+a.bind.target.Key())
+		case a.bind.serial != "":
+			r, _ := findRemote(a.bind.serial)
+			row("Port", r.Port)
 		}
-		if a.bind.plain {
+		if a.bind.noFiles() {
 			// The rest the server tells is this machine's.
 			return
 		}
@@ -158,8 +173,12 @@ func (a *App) hostPanel(c *ui.Context, k *colors, name, glyph string) {
 		row("System", h.OS)
 		row("User", h.User)
 	})
-	if a.bind.plain {
+	switch {
+	case a.bind.plain:
 		ui.Text(c, "A plain ssh host: its tabs run ssh from this PC, and GoRex shows none of its files or git.").
+			FontSize(11.5).TextColor(k.textFaint).LineHeight(1.35)
+	case a.bind.serial != "":
+		ui.Text(c, "A serial port of this PC: its session stays open while GoRex is closed, and waits for the port when it is unplugged.").
 			FontSize(11.5).TextColor(k.textFaint).LineHeight(1.35)
 	}
 	ui.Divider(c)
@@ -185,6 +204,9 @@ func (a *App) hostPanel(c *ui.Context, k *colors, name, glyph string) {
 			FontSize(11.5).TextColor(k.textFaint).LineHeight(1.35)
 		return
 	}
+	if a.bind.serial != "" {
+		return
+	}
 	ui.Text(c, "Sessions live in the server: quit GoRex and they keep running, and come back as they were when it opens again.").
 		FontSize(11.5).TextColor(k.textFaint).LineHeight(1.35)
 }
@@ -202,32 +224,40 @@ func roundDur(d time.Duration) string {
 }
 
 // hostsSection lists the hosts the window can show the sessions of: this
-// machine, those connected to before, and one to type.
+// machine, those connected to before, the serial hosts, and one to type.
 func (a *App) hostsSection(c *ui.Context, k *colors) {
 	type entry struct {
 		title, detail string
 		current       bool
-		// open switches the window to the host; spec is its ssh
-		// destination, "" for this machine; key, to forget it.
-		spec, key string
+		// open switches the window to the host, and window opens it in
+		// a window of its own, as GoRex's arguments; key is a saved
+		// host's, for its settings and to forget it.
+		open   func()
+		window []string
+		key    string
 	}
-	entries := []entry{{title: thisMachine(), detail: "local sessions", current: !a.bind.host()}}
+	entries := []entry{{title: thisMachine(), detail: "local sessions", current: !a.bind.away(), open: func() { a.openHost("") }}}
 	listed := false
 	for _, r := range a.remotes {
 		cur := r.bindKey() == a.bind.key()
 		listed = listed || cur
-		detail := r.Target
-		if r.Kind == kindPlain {
+		detail, window := r.Target, []string{"ssh", r.Target}
+		switch r.Kind {
+		case kindPlain:
 			detail = "plain ssh · " + detail
+		case kindSerial:
+			c := r.config()
+			detail, window = "serial · "+r.Port+" · "+strconv.Itoa(c.Baud)+" "+c.Framing(), []string{"serial", r.Key}
 		}
 		if !cur {
 			detail += " · " + roundDur(time.Since(r.LastUsed)) + " ago"
 		}
-		entries = append(entries, entry{title: r.title(), detail: detail, current: cur, spec: r.Target, key: r.Key})
+		entries = append(entries, entry{title: r.title(), detail: detail, current: cur, open: func() { a.openSaved(r) }, window: window, key: r.Key})
 	}
 	if a.bind.host() && !listed {
 		// A host the window connects to for the first time.
-		entries = append(entries, entry{title: a.bind.target.Spec, detail: a.bind.target.Key(), current: true, spec: a.bind.target.Spec})
+		spec := a.bind.target.Spec
+		entries = append(entries, entry{title: spec, detail: a.bind.target.Key(), current: true, open: func() { a.openHost(spec) }, window: []string{"ssh", spec}})
 	}
 
 	ui.Column(c).Gap(2).Children(func() {
@@ -242,7 +272,7 @@ func (a *App) hostsSection(c *ui.Context, k *colors) {
 			}
 		})
 		for _, e := range entries {
-			row := ui.Row(c.Key("host/"+e.spec)).Height(34).Padding(0, 4, 0, 6).Gap(4).Radius(8).AlignItems(ui.Center)
+			row := ui.Row(c.Key("host/"+e.key+"/"+e.title)).Height(34).Padding(0, 4, 0, 6).Gap(4).Radius(8).AlignItems(ui.Center)
 			if e.current {
 				row.Background(k.panelSel)
 			} else if row.Hovered() {
@@ -256,7 +286,7 @@ func (a *App) hostsSection(c *ui.Context, k *colors) {
 					main.Cursor(ui.CursorPointer)
 					if main.Clicked() {
 						a.hostOpen = false
-						a.later(c, func() { a.openHost(e.spec) })
+						a.later(c, e.open)
 					}
 				}
 				main.Children(func() {
@@ -282,7 +312,7 @@ func (a *App) hostsSection(c *ui.Context, k *colors) {
 				}
 				if b := iconButton(c, k, "app-window", "Open in New Window", 24, 13).Tooltip("Open in New Window"); b.Clicked() {
 					a.hostOpen = false
-					if err := launchWindow(e.spec); err != nil {
+					if err := launchWindow(e.window); err != nil {
 						a.err = "Can't open a window: " + err.Error()
 					}
 				}
@@ -357,16 +387,13 @@ func (a *App) openHost(spec string) {
 	}
 }
 
-// launchWindow opens another window, as another GoRex, on the host of an
-// ssh destination, or on this machine's for "".
-func launchWindow(spec string) error {
+// launchWindow opens another window, as another GoRex run with args: on
+// a host (ssh <destination>), a serial host (serial <key>), or on this
+// machine's sessions for none.
+func launchWindow(args []string) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
-	}
-	var args []string
-	if spec != "" {
-		args = []string{"ssh", spec}
 	}
 	cmd := exec.Command(exe, args...)
 	if err := cmd.Start(); err != nil {

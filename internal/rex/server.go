@@ -380,6 +380,27 @@ func (s *Server) do(req Request) (any, error) {
 		}
 		ss.clear()
 		return nil, nil
+	case "serialBreak", "serialRelease", "serialSet":
+		ss, err := s.session(req.SID)
+		if err != nil {
+			return nil, err
+		}
+		st, ok := ss.p.(*serialTTY)
+		if !ok {
+			return nil, errors.New("not a serial port's session")
+		}
+		switch req.Op {
+		case "serialBreak":
+			go st.sendBreak()
+		case "serialRelease":
+			st.release()
+		case "serialSet":
+			if req.Serial == nil {
+				return nil, errors.New("serialSet without options")
+			}
+			go st.configure(*req.Serial)
+		}
+		return nil, nil
 	case "get":
 		return s.get(req.Key)
 	case "set":

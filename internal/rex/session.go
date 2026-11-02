@@ -24,12 +24,13 @@ import (
 // no particular number.
 const ScrollbackLines = 10000
 
-// session is a pseudo-terminal of the server and its shell.
+// session is a terminal of the server: a pseudo-terminal and its shell,
+// or a serial port.
 type session struct {
 	id      string
 	shell   string
 	created time.Time
-	p       *pty
+	p       tty
 	// lines is how many lines of scrollback the screen keeps, and images
 	// the most bytes its images take (terminal.Options.ImageLimit).
 	lines  int
@@ -100,23 +101,45 @@ func (a *attached) poke() {
 
 func (a *attached) finish() { a.once.Do(func() { close(a.done) }) }
 
+// tty is what a session's terminal runs on: a pseudo-terminal and its
+// program (pty), or a serial port (serialTTY).
+type tty interface {
+	read(b []byte) (int, error)
+	write(b []byte) (int, error)
+	close() error
+	resize(cols, rows, width, height int) error
+	pid() int
+	kill()
+	foreground() int
+	wait() int
+	hangup()
+}
+
 func newSession(id string, o CreateOptions, emit func(Response)) (*session, error) {
-	path, argv, name, err := shellCommand(o.Command, o.Login)
-	if err != nil {
-		return nil, err
-	}
 	cols, rows := o.Cols, o.Rows
 	if cols <= 0 || rows <= 0 {
 		cols, rows = 80, 24
 	}
-	dir := o.Dir
-	if dir == "" {
-		dir, _ = os.UserHomeDir()
-	}
-	env := sessionEnv(id, o.Identity, o.TSP, o.Env)
-	p, err := startPTY(path, argv, dir, env, cols, rows)
-	if err != nil {
-		return nil, err
+	var (
+		p    tty
+		name string
+	)
+	if o.Serial != nil {
+		p, name = openSerial(*o.Serial), o.Serial.Path
+	} else {
+		path, argv, shell, err := shellCommand(o.Command, o.Login)
+		if err != nil {
+			return nil, err
+		}
+		dir := o.Dir
+		if dir == "" {
+			dir, _ = os.UserHomeDir()
+		}
+		env := sessionEnv(id, o.Identity, o.TSP, o.Env)
+		if p, err = startPTY(path, argv, dir, env, cols, rows); err != nil {
+			return nil, err
+		}
+		name = shell
 	}
 	lines := ScrollbackLines
 	if o.Scrollback > 0 {
@@ -516,9 +539,15 @@ func (s *session) input(p []byte) {
 	s.lastInput = time.Now()
 	exited := s.exited
 	s.mu.Unlock()
-	if !exited {
-		s.p.write(p)
+	if exited {
+		return
 	}
+	if st, ok := s.p.(*serialTTY); ok {
+		// What is typed, which a serial port sends as its settings say.
+		st.input(p)
+		return
+	}
+	s.p.write(p)
 }
 
 // resize sets the size of the terminal, in cells, and of its cells in
@@ -812,6 +841,11 @@ func (s *session) info() SessionInfo {
 		Attached: len(s.clients), Cols: s.cols, Rows: s.rows, Status: s.status.status(),
 	}
 	s.mu.Unlock()
+	if st, ok := s.p.(*serialTTY); ok {
+		in.Port, in.PortState = st.status()
+		in.Idle, in.Program = true, s.shell
+		return in
+	}
 	in.PID = s.p.pid()
 	if in.Exited {
 		return in
@@ -845,7 +879,7 @@ func (s *session) info() SessionInfo {
 // questions to the pseudo-terminal.
 type vtConn struct {
 	r *io.PipeReader
-	p *pty
+	p tty
 }
 
 func (c vtConn) Read(p []byte) (int, error) { return c.r.Read(p) }

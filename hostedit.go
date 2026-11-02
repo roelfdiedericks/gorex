@@ -24,13 +24,14 @@ type hostForm struct {
 	serverDir    string
 	command      string
 	agent        bool
+	serial       serialForm
 	err          string
 	busy         bool
 	fromSettings bool
 }
 
 // hostKinds are the ways a host can be reached, as the host dialog
-// offers them; the serial port's is to come.
+// offers them.
 var hostKinds = []string{"GoRex's server", "Plain ssh", "Serial port"}
 
 const (
@@ -43,14 +44,20 @@ const (
 // one for "". From the settings, which close for it, and come back after.
 func (a *App) editHost(key string, fromSettings bool) {
 	f := &hostForm{old: key, fromSettings: fromSettings}
-	if r, ok := findRemote(key); ok && key != "" {
+	r, ok := findRemote(key)
+	if ok && key != "" {
 		f.orig = r
 		f.label, f.target, f.identity, f.options = r.Label, r.Target, r.Identity, r.Options
 		f.serverDir, f.command, f.agent = r.ServerDir, r.Command, r.ForwardAgent
-		if r.Kind == kindPlain {
+		switch r.Kind {
+		case kindPlain:
 			f.kind = formPlain
+		case kindSerial:
+			f.kind = formSerial
 		}
 	}
+	// A serial port's settings, or those it starts with: 115200 8N1.
+	f.serial.set(f.orig)
 	a.hostForm = f
 	a.hostOpen = false
 	if fromSettings {
@@ -61,7 +68,11 @@ func (a *App) editHost(key string, fromSettings bool) {
 // closeHostForm closes the host dialog, and brings back the settings it
 // was opened from.
 func (a *App) closeHostForm() {
-	if f := a.hostForm; f != nil && f.fromSettings {
+	f := a.hostForm
+	if f != nil {
+		f.stopPorts()
+	}
+	if f != nil && f.fromSettings {
 		a.openSettings()
 	}
 	a.hostForm = nil
@@ -78,6 +89,11 @@ func (a *App) saveHost(f *hostForm, connect bool) {
 		return
 	}
 	r := f.orig
+	if r.Kind == kindSerial {
+		// A serial port's host that becomes one of ssh keeps none of
+		// the port's settings.
+		r = savedRemote{LastUsed: r.LastUsed}
+	}
 	r.Target, r.Label = spec, strings.TrimSpace(f.label)
 	r.Identity, r.Options = strings.TrimSpace(f.identity), strings.TrimSpace(f.options)
 	r.ServerDir, r.Command = strings.TrimSpace(f.serverDir), strings.TrimSpace(f.command)
@@ -131,7 +147,8 @@ func (a *App) saveHost(f *hostForm, connect bool) {
 
 // hostDialog draws the host dialog: its name, how it is reached, ssh's
 // destination and options, and what the kind adds, the folder of GoRex's
-// server there or the command of a plain host's tabs.
+// server there or the command of a plain host's tabs; or a serial port's
+// settings (serialFields).
 func (a *App) hostDialog(c *ui.Context, k *colors) {
 	f := a.hostForm
 	if f == nil {
@@ -176,11 +193,13 @@ func (a *App) hostDialog(c *ui.Context, k *colors) {
 			help("GoRex copies its server to the host: sessions stay when the connection goes, and its files and git show in GoRex.")
 		case formPlain:
 			help("The host's tabs run ssh from this PC: nothing is copied there, and a tab's session ends with its connection.")
+		case formSerial:
+			help("A serial port of this PC, as a switch's or a router's console: its one session stays open while GoRex is closed.")
 		}
 		if f.kind == formSerial {
-			ui.Text(c, "Serial ports, as a switch's or a router's console, are to come: their settings are TBA.").
-				FontSize(12.5).TextColor(k.textMuted).LineHeight(1.45)
+			a.serialFields(c, k, f, row, help)
 		} else {
+			f.stopPorts()
 			row("Name", func() { input(&f.label, "as the host names itself", false) })
 			row("Destination", func() { input(&f.target, "user@host, or a Host of ~/.ssh/config", f.old == "") })
 			row("Identity file", func() { input(&f.identity, "ssh's default keys", false) })
@@ -204,14 +223,18 @@ func (a *App) hostDialog(c *ui.Context, k *colors) {
 			if textButton(c, k, "Cancel").Clicked() {
 				a.later(c, a.closeHostForm)
 			}
-			if f.kind == formSerial || f.busy {
+			if f.busy {
 				return
 			}
+			save := a.saveHost
+			if f.kind == formSerial {
+				save = a.saveSerial
+			}
 			if textButton(c, k, "Save").Clicked() {
-				a.later(c, func() { a.saveHost(f, false) })
+				a.later(c, func() { save(f, false) })
 			}
 			if textButton(c, k, "Save and Connect").Clicked() {
-				a.later(c, func() { a.saveHost(f, true) })
+				a.later(c, func() { save(f, true) })
 			}
 		})
 	})

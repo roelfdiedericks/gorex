@@ -97,9 +97,21 @@ func main() {
 			a.bind = b
 			a.stateKey = b.key()
 		}
+	} else if len(os.Args) > 2 && os.Args[1] == "serial" {
+		// serial <name> opens a window on a serial host, named as its
+		// dialog does or by its key, a window of the port's own as ssh's.
+		oneOff = true
+		if r, ok := findSerial(strings.Join(os.Args[2:], " ")); ok {
+			a.bind = serialBinding(r)
+			a.stateKey = a.bind.key()
+		} else {
+			a.err = "No serial host is named " + strings.Join(os.Args[2:], " ") + ": add it in Add Host…, as a serial port."
+		}
 	} else if a.eff.General.StartWith == "lastHost" {
 		// The host used last, as the settings say, when none is named.
-		if rs := loadRemotes(); len(rs) > 0 {
+		if rs := loadRemotes(); len(rs) > 0 && rs[0].Kind == kindSerial {
+			a.bind = serialBinding(rs[0])
+		} else if len(rs) > 0 {
 			if b, err := hostBinding(rs[0].Target, ""); err == nil {
 				a.bind = b
 			}

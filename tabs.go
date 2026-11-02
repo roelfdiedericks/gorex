@@ -213,10 +213,10 @@ func (a *App) tabMenu(m *ui.Menu, t *Tab) {
 	if runtime.GOOS != "darwin" {
 		mods, key = cmdNewTab.Other.Mods, cmdNewTab.Other.Key
 	}
-	if m.Item("New Tab").Shortcut(mods, key).Chosen() {
+	if m.Item("New Tab").Shortcut(mods, key).Disabled(a.bind.serial != "").Chosen() {
 		a.newTab(a.currentDir())
 	}
-	if m.Item("New Editor Tab").Disabled(a.bind.plain).Chosen() {
+	if m.Item("New Editor Tab").Disabled(a.bind.noFiles()).Chosen() {
 		a.newEditorTab("")
 	}
 	if m.Item("Close Tab").Chosen() {
