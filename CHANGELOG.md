@@ -4,6 +4,17 @@ The version of each release is its heading here, which `mygo.json`'s
 `version` must match: `make website` refuses to build otherwise, and
 refuses a version already published.
 
+## 0.1.9
+
+- GoRex connects to Linux hosts with glibc 2.17 or later, as Debian 8,
+  Ubuntu 14.04 and RHEL 7 have: the terminal library its server loads
+  there is GoRex's own, built for glibc 2.17, where MyGo's needs 2.28.
+  On a Debian 9 host (glibc 2.24) no session started: loading the
+  library failed with "version `GLIBC_2.27' not found".
+- A host whose glibc is older than the server needs gets nothing copied
+  and nothing started: GoRex says so, with the host's version and the
+  one needed, instead of a session failing to start.
+
 ## 0.1.8
 
 - A long omp transcript draws fast: of the hundreds of messages and
