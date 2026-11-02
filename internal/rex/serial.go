@@ -95,7 +95,12 @@ func (t *serialTTY) wake() {
 // there, the tty waits for it; open in another host's session here, it
 // says whose, and Enter takes it over; failing otherwise, as another
 // program having it, it says why and waits for Enter.
-func (t *serialTTY) open() {
+func (t *serialTTY) open() { t.openFor(0) }
+
+// openFor opens the port as open does, trying again for as long as wait
+// while it is busy: a port another session released may take the system
+// a moment to let go.
+func (t *serialTTY) openFor(wait time.Duration) {
 	t.mu.Lock()
 	path, want, cfg := t.o.Path, t.want, t.cfg
 	t.mu.Unlock()
@@ -106,6 +111,11 @@ func (t *serialTTY) open() {
 	}
 	port, err := serialport.Open(path, cfg)
 	var oe *serialport.OpenError
+	for deadline := time.Now().Add(wait); errors.As(err, &oe) && oe.Busy && time.Now().Before(deadline); {
+		time.Sleep(200 * time.Millisecond)
+		port, err = serialport.Open(path, cfg)
+	}
+	oe = nil
 	var holder PortUse
 	held := false
 	if errors.As(err, &oe) && oe.Busy {
@@ -368,7 +378,7 @@ func (t *serialTTY) takeOver(u PortUse) {
 		t.mu.Unlock()
 		return
 	}
-	t.open()
+	t.openFor(3 * time.Second)
 }
 
 // status is the port's path and state, and its host's name, for
