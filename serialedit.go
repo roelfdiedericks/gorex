@@ -207,24 +207,27 @@ func (a *App) serialFields(c *ui.Context, k *colors, f *hostForm, row func(strin
 		})
 	})
 	row("Framing", func() {
-		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-			presets := append(slices.Clone(serialport.Framings), customChoice)
-			if ui.Select(c, &s.framing, presets).Width(90).Changed() && s.framing != customChoice {
-				var cf serialport.Config
-				if serialport.ParseFraming(s.framing, &cf) {
-					s.setFraming(cf)
-				}
+		presets := append(slices.Clone(serialport.Framings), customChoice)
+		if ui.Select(c, &s.framing, presets).MinWidth(140).Width(140).Changed() && s.framing != customChoice {
+			var cf serialport.Config
+			if serialport.ParseFraming(s.framing, &cf) {
+				s.setFraming(cf)
 			}
-			parts := func(label string, v *string, names []string, w float32) {
-				ui.Text(c, label).FontSize(12).TextColor(k.textFaint)
-				if ui.Select(c, v, names).Width(w).Changed() {
+		}
+	})
+	row("Data, parity, stop", func() {
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+			// The theme's selects are 140 wide at least, too wide for
+			// three in a row of short choices.
+			part := func(v *string, names []string, w float32) {
+				if ui.Select(c, v, names).MinWidth(w).Width(w).Changed() {
 					cf, _ := s.config()
 					s.setFraming(cf)
 				}
 			}
-			parts("data", &s.dataBits, dataBitsNames, 56)
-			parts("parity", &s.parity, parityNames, 84)
-			parts("stop", &s.stopBits, stopBitsNames, 64)
+			part(&s.dataBits, dataBitsNames, 64)
+			part(&s.parity, parityNames, 96)
+			part(&s.stopBits, stopBitsNames, 72)
 		})
 	})
 	row("Enter sends", func() { ui.Segmented(c, &s.enter, enterNames...) })

@@ -102,7 +102,7 @@ func (a *App) hostChip(c *ui.Context, k *colors) {
 		})
 	})
 	ui.PopoverBase(c, chip, &a.hostOpen, func(panel ui.Element) {
-		panel.Margin(8, 0, 0, 0).Width(320).Padding(14).Radius(14).Background(k.panel).Border(1, k.panelBorder).
+		panel.Margin(8, 0, 0, 0).Width(480).Padding(14).Radius(14).Background(k.panel).Border(1, k.panelBorder).
 			Shadow(0, 12, 32, 0, k.shadowFocused).Gap(12)
 		a.hostPanel(c, k, name, glyph)
 	})
@@ -295,7 +295,7 @@ func (a *App) hostsSection(c *ui.Context, k *colors) {
 							ui.Icon(c, icon("check")).Size(14, 14).TextColor(k.text)
 						}
 					})
-					ui.Text(c, e.title).FontSize(13).FontWeight(600).TextColor(k.text).SingleLine().Ellipsis("…").Shrink(0).MaxWidth(150)
+					ui.Text(c, e.title).FontSize(13).FontWeight(600).TextColor(k.text).SingleLine().Ellipsis("…").Shrink(0).MaxWidth(220)
 					ui.Text(c, e.detail).FontSize(12).TextColor(k.textFaint).SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
 				})
 				if e.key != "" && hovered {
