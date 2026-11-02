@@ -10,29 +10,36 @@ import (
 )
 
 // Enter presses the composer's send button where omp shows one that takes
-// a click; while dictation holds the draft its button has no action, and
-// Enter sends the text as before.
-func TestTSPSendButton(t *testing.T) {
-	button := func(actions map[string]any) *rex.TSPNode {
-		p := map[string]any{"role": "omp.composer.send", "keys": []any{"enter"}}
-		if actions != nil {
-			p["actions"] = actions
-		}
-		return &rex.TSPNode{ID: "composer.send", Kind: "kbd", Props: p}
-	}
+// a click; while a turn runs, when the button is Stop, it submits to the
+// field itself; while dictation holds the draft the button has no action,
+// and Enter sends the text as before, as it does without omp's composer.
+func TestTSPEnterPress(t *testing.T) {
 	tree := func(b *rex.TSPNode) *rex.TSPNode {
 		return &rex.TSPNode{ID: "root", Kind: "col", Children: []*rex.TSPNode{
 			{ID: "composer", Kind: "row", Children: []*rex.TSPNode{{ID: "composer.field", Kind: "editor"}, b}},
 		}}
 	}
-	if b, act := tspSendButton(tree(button(map[string]any{"click": "submit"}))); b == nil || b.ID != "composer.send" || act != "submit" {
-		t.Errorf("with a send button: %v %q, want composer.send submit", b, act)
+	node := func(id, kind, role string, actions map[string]any) *rex.TSPNode {
+		p := map[string]any{"role": role}
+		if actions != nil {
+			p["actions"] = actions
+		}
+		return &rex.TSPNode{ID: id, Kind: kind, Props: p}
 	}
-	if b, _ := tspSendButton(tree(button(nil))); b != nil {
-		t.Errorf("dictating, the button without an action: %v, want none", b.ID)
-	}
-	if b, _ := tspSendButton(tree(&rex.TSPNode{ID: "x", Kind: "kbd", Props: map[string]any{"actions": map[string]any{"click": "submit"}}})); b != nil {
-		t.Errorf("another button: %v, want none", b.ID)
+	for _, c := range []struct {
+		situation string
+		button    *rex.TSPNode
+		want      *tspPress
+	}{
+		{"idle", node("composer.send", "kbd", "omp.composer.send", map[string]any{"click": "submit"}), &tspPress{id: "composer.send", act: "submit"}},
+		{"running", node("composer.stop", "text", "omp.composer.stop", map[string]any{"click": "interrupt"}), &tspPress{id: "composer.field", act: "submit"}},
+		{"dictating", node("composer.send", "kbd", "omp.composer.send", nil), nil},
+		{"another program's button", node("x", "kbd", "", map[string]any{"click": "submit"}), nil},
+	} {
+		got := tspEnterPress(tree(c.button), "composer.field")
+		if (got == nil) != (c.want == nil) || got != nil && (got.id != c.want.id || got.act != c.want.act) {
+			t.Errorf("%s: %+v, want %+v", c.situation, got, c.want)
+		}
 	}
 }
 

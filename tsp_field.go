@@ -239,17 +239,20 @@ func (a *App) tspField(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pan
 			term.Send([]byte{'\r'})
 			return true
 		case tk.Key == ui.KeyEnter && tk.Mods == 0 && sendable:
-			// Enter presses the composer's send button, as a click on it:
-			// omp then sends its own draft, with the images pasted into
-			// it, which a send of the text loses (omp empties its draft,
-			// images and all, before taking the text). The button waits
-			// for omp to have what was typed; without one, the text goes.
-			b, act := tspSendButton(sf.Root)
-			if b == nil {
+			// Enter submits omp's own draft, as its send button does:
+			// with the images pasted into it, which a send of the text
+			// loses (omp empties its draft, images and all, before taking
+			// the text). While a turn runs, the button is Stop: the same
+			// submit, to the field, queues the message. It waits for omp
+			// to have what was typed. An empty field, or a composer that
+			// is not omp's, sends the text, as an empty submit would stop
+			// omp's turn.
+			pr := tspEnterPress(sf.Root, id)
+			if pr == nil || strings.TrimSpace(tk.Text()) == "" {
 				send(map[string]any{"ev": "send", "text": tk.Text()})
 				return true
 			}
-			pr := &tspPress{id: b.ID, act: act, until: time.Now().Add(tspPressWait)}
+			pr.until = time.Now().Add(tspPressWait)
 			if f.said == tk.Text() {
 				press(pr)
 				return true
@@ -323,25 +326,38 @@ func (a *App) tspField(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pan
 	return el
 }
 
-// tspSendButton finds the composer's send button under n (omp's
-// omp.composer.send) and the action a click on it sends; nil without one.
-func tspSendButton(n *rex.TSPNode) (*rex.TSPNode, string) {
-	if n == nil {
-		return nil, ""
-	}
-	if role, _ := n.Props["role"].(string); role == "omp.composer.send" {
-		if actions, ok := n.Props["actions"].(map[string]any); ok {
-			if act, _ := actions["click"].(string); act != "" {
-				return n, act
+// tspEnterPress is what Enter in the composer field of id presses: its
+// send button (omp's omp.composer.send) with the action a click on it
+// sends, or while a turn runs, when the button is Stop (omp.composer.stop),
+// the submit the send button sends, to the field itself; nil for neither.
+func tspEnterPress(root *rex.TSPNode, id string) *tspPress {
+	running := false
+	var found *tspPress
+	var walk func(n *rex.TSPNode)
+	walk = func(n *rex.TSPNode) {
+		if n == nil || found != nil {
+			return
+		}
+		switch role, _ := n.Props["role"].(string); role {
+		case "omp.composer.send":
+			if actions, ok := n.Props["actions"].(map[string]any); ok {
+				if act, _ := actions["click"].(string); act != "" {
+					found = &tspPress{id: n.ID, act: act}
+					return
+				}
 			}
+		case "omp.composer.stop":
+			running = true
+		}
+		for _, ch := range n.Children {
+			walk(ch)
 		}
 	}
-	for _, ch := range n.Children {
-		if b, act := tspSendButton(ch); b != nil {
-			return b, act
-		}
+	walk(root)
+	if found == nil && running {
+		found = &tspPress{id: id, act: "submit"}
 	}
-	return nil, ""
+	return found
 }
 
 // tspEditChord reports whether a chord is the field's own: copy, cut,
