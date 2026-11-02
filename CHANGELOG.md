@@ -4,6 +4,38 @@ The version of each release is its heading here, which `mygo.json`'s
 `version` must match: `make website` refuses to build otherwise, and
 refuses a version already published.
 
+## 0.1.11
+
+- Serial ports: Add Host…, Connect with Serial port, makes a host of a
+  port of this PC, as a switch's, a router's or a board's console. The
+  dialog lists the ports as they are plugged in, each with its adapter's
+  name over its path, USB IDs and serial number, marking one another
+  host has open or one not plugged in; it takes the speed (115200 by
+  default, or any other), the framing (8N1, 7E1… or data bits, parity
+  and stop bits), what Enter and Backspace send, and local echo. The
+  host is named by its port first, as "COM8 · USB-Enhanced-SERIAL
+  CH9102 · 115200", and the host chip tells the port too.
+- A serial host's window has the port's one session, in a session server
+  of its own on this PC, which keeps the port open while GoRex is
+  closed. An adapter unplugged is waited for and found again, by its
+  serial number or USB IDs, wherever it comes back. Send Break (⇧⌘B,
+  Ctrl+Shift+B) sends a break; Release Port closes the port for another
+  program, and Enter opens it again. Settings changed in the dialog apply
+  to the open port at once. A port another serial host has open, the
+  pane says whose, and Enter takes it over. `gorex serial <name>` opens a
+  window on one.
+- The host chip has a menu when right-clicked: Reconnect, Host
+  Settings…, Open in New Window, Copy Address and Copy ssh Command, the
+  Connection Log, Restart Session Server… (which says first whether the
+  sessions keep running: they do on Linux and macOS hosts), Switch to the
+  hosts used last, Add Host… and Settings…. The palette has Host
+  Settings… and Restart Session Server… too.
+- The host popover is wider and scrolls when the window is too short for
+  it. Its ssh user@host field comes before the hosts and takes the
+  keyboard as it opens. Each host's actions show always, in columns:
+  settings (This PC's open the Defaults), a window of its own or
+  reconnect, and forget, which asks first.
+
 ## 0.1.10
 
 - Plain ssh hosts: a host where GoRex's server can't run, or that you
