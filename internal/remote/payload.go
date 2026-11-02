@@ -123,16 +123,17 @@ func (p Payload) forSystem(system string) (server, error) {
 }
 
 // bridgeScript starts the bridge of profile with the server for the host's
-// system, when it is there, and otherwise asks for it, naming the system,
-// and says on its error output, which the Connection Log shows, why: no
-// server for the system, none copied yet, or one there that can't be run,
-// with its modes and the mount it is on (noexec). The server loads the
-// libghostty-vt beside it, and nothing else: it never downloads one. A
-// server that can't start says so on its error output too, as the shell
-// does when exec fails. On a host whose glibc is older than the server's
-// files need, it starts nothing and copies nothing: it answers with the
-// host's glibc and the one needed.
-func (p Payload) bridgeScript(profile string) string {
+// system, when it is there, in the folder dir (serverDir), and otherwise
+// asks for it, naming the system, and says on its error output, which the
+// Connection Log shows, why: no server for the system, none copied yet,
+// or one there that can't be run, with its modes and the mount it is on
+// (noexec). It runs no server from a folder that is not the user's. The
+// server loads the libghostty-vt beside it, and nothing else: it never
+// downloads one. A server that can't start says so on its error output
+// too, as the shell does when exec fails. On a host whose glibc is older
+// than the server's files need, it starts nothing and copies nothing: it
+// answers with the host's glibc and the one needed.
+func (p Payload) bridgeScript(profile, dir string) string {
 	var b strings.Builder
 	b.WriteString(`case "$(uname -s) $(uname -m)" in `)
 	for _, s := range p.servers {
@@ -144,17 +145,42 @@ func (p Payload) bridgeScript(profile string) string {
 		}
 		b.WriteString(`) id=` + s.id + ` lib=` + s.lib + ` g=` + s.glibc + `;; `)
 	}
-	b.WriteString(`*) id= g=;; esac; d="$HOME/.cache/gorex/$id"; `)
+	b.WriteString(`*) id= g=;; esac; c=` + serverDir(dir) + `; d="$c/$id"; `)
 	// getconf names the glibc as "glibc 2.24", and nothing on a host
 	// without one, which is not checked.
 	b.WriteString(`if [ -n "$g" ]; then h=$(getconf GNU_LIBC_VERSION 2>/dev/null); h=${h#glibc }; ` +
 		`if [ -n "$h" ] && [ "$(printf '%s\n%s\n' "$g" "$h" | sort -t. -k1,1n -k2,2n | head -n 1)" != "$g" ]; then ` +
 		`echo "` + glibcMarker + `$h $g"; exit 0; fi; fi; `)
-	b.WriteString(`if [ -n "$id" ] && [ -x "$d/gorex" ]; then export MYGO_GHOSTTY_VT="$d/$lib"; exec "$d/gorex" -bridge ` + shQuote(profile) + `; fi; `)
+	b.WriteString(`if [ -n "$id" ] && [ -x "$d/gorex" ] && ` + mine + `; then export MYGO_GHOSTTY_VT="$d/$lib"; exec "$d/gorex" -bridge ` + shQuote(profile) + `; fi; `)
 	b.WriteString(`if [ -z "$id" ]; then echo "host: GoRex has no server for $(uname -s) $(uname -m)" >&2; ` +
+		`elif [ -e "$d/gorex" ] && ! ` + mine + `; then echo "host: $c is not this user's: GoRex runs no server from it" >&2; ` +
 		`elif [ -e "$d/gorex" ]; then echo "host: $d/gorex is there, but can't be run:" >&2; ls -ld "$d" "$d/gorex" "$d/$lib" 2>&1 | sed 's/^/host: /' >&2; ` +
 		`(findmnt -no TARGET,FSTYPE,OPTIONS -T "$d" 2>/dev/null || df -P "$d") 2>&1 | sed 's/^/host: mount: /' >&2; ` +
 		`else echo "host: no GoRex server in $d yet" >&2; fi; `)
 	b.WriteString(`echo "` + deployMarker + `$(uname -s) $(uname -m)"`)
 	return b.String()
 }
+
+// serverDir returns, as shell words, the folder on a host the servers
+// land in, each in a folder of its ID: dir, "~/" at its start the user's
+// home, or ~/.cache/gorex when "".
+func serverDir(dir string) string {
+	switch {
+	case dir == "":
+		return `"$HOME/.cache/gorex"`
+	case dir == "~":
+		return `"$HOME"`
+	case strings.HasPrefix(dir, "~/"):
+		return `"$HOME"/` + shQuote(dir[2:])
+	}
+	return shQuote(dir)
+}
+
+// mine is a shell test of whether the folder $c is the user's: a server
+// in a folder another user owns, as one in /tmp, might be theirs.
+const mine = `[ "$(ls -ldn "$c" 2>/dev/null | awk '{print $3}')" = "$(id -u)" ]`
+
+// makeDir is a shell command that makes the folder $c the user's alone
+// (0700) when it is not there; a folder that is, as one the host's
+// settings name, keeps its modes.
+const makeDir = `{ [ -d "$c" ] || { mkdir -p "$c" 2>/dev/null && chmod 700 "$c"; }; }`

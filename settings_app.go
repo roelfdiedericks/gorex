@@ -193,13 +193,14 @@ func fetchSettings(client *rex.Client) (Settings, error) {
 // settings and disconnects: for copying a look from a host the window is
 // not on. It logs what connecting prints, and shows no status.
 func readHostSettings(spec string) (Settings, error) {
-	t, err := remote.Resolve(spec)
+	b, err := hostBinding(spec, "")
 	if err != nil {
 		return Settings{}, err
 	}
 	// A read of the settings leaves the host's server as it is (nil
-	// guard), and asks nothing: a host that wants a password fails.
-	client, link, _, err := dialBinding(binding{remote: true, target: t}, remote.Progress{
+	// guard), and asks nothing: a host that wants a password fails. A
+	// plain host's settings are those of its server on this machine.
+	client, link, _, err := dialBinding(b, remote.Progress{
 		Status: func(string) {}, Log: func(s string) { log.Print(s) },
 	}, nil, false, nil)
 	if err != nil {

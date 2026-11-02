@@ -30,7 +30,7 @@ func startTestServer(t *testing.T) *Client {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	c, err := Connect(LocalDialer())
+	c, err := Connect(LocalDialer(Dir()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func waitEvent(t *testing.T, c *Client, event, path string) bool {
 // connection once, however many files change; unwatching stops it.
 func TestWatchEvents(t *testing.T) {
 	c := startTestServer(t)
-	c2, err := Connect(LocalDialer())
+	c2, err := Connect(LocalDialer(Dir()))
 	if err != nil {
 		t.Fatal(err)
 	}

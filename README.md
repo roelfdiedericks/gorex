@@ -34,12 +34,13 @@ terminal plugin (Ghostty's libghostty-vt). No webview, no cgo: one ~15 MB app.
 - **Host chip** with the machine's name and model; its popover shows the
   chip, memory, OS and the session server, and lists the hosts: click one
   to switch the window to it, ⧉ to open it in a new window, ↻ to reconnect,
-  ✕ (on hover) to forget it, or type `user@host` to connect to another.
+  ⚙ and ✕ (on hover) for its settings and to forget it, Add Host… for a
+  new one, or type `user@host` to connect to another.
 - **Command palette** (⇧⌘P, Ctrl+Shift+P, or the ⌘ button): every command, and every pane
   to jump to, fuzzy-matched; the servers to switch the window to (below).
 - **Remote sessions over ssh.** `GoRex ssh user@host` opens a window on
   the sessions of a GoRex server on that host, as VS Code's Remote-SSH
-  does: GoRex copies the server for the host's system to `~/.cache/gorex/<id>/` there the
+  does: GoRex copies the server for the host's system to `~/.cache/gorex/<id>/` there (or the host's Server folder) the
   first time, starts it, and carries every connection over one `ssh`
   (multiplexed with yamux, by `GoRex -bridge` on the host). The remote
   server keeps its state, the layout too, in `~/.config/<profile>`, the
@@ -49,7 +50,7 @@ terminal plugin (Ghostty's libghostty-vt). No webview, no cgo: one ~15 MB app.
   connection comes back by itself, trying five times; a bar under the
   panes tells how it goes, with Retry once it gave up, and the Connection
   Log (also in the palette) shows what ssh said. Remote hosts run Linux
-  (glibc 2.28 or later) or macOS, on amd64 or arm64. ssh logs in with
+  (glibc 2.17 or later) or macOS, on amd64 or arm64. ssh logs in with
   keys or an agent, or asks, in the window, what it would ask in a
   terminal: a password, a key's passphrase, a code, whether to trust a
   host's key it has not seen. It asks again on each connect, and a login
@@ -62,6 +63,36 @@ terminal plugin (Ghostty's libghostty-vt). No webview, no cgo: one ~15 MB app.
   reconnect too, while a window is connected, the latest one's agent
   first. A window opened with `GoRex ssh` quits when it is closed, on macOS
   too; the server and its sessions go on.
+- **Host settings** (⚙ in the host list, Edit… in Settings, Hosts, or Add
+  Host… there, in the host list or the palette): a host's name, its ssh
+  destination, identity file and more ssh options (`-p 2222 -o
+  ProxyJump=bastion`, which every ssh to it takes), Forward ssh agent, and
+  how GoRex reaches it: with **GoRex's server** there, in the folder of the
+  host's Server folder (`~/.cache/gorex` when empty; one GoRex makes is the
+  user's alone, and none of another user's is used), or with **plain ssh**.
+  Serial ports are to come.
+- **Plain ssh hosts.** A host where GoRex's server can't run, or that you
+  want so, is reached with ssh alone: its tabs and panes run `ssh` from
+  this PC, in a session server of the host's own on this PC (in
+  `hosts/<user@host_port>` of the data directory), with its own tabs and
+  layout, switched to from the host list as any host. Its sessions
+  outlive the window, but not their connections: one that ends other than
+  by logging out says so, and Enter connects it again. What needs GoRex's
+  server on the host, editor tabs, its files and git, shows greyed out.
+  A plain host's Command runs there instead of the login shell.
+- **When GoRex's server can't run on a host** (no server for its system,
+  a glibc older than 2.17, or a folder that runs no programs, as `/home`
+  mounted noexec), the window does what Settings, Hosts, *When GoRex's
+  server can't run on a host* says: ask (the default), with Try other
+  folders (where the folder ran no programs) and Connect with plain ssh;
+  try other folders, then plain ssh; or plain ssh. Other folders are
+  folders of the user's own in `$XDG_RUNTIME_DIR` (or `/run/user/<uid>`),
+  `/var/tmp`, `/dev/shm` and `/tmp`, the first where a script copied
+  there runs. The host's settings keep what was done, the folder or plain
+  ssh with why, and later connections follow them. `GoRex ssh --plain
+  user@host` connects with plain ssh, and `--server` with GoRex's server,
+  over the host's settings; failing logins and unreachable hosts never
+  fall back.
 - **Pasting images.** A program that reads the clipboard itself (the
   Kitty clipboard protocol, as omp does) is told what a paste holds and
   takes the image, on any host: a screenshot pastes into its prompt over
@@ -177,6 +208,7 @@ resizes from its sides and bottom, not its top.
 |---|---|
 | `main.go` | the app, its window, `-server` and `-bridge` |
 | `bind.go`, `remotes.go` | the server a window shows: connecting, reconnecting, switching, known remotes |
+| `plain.go`, `fallback.go`, `hostedit.go` | plain ssh hosts; what a window does where GoRex's server can't run; the host dialog |
 | `state.go` | tabs, the tree of splits, panes, saving and restoring the layout |
 | `editor.go`, `browser_view.go`, `editor_view.go` | editor tabs: the file browser, editor panes, opening, saving, what survives a reconnect |
 | `view.go`, `tabs.go`, `host.go`, `commands.go` | the interface: title bar, tabs, panes, host popover, menus and palette |

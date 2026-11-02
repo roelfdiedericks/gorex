@@ -66,12 +66,12 @@ func TestAgentRelay(t *testing.T) {
 	}
 
 	doneA, doneB := make(chan struct{}), make(chan struct{})
-	offerAgent(a, LocalDialer(), doneA)
+	offerAgent(a, LocalDialer(Dir()), doneA)
 	if got := os.Getenv("SSH_AUTH_SOCK"); got != AgentPath() {
 		t.Errorf("sessions are told SSH_AUTH_SOCK=%q, want %q", got, AgentPath())
 	}
 	until("first")
-	offerAgent(b, LocalDialer(), doneB)
+	offerAgent(b, LocalDialer(Dir()), doneB)
 	until("second")
 	close(doneB)
 	until("first")

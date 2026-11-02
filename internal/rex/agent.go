@@ -30,7 +30,7 @@ import (
 // AgentPath returns the path of the agent the server's sessions use: in
 // Dir, unless that is too long a path for a socket, then in the
 // temporary directory.
-func AgentPath() string { return sockPath("agent.sock") }
+func AgentPath() string { return sockPath(Dir(), "agent.sock") }
 
 // agentRelay relays connections to AgentPath to the agents of the
 // bridges connected now. It listens from the first one on.

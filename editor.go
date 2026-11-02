@@ -173,8 +173,13 @@ func (a *App) update(fn func()) {
 }
 
 // newEditorTab opens an editor tab rooted at the host's home, with one
-// empty editor pane, and focuses its browser.
+// empty editor pane, and focuses its browser; on a plain host, whose files
+// GoRex can't reach, none.
 func (a *App) newEditorTab(root string) *Tab {
+	if a.bind.plain {
+		a.toast(ui.Toast{ID: "plain/editor", Title: "No editor tabs here", Description: plainReason + ".", Timeout: 4 * time.Second})
+		return nil
+	}
 	if a.client == nil {
 		return nil
 	}

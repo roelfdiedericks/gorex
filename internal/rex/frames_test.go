@@ -38,7 +38,7 @@ func TestFrames(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	c, err := Connect(LocalDialer())
+	c, err := Connect(LocalDialer(Dir()))
 	if err != nil {
 		t.Fatal(err)
 	}

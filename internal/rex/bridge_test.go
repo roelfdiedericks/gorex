@@ -58,7 +58,7 @@ func TestBridge(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
-		lc, err := Connect(LocalDialer())
+		lc, err := Connect(LocalDialer(Dir()))
 		if err == nil {
 			lc.Shutdown()
 		}

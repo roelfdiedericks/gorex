@@ -10,4 +10,4 @@ var errUnsupported = errors.New("rex: the session server runs on macOS, Linux an
 func Serve() error { return errUnsupported }
 
 // Spawn starts a server; not on this platform.
-func Spawn() error { return errUnsupported }
+func Spawn(dir string) error { return errUnsupported }

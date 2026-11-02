@@ -87,7 +87,9 @@ func (a *App) view(c *ui.Context) {
 	a.palette(c, k)
 	a.connectionLog(c, k)
 	a.loginDialog(c, k)
+	a.cantRunDialog(c, k)
 	a.settingsDialog(c, k)
+	a.hostDialog(c, k)
 	a.toasts(c, k)
 	if a.saveDue && time.Since(a.lastSave) > time.Second {
 		a.save()
@@ -146,7 +148,10 @@ func (a *App) titleBar(c *ui.Context, k *colors) {
 			if iconButton(c, k, "settings-2", "Settings", 30, 17).Tooltip(tip("Settings", &cmdSettings)).Clicked() {
 				a.openSettings()
 			}
-			if iconButton(c, k, "folder-tree", "New Editor Tab", 30, 17).Tooltip(tip("New Editor Tab", &cmdNewEditorTab)).Clicked() {
+			if b := iconButton(c, k, "folder-tree", "New Editor Tab", 30, 17); a.bind.plain {
+				// The host's files are out of GoRex's reach.
+				b.Opacity(0.45).Tooltip(plainReason)
+			} else if b.Tooltip(tip("New Editor Tab", &cmdNewEditorTab)).Clicked() {
 				a.newEditorTab("")
 			}
 			if iconButton(c, k, "plus", "New Tab", 30, 19).Tooltip(tip("New Tab", &cmdNewTab)).Clicked() {

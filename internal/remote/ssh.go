@@ -32,15 +32,15 @@ type sshProc struct {
 	login  *askpass.Session
 }
 
-// sshCmd makes an ssh that runs script with sh on t, with openssh.Options
-// and opts. Each line ssh prints goes to logf. It asks the user through
-// login, or, with none, nothing.
+// sshCmd makes an ssh that runs script with sh on t, with openssh.Options,
+// t's options and opts. Each line ssh prints goes to logf. It asks the
+// user through login, or, with none, nothing.
 func sshCmd(t Target, script string, logf func(string), login *askpass.Session, opts ...string) (*sshProc, error) {
 	ssh, err := openssh.Path()
 	if err != nil {
 		return nil, err
 	}
-	args := append(slices.Clone(openssh.Options), opts...)
+	args := slices.Concat(openssh.Options, t.Opts, opts)
 	var env []string
 	if login == nil {
 		args = append(args, openssh.Batch...)
@@ -115,11 +115,27 @@ func (p *sshProc) limit(d time.Duration) (stop func() bool) {
 // StopError is why connecting to a host failed where trying again by
 // itself won't help, and would only ask the user again: the user
 // cancelled a prompt, refused a host's key, or gave a password ssh
-// stopped asking for; the host's key changed; the server copied there
-// does not start.
-type StopError struct{ Reason string }
+// stopped asking for; the host's key changed; GoRex's server can't run
+// there, which CantRun tells, else "".
+type StopError struct {
+	Reason  string
+	CantRun CantRun
+}
 
 func (e *StopError) Error() string { return e.Reason }
+
+// CantRun is why GoRex's server can't run on a host, where ssh works.
+type CantRun string
+
+const (
+	// NoServer: GoRex has no server for the host's system.
+	NoServer CantRun = "platform"
+	// OldGlibc: the host's glibc is older than the server needs.
+	OldGlibc CantRun = "glibc"
+	// NoStart: the server copied there does not start, as on a mount
+	// that runs no programs (noexec); another folder may.
+	NoStart CantRun = "start"
+)
 
 // err describes why ssh failed, from what it printed last and what the
 // user did with its prompts.
@@ -133,11 +149,11 @@ func (p *sshProc) err() error {
 		asked, cancelled, refused := p.login.Outcome()
 		switch {
 		case cancelled:
-			return &StopError{"Login to " + p.t.Spec + " cancelled"}
+			return &StopError{Reason: "Login to " + p.t.Spec + " cancelled"}
 		case refused:
-			return &StopError{"Not connected: the key of " + p.t.Spec + " was not trusted"}
+			return &StopError{Reason: "Not connected: the key of " + p.t.Spec + " was not trusted"}
 		case asked && strings.Contains(out, "Permission denied"):
-			return &StopError{"Login to " + p.t.Spec + " failed: " + msg}
+			return &StopError{Reason: "Login to " + p.t.Spec + " failed: " + msg}
 		}
 	}
 	if strings.Contains(out, "REMOTE HOST IDENTIFICATION HAS CHANGED") {
@@ -145,7 +161,7 @@ func (p *sshProc) err() error {
 		if p.t.Port != "" && p.t.Port != "22" {
 			host = "[" + host + "]:" + p.t.Port
 		}
-		return &StopError{"The key of " + p.t.Spec + " has changed since ssh last saw it, which ssh refuses. If the host was reinstalled, remove its old key with: ssh-keygen -R \"" + host + "\", then Retry."}
+		return &StopError{Reason: "The key of " + p.t.Spec + " has changed since ssh last saw it, which ssh refuses. If the host was reinstalled, remove its old key with: ssh-keygen -R \"" + host + "\", then Retry."}
 	}
 	if p.login == nil && strings.Contains(out, "Host key verification failed") {
 		msg += " (run ssh " + p.t.Spec + " once in a terminal to accept its host key)"

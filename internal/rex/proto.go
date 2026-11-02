@@ -291,15 +291,16 @@ func Dir() string {
 	return filepath.Join(base, "GoRex")
 }
 
-// SocketPath returns the path of the server's socket: in Dir, unless that
-// is too long a path for a socket, then in the temporary directory.
-func SocketPath() string { return sockPath("server.sock") }
+// SocketPath returns the path of the socket of the server whose directory
+// is dir: in dir, unless that is too long a path for a socket, then in
+// the temporary directory.
+func SocketPath(dir string) string { return sockPath(dir, "server.sock") }
 
-// sockPath returns the path of the socket name in Dir, or, when that is
+// sockPath returns the path of the socket name in dir, or, when that is
 // too long a path for a socket, one in the temporary directory of a hash
 // of it.
-func sockPath(name string) string {
-	p := filepath.Join(Dir(), name)
+func sockPath(dir, name string) string {
+	p := filepath.Join(dir, name)
 	if len(p) < 100 {
 		return p
 	}

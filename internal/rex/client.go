@@ -39,18 +39,18 @@ type Client struct {
 // Dialer opens a connection to the server.
 type Dialer func() (net.Conn, error)
 
-// EnsureServer makes sure the local server runs, starting one in the
-// background when none does.
-func EnsureServer() error {
-	conn, err := net.Dial("unix", SocketPath())
+// EnsureServer makes sure the local server of directory dir runs,
+// starting one in the background when none does.
+func EnsureServer(dir string) error {
+	conn, err := net.Dial("unix", SocketPath(dir))
 	if err != nil {
-		if err := Spawn(); err != nil {
+		if err := Spawn(dir); err != nil {
 			return fmt.Errorf("rex: starting the server: %w", err)
 		}
 		deadline := time.Now().Add(5 * time.Second)
 		for {
 			time.Sleep(30 * time.Millisecond)
-			conn, err = net.Dial("unix", SocketPath())
+			conn, err = net.Dial("unix", SocketPath(dir))
 			if err == nil {
 				break
 			}
@@ -63,17 +63,18 @@ func EnsureServer() error {
 	return nil
 }
 
-// LocalDialer dials the local server, starting one when none runs.
-func LocalDialer() Dialer {
+// LocalDialer dials the local server of directory dir, starting one when
+// none runs.
+func LocalDialer(dir string) Dialer {
 	return func() (net.Conn, error) {
-		conn, err := net.Dial("unix", SocketPath())
+		conn, err := net.Dial("unix", SocketPath(dir))
 		if err == nil {
 			return conn, nil
 		}
-		if err := EnsureServer(); err != nil {
+		if err := EnsureServer(dir); err != nil {
 			return nil, err
 		}
-		return net.Dial("unix", SocketPath())
+		return net.Dial("unix", SocketPath(dir))
 	}
 }
 

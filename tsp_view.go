@@ -473,6 +473,10 @@ var tspStarburst = []string{"✢", "✣", "✶", "✻", "✽", "✻", "✶", "�
 // leaves the path to the terminal.
 func (a *App) tspComposerBar(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, n *rex.TSPNode) {
 	dir := shortDir(p.info.Dir)
+	if plainHost != "" {
+		// The folder of the ssh on this machine, not of the host's shell.
+		dir = ""
+	}
 	for _, ch := range n.Children {
 		role, _ := ch.Props["role"].(string)
 		if dir != "" && role != "omp.composer.model" && role != "omp.composer.effort" && role != "omp.composer.rate" {

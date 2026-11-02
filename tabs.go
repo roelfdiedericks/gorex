@@ -216,7 +216,7 @@ func (a *App) tabMenu(m *ui.Menu, t *Tab) {
 	if m.Item("New Tab").Shortcut(mods, key).Chosen() {
 		a.newTab(a.currentDir())
 	}
-	if m.Item("New Editor Tab").Chosen() {
+	if m.Item("New Editor Tab").Disabled(a.bind.plain).Chosen() {
 		a.newEditorTab("")
 	}
 	if m.Item("Close Tab").Chosen() {

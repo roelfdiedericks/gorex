@@ -51,12 +51,12 @@ func newTestApp(t *testing.T) (*App, *ui.Tester) {
 	go rex.Serve()
 	var client *rex.Client
 	for i := 0; i < 100; i++ {
-		if _, err := os.Stat(rex.SocketPath()); err == nil {
+		if _, err := os.Stat(rex.SocketPath(rex.Dir())); err == nil {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	client, err := rex.Connect(rex.LocalDialer())
+	client, err := rex.Connect(rex.LocalDialer(rex.Dir()))
 	if err != nil {
 		t.Fatal(err)
 	}

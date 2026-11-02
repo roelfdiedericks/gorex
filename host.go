@@ -12,10 +12,18 @@ import (
 )
 
 // hostName names the machine the window shows: the name its settings
-// give it, else its server's, else how it is reached.
+// give it, else, for a plain host, the user's or its destination, else
+// its server's, else how it is reached. A plain host's server is this
+// machine's, which names this machine.
 func (a *App) hostName() string {
 	if a.eff.Appearance.Name != "" {
 		return a.eff.Appearance.Name
+	}
+	if a.bind.plain {
+		if r, ok := findRemote(a.bind.target.Key()); ok && r.Label != "" {
+			return r.Label
+		}
+		return a.bind.target.Spec
 	}
 	if a.hello.Host.Name != "" {
 		return a.hello.Host.Name
@@ -43,6 +51,9 @@ func (a *App) hostChip(c *ui.Context, k *colors) {
 	}
 	glyph := "mac-studio"
 	switch {
+	case a.bind.plain:
+		// What the server tells is this machine's, not the host's.
+		glyph, model = "globe", "plain ssh"
 	case strings.Contains(model, "MacBook"), h.Portable:
 		glyph = "laptop"
 	case strings.Contains(model, "iMac"), goos == "windows":
@@ -85,7 +96,10 @@ func (a *App) hostPanel(c *ui.Context, k *colors, name, glyph string) {
 			ui.Text(c, name).FontSize(14).FontWeight(700).TextColor(k.text).SingleLine().Ellipsis("…")
 			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
 				where := thisMachine()
-				if a.bind.remote {
+				switch {
+				case a.bind.plain:
+					where = "plain ssh"
+				case a.bind.remote:
 					where = "ssh"
 				}
 				dot, state := k.busy, "connected"
@@ -116,8 +130,12 @@ func (a *App) hostPanel(c *ui.Context, k *colors, name, glyph string) {
 		})
 	}
 	ui.Column(c).Gap(7).Children(func() {
-		if a.bind.remote {
+		if a.bind.host() {
 			row("Connection", "ssh "+a.bind.target.Key())
+		}
+		if a.bind.plain {
+			// The rest the server tells is this machine's.
+			return
 		}
 		row("Model", h.Model)
 		row("Chip", h.Chip)
@@ -127,6 +145,10 @@ func (a *App) hostPanel(c *ui.Context, k *colors, name, glyph string) {
 		row("System", h.OS)
 		row("User", h.User)
 	})
+	if a.bind.plain {
+		ui.Text(c, "A plain ssh host: its tabs run ssh from this PC, and GoRex shows none of its files or git.").
+			FontSize(11.5).TextColor(k.textFaint).LineHeight(1.35)
+	}
 	ui.Divider(c)
 	a.hostsSection(c, k)
 	ui.Divider(c)
@@ -145,6 +167,11 @@ func (a *App) hostPanel(c *ui.Context, k *colors, name, glyph string) {
 		}
 		row("Sessions", fmt.Sprintf("%d open, %d running a program", sessions, running))
 	})
+	if a.bind.plain {
+		ui.Text(c, "Sessions live in a server on this PC: quit GoRex and they keep running, and come back as they were when it opens again, as long as their connections last.").
+			FontSize(11.5).TextColor(k.textFaint).LineHeight(1.35)
+		return
+	}
 	ui.Text(c, "Sessions live in the server: quit GoRex and they keep running, and come back as they were when it opens again.").
 		FontSize(11.5).TextColor(k.textFaint).LineHeight(1.35)
 }
@@ -171,25 +198,31 @@ func (a *App) hostsSection(c *ui.Context, k *colors) {
 		// destination, "" for this machine; key, to forget it.
 		spec, key string
 	}
-	entries := []entry{{title: thisMachine(), detail: "local sessions", current: !a.bind.remote}}
+	entries := []entry{{title: thisMachine(), detail: "local sessions", current: !a.bind.host()}}
 	listed := false
 	for _, r := range a.remotes {
-		cur := "ssh/"+r.Key == a.bind.key()
+		cur := r.bindKey() == a.bind.key()
 		listed = listed || cur
 		detail := r.Target
+		if r.Kind == kindPlain {
+			detail = "plain ssh · " + detail
+		}
 		if !cur {
 			detail += " · " + roundDur(time.Since(r.LastUsed)) + " ago"
 		}
 		entries = append(entries, entry{title: r.title(), detail: detail, current: cur, spec: r.Target, key: r.Key})
 	}
-	if a.bind.remote && !listed {
+	if a.bind.host() && !listed {
 		// A host the window connects to for the first time.
 		entries = append(entries, entry{title: a.bind.target.Spec, detail: a.bind.target.Key(), current: true, spec: a.bind.target.Spec})
 	}
 
 	ui.Column(c).Gap(2).Children(func() {
-		ui.Row(c).AlignItems(ui.Center).Padding(0, 0, 4, 0).Children(func() {
+		ui.Row(c).AlignItems(ui.Center).Gap(4).Padding(0, 0, 4, 0).Children(func() {
 			ui.Text(c, "HOSTS").FontSize(11).FontWeight(700).TextColor(k.textFaint).Grow(1)
+			if textButton(c, k, "Add Host…").Clicked() {
+				a.later(c, func() { a.editHost("", false) })
+			}
 			if textButton(c, k, "Settings…").Clicked() {
 				a.hostOpen = false
 				a.later(c, a.openSettings)
@@ -222,6 +255,11 @@ func (a *App) hostsSection(c *ui.Context, k *colors) {
 					ui.Text(c, e.title).FontSize(13).FontWeight(600).TextColor(k.text).SingleLine().Ellipsis("…").Shrink(0).MaxWidth(150)
 					ui.Text(c, e.detail).FontSize(12).TextColor(k.textFaint).SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
 				})
+				if e.key != "" && hovered {
+					if b := iconButton(c, k, "settings-2", "Host Settings", 24, 13).Tooltip("Host Settings"); b.Clicked() {
+						a.later(c, func() { a.editHost(e.key, false) })
+					}
+				}
 				if e.current {
 					if b := iconButton(c, k, "rotate-ccw", "Reconnect", 24, 13).Tooltip("Reconnect"); b.Clicked() {
 						a.hostOpen = false

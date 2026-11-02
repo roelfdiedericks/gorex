@@ -174,6 +174,10 @@ type General struct {
 	// StartWith is "local" or "lastHost": what a window with no host named
 	// on the command line opens.
 	StartWith string `json:"startWith,omitempty" kind:"pc" label:"Open at start" group:"Hosts"`
+	// ServerFallback is what a window does when GoRex's server can't run
+	// on a host the user has not decided for: "ask"; "folders", which
+	// tries other folders there, then plain ssh; or "plain" (fallback.go).
+	ServerFallback string `json:"serverFallback,omitempty" kind:"pc" label:"When GoRex's server can't run on a host" group:"Hosts"`
 }
 
 // Editor is the code editor of editor tabs and their file browser.
@@ -221,7 +225,7 @@ var builtin = Settings{
 	Shell: Shell{Login: on, StartIn: "current"},
 	General: General{
 		ConfirmClose: off, Notifications: off, Notify: on, NotifyAfter: 8, Attention: on, ReconnectAttempts: 5,
-		LogWhileConnecting: on, StartWith: "local",
+		LogWhileConnecting: on, StartWith: "local", ServerFallback: "ask",
 	},
 }
 

@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -30,17 +31,22 @@ import (
 // what ssh's configuration makes of it. Agent, "yes" or "no", has ssh
 // forward the user's ssh agent to the host or not (ForwardAgent), over
 // what ssh's configuration says, which "" leaves it to: the host's
-// sessions use the agent while the window is connected.
+// sessions use the agent while the window is connected. Opts are more
+// options of every ssh to it, as -i, -p or -o, from the host's settings.
+// Dir is the folder the server lands in there, ~/.cache/gorex when "".
 type Target struct {
 	Spec, User, Host, Port string
 	Agent                  string
+	Opts                   []string
+	Dir                    string
 }
 
 // Key identifies the machine and account, however it was named.
 func (t Target) Key() string { return t.User + "@" + t.Host + ":" + t.Port }
 
-// Resolve asks ssh what spec, a destination as ssh takes it, stands for.
-func Resolve(spec string) (Target, error) {
+// Resolve asks ssh what spec, a destination as ssh takes it, stands for,
+// with the more options opts.
+func Resolve(spec string, opts []string) (Target, error) {
 	if spec == "" || strings.HasPrefix(spec, "-") || strings.ContainsFunc(spec, unicode.IsSpace) {
 		return Target{}, fmt.Errorf("not an ssh destination: %q", spec)
 	}
@@ -48,10 +54,10 @@ func Resolve(spec string) (Target, error) {
 	if err != nil {
 		return Target{}, err
 	}
-	cmd := exec.Command(ssh, "-G", "--", spec)
+	cmd := exec.Command(ssh, slices.Concat([]string{"-G"}, opts, []string{"--", spec})...)
 	openssh.Detach(cmd)
 	out, err := cmd.CombinedOutput()
-	t := Target{Spec: spec}
+	t := Target{Spec: spec, Opts: opts}
 	for l := range strings.SplitSeq(string(out), "\n") {
 		l = strings.TrimRight(l, "\r")
 		if v, ok := strings.CutPrefix(l, "user "); ok {
@@ -110,11 +116,11 @@ func Open(t Target, profile string, p Payload, prog Progress, login *askpass.Ses
 		if try > 0 {
 			// The bridge's script told the Connection Log why (host:
 			// lines); trying again would only copy it again.
-			return nil, &StopError{"The GoRex copied to " + t.Spec + " does not start: the Connection Log tells why"}
+			return nil, &StopError{"The GoRex copied to " + t.Spec + " does not start: the Connection Log tells why", NoStart}
 		}
 		s, err := p.forSystem(system)
 		if err != nil {
-			return nil, &StopError{err.Error()}
+			return nil, &StopError{err.Error(), NoServer}
 		}
 		prog.Status("Copying GoRex to " + t.Spec + "…")
 		prog.Log(fmt.Sprintf("%s is %s: copying the %s server (%s)", t.Spec, system, s.name, s.id))
@@ -132,7 +138,7 @@ func bridge(t Target, profile string, p Payload, logf func(string), login *askpa
 	if t.Agent != "" {
 		opts = []string{"-o", "ForwardAgent=" + t.Agent}
 	}
-	cmd, err := sshCmd(t, p.bridgeScript(profile), logf, login, opts...)
+	cmd, err := sshCmd(t, p.bridgeScript(profile, t.Dir), logf, login, opts...)
 	if err != nil {
 		return nil, "", err
 	}
@@ -171,7 +177,7 @@ func bridge(t Target, profile string, p Payload, logf func(string), login *askpa
 		case kind == "glibc":
 			has, needs, _ := strings.Cut(value, " ")
 			logf("host: glibc " + has + ", the server needs " + needs + " or later")
-			return nil, "", &StopError{"GoRex can't run on " + t.Spec + ": its glibc is " + has + ", and GoRex's server needs " + needs + " or later"}
+			return nil, "", &StopError{"GoRex can't run on " + t.Spec + ": its glibc is " + has + ", and GoRex's server needs " + needs + " or later", OldGlibc}
 		}
 		return nil, value, nil
 	}
@@ -193,15 +199,20 @@ func bridge(t Target, profile string, p Payload, logf func(string), login *askpa
 	return &Link{sess: sess, exe: value}, "", nil
 }
 
-// upload copies the server s to t, where it lands in ~/.cache/gorex/<id>
-// whole or not at all. Its files go as a gzipped tar archive made on the
-// way, which the host's tar unpacks. A server there already is kept, as
-// another window may run it, unless it can't be run, which the copy then
-// replaces. It says on its error output, which the Connection Log shows,
-// which it did, and the files' modes there.
+// upload copies the server s to t, where it lands in <folder>/<id>
+// (serverDir of t.Dir) whole or not at all. A folder GoRex makes is the
+// user's alone (0700); one that is another user's, or can't be made, is
+// no place for it: the error is a StopError then, as another folder may
+// do. Its files go as a gzipped tar archive made on the way, which the
+// host's tar unpacks. A server there already is kept, as another window
+// may run it, unless it can't be run, which the copy then replaces. It
+// says on its error output, which the Connection Log shows, which it did,
+// and the files' modes there.
 func upload(t Target, s server, logf func(string), login *askpass.Session) error {
 	dir := `"$c/` + s.id + `"`
-	script := `set -e; c="$HOME/.cache/gorex"; mkdir -p "$c"; t=$(mktemp -d "$c/.upload.XXXXXX"); ` +
+	script := `c=` + serverDir(t.Dir) + `; ` +
+		`if ! { ` + makeDir + ` && ` + mine + `; }; then echo "host: GoRex can't keep a server in $c: it can't be made, or is not this user's" >&2; echo ` + noDirMarker + `; exit 1; fi; ` +
+		`set -e; t=$(mktemp -d "$c/.upload.XXXXXX"); ` +
 		`trap 'rm -rf "$t"' EXIT; tar -xzf - -C "$t"; chmod 755 "$t/gorex"; ` +
 		`if [ -d ` + dir + ` ] && [ ! -x ` + dir + `/gorex ]; then rm -rf ` + dir + `; echo "host: replacing "` + dir + `", whose server can't be run" >&2; fi; ` +
 		`if [ ! -d ` + dir + ` ]; then mv "$t" ` + dir + `; echo "host: copied to "` + dir + ` >&2; ` +
@@ -220,11 +231,84 @@ func upload(t Target, s server, logf func(string), login *askpass.Session) error
 	if err == nil {
 		err = cmd.Wait()
 	}
+	if strings.Contains(out.String(), noDirMarker) {
+		return &StopError{"GoRex can't keep its server in " + t.dirName() + " on " + t.Spec + ": the Connection Log tells why", NoStart}
+	}
 	if err != nil || !strings.Contains(out.String(), "GOREX-DEPLOYED") {
 		return cmd.err()
 	}
 	return nil
 }
+
+// noDirMarker is upload's answer when the server's folder can't be made,
+// or is not the user's.
+const noDirMarker = "GOREX-NODIR"
+
+// dirName names the folder the server lands in on t, for messages.
+func (t Target) dirName() string {
+	if t.Dir == "" {
+		return "~/.cache/gorex"
+	}
+	return t.Dir
+}
+
+// dirCandidates are the folders FindDir tries, as shell words, in order:
+// the user's runtime folder, then folders of the user's own in the
+// system's temporary ones. Some are emptied when the host restarts, which
+// costs another copy of the server then.
+var dirCandidates = []string{
+	`"${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/gorex"`,
+	`"/var/tmp/gorex-$(id -un)"`,
+	`"/dev/shm/gorex-$(id -un)"`,
+	`"/tmp/gorex-$(id -un)"`,
+}
+
+// FindDir finds a folder on t where programs run, for the server, when
+// the one it lands in runs none (noexec): the first of dirCandidates that
+// can be made the user's alone and runs a script copied there. It returns
+// the folder as the host names it, or "" when none does.
+func FindDir(t Target, logf func(string), login *askpass.Session) (string, error) {
+	cmd, err := sshCmd(t, findDirScript(dirCandidates), logf, login)
+	if err != nil {
+		return "", err
+	}
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.start(); err == nil {
+		cmd.Wait()
+	}
+	if dir, ok := dirAnswer(out.String()); ok {
+		return dir, nil
+	}
+	return "", cmd.err()
+}
+
+// findDirScript tries the folders cands, shell words, in turn, for
+// FindDir: it answers with the first that is the user's, or can be made
+// so, and runs a script copied there, else with none, and tells on its
+// error output why each other one would not do.
+func findDirScript(cands []string) string {
+	return `for c in ` + strings.Join(cands, " ") + `; do ` +
+		`if ! { ` + makeDir + ` && ` + mine + `; }; then echo "host: $c: can't be made, or is not this user's" >&2; continue; fi; ` +
+		`p="$c/.probe.$$"; ` +
+		`if printf '#!/bin/sh\nexit 0\n' > "$p" && chmod 755 "$p" && "$p"; then rm -f "$p"; echo "` + dirMarker + `$c"; exit 0; fi; ` +
+		`rm -f "$p"; rmdir "$c" 2>/dev/null; echo "host: $c: runs no programs" >&2; ` +
+		`done; echo "` + dirMarker + `"`
+}
+
+// dirAnswer reads findDirScript's answer from its output: the folder, ""
+// for none, and whether it answered.
+func dirAnswer(out string) (string, bool) {
+	for l := range strings.SplitSeq(out, "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimRight(l, "\r"), dirMarker); ok {
+			return v, true
+		}
+	}
+	return "", false
+}
+
+// dirMarker begins findDirScript's answer, the folder found or nothing.
+const dirMarker = "GOREX-DIR "
 
 // writeArchive writes the files to w as a gzipped tar archive, by their
 // base names.

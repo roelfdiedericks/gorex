@@ -20,14 +20,14 @@ import (
 func Bridge(r io.Reader, w io.Writer) error {
 	agent := os.Getenv("SSH_AUTH_SOCK")
 	os.Unsetenv("SSH_AUTH_SOCK")
-	if err := EnsureServer(); err != nil {
+	if err := EnsureServer(Dir()); err != nil {
 		return err
 	}
 	done := make(chan struct{})
 	defer close(done)
 	if agent != "" && runtime.GOOS != "windows" {
 		// Before the client starts sessions, which then use it.
-		offerAgent(agent, LocalDialer(), done)
+		offerAgent(agent, LocalDialer(Dir()), done)
 	}
 	exe, _ := Executable()
 	if _, err := io.WriteString(w, BridgeReady+exe+"\n"); err != nil {
@@ -43,7 +43,7 @@ func Bridge(r io.Reader, w io.Writer) error {
 	defer sess.Close()
 	// Dialing per stream starts the server again when it died, as after
 	// a development build restarted it.
-	dial := LocalDialer()
+	dial := LocalDialer(Dir())
 	for {
 		st, err := sess.Accept()
 		if err != nil {

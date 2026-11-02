@@ -173,26 +173,36 @@ type Pane struct {
 	// restored tells that the session was made anew for a pane of a
 	// saved layout whose session was gone.
 	restored bool
+	// ended marks the pane of a plain host whose ssh ended other than by
+	// logging out: it says so, and Enter connects it again (plain.go).
+	ended    bool
 	startDir string
 }
 
-// hostHome and hostGOOS describe the machine the window's server runs on.
+// hostHome and hostGOOS describe the machine the window's server runs on;
+// plainHost is the destination of the plain host the window shows, ""
+// for another: its server is this machine's, whose sessions run ssh.
 var hostHome, _ = os.UserHomeDir()
 var hostGOOS = runtime.GOOS
+var plainHost string
 
-// setHost takes the machine the window's server runs on from its hello.
-// A remote server too old to tell its OS runs on Linux.
-func setHost(h rex.Hello, remote bool) {
+// setHost takes the machine the window's server runs on, of b, from its
+// hello. A remote server too old to tell its OS runs on Linux.
+func setHost(h rex.Hello, b binding) {
 	hostGOOS = h.Host.GOOS
 	if hostGOOS == "" {
 		hostGOOS = runtime.GOOS
-		if remote {
+		if b.remote {
 			hostGOOS = "linux"
 		}
 	}
 	hostHome = h.Host.Home
-	if hostHome == "" && !remote {
+	if hostHome == "" && !b.remote {
 		hostHome, _ = os.UserHomeDir()
+	}
+	plainHost = ""
+	if b.plain {
+		plainHost = b.target.Spec
 	}
 }
 
@@ -239,6 +249,11 @@ type App struct {
 	askOnce   sync.Once
 	askSrv    *askpass.Server
 	askErr    error
+	// cantRun is the question of what to do on a host where GoRex's
+	// server can't run (fallback.go).
+	cantRun *cantRunAsk
+	// hostForm is the host dialog's, while it shows (hostedit.go).
+	hostForm *hostForm
 	// remotes are the known remote servers, for the palette.
 	remotes []savedRemote
 	// defaults are this PC's settings, host the current host's overrides,
@@ -448,9 +463,19 @@ func (a *App) newPane(dir string, cols, rows int) *Pane {
 	}
 	client := a.client
 	var info rex.SessionInfo
-	err := errors.New("not connected to the server")
 	o := shellOptions(&a.eff)
 	o.Dir, o.Cols, o.Rows = dir, cols, rows
+	var err error
+	if a.bind.plain {
+		// A plain host's sessions run ssh to it, whatever its shell.
+		o.Command, err = plainCommand(a.bind)
+		o.Login = false
+	}
+	if err != nil {
+		client = nil
+	} else if client == nil {
+		err = errors.New("not connected to the server")
+	}
 	if client != nil {
 		info, err = client.Create(o)
 	}
@@ -497,6 +522,7 @@ func (a *App) attach(p *Pane, cols, rows int) {
 		return
 	}
 	client := a.client
+	plain := a.bind.plain
 	p.stream = client.Stream(p.SID, cols, rows)
 	p.stream.OnData = func(int) { p.lastData.Store(time.Now().UnixNano()) }
 	p.stream.UseMotion(a.reduceMotion)
@@ -600,7 +626,15 @@ func (a *App) attach(p *Pane, cols, rows int) {
 			})
 			return true
 		},
-		OnKey: func(ui.Modifiers, ui.Key) bool {
+		OnKey: func(_ ui.Modifiers, key ui.Key) bool {
+			if p.ended {
+				// The ssh of a plain host ended: Enter connects again,
+				// and other keys go nowhere.
+				if key == ui.KeyEnter {
+					update(func() { a.restartPane(p) })
+				}
+				return true
+			}
 			// Typing in a pane makes this window the one in use.
 			a.claimSize(p)
 			return false
@@ -623,10 +657,20 @@ func (a *App) attach(p *Pane, cols, rows int) {
 				if !serverAnswers(client) {
 					return
 				}
+				code := 0
+				if plain {
+					code = exitCode(client, p.SID)
+				}
 				update(func() {
-					if !p.closed && !a.quitting && p.stream == stream {
-						a.closePane(p)
+					if p.closed || a.quitting || p.stream != stream {
+						return
 					}
+					if code != 0 {
+						// ssh lost the host, or could not reach it.
+						a.sshEnded(p, code)
+						return
+					}
+					a.closePane(p)
 				})
 			}()
 		},
@@ -1029,6 +1073,14 @@ func (p *Pane) label() (name, detail string) {
 		return "files", shortDir(p.files.root)
 	case paneEditor:
 		return p.edit.label()
+	}
+	if plainHost != "" {
+		// The session is ssh to the host, from a folder of this
+		// machine's: the title the host's shell set, else the host.
+		if t := strings.TrimSpace(p.title); t != "" {
+			return t, ""
+		}
+		return "ssh", plainHost
 	}
 	in := p.info
 	prog := programOf(in.Program)

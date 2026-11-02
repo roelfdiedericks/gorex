@@ -469,6 +469,8 @@ func (a *App) settingControl(c *ui.Context, k *colors, scope string, f field) {
 		choices(c, &target, effv, []string{"current", "home"}, []string{"The current pane's directory", "Home"}, changed)
 	case "general.startWith":
 		choices(c, &target, effv, []string{"local", "lastHost"}, []string{thisMachine(), "The last host"}, changed)
+	case "general.serverFallback":
+		choices(c, &target, effv, []string{"ask", "folders", "plain"}, []string{"Ask", "Try other folders, then plain ssh", "Plain ssh"}, changed)
 	case "appearance.windowTitle":
 		choices(c, &target, effv, []string{"host", "hostAndTab", "tab"}, []string{"Host", "Host and tab", "Tab"}, changed)
 	case "appearance.windowMaterial":
@@ -791,10 +793,15 @@ func (a *App) hostsPage(c *ui.Context, k *colors) {
 	s := &a.settings
 	ui.Column(c).Gap(18).Children(func() {
 		ui.Column(c).Gap(8).Children(func() {
-			ui.Text(c, "Known hosts").FontSize(13).FontWeight(700).TextColor(k.text)
+			ui.Row(c).AlignItems(ui.Center).Children(func() {
+				ui.Text(c, "Known hosts").FontSize(13).FontWeight(700).TextColor(k.text).Grow(1)
+				if textButton(c, k, "Add Host…").Clicked() {
+					a.later(c, func() { a.editHost("", true) })
+				}
+			})
 			ui.Column(c).Radius(10).Background(k.hover).Clip().Children(func() {
 				if len(a.remotes) == 0 {
-					ui.Text(c, "None yet: connect to one with ssh user@host in the palette, or GoRex ssh user@host.").
+					ui.Text(c, "None yet: add one with Add Host…, or connect to one with ssh user@host in the palette, or GoRex ssh user@host.").
 						FontSize(12.5).TextColor(k.textFaint).Padding(12, 14)
 				}
 				for i, r := range a.remotes {
@@ -804,7 +811,11 @@ func (a *App) hostsPage(c *ui.Context, k *colors) {
 					ui.Row(c.Key(r.Key)).MinHeight(40).Padding(6, 14).Gap(12).AlignItems(ui.Center).Children(func() {
 						ui.Column(c).Grow(1).MinWidth(0).Children(func() {
 							ui.Text(c, r.title()).FontSize(13).FontWeight(600).TextColor(k.text).SingleLine().Ellipsis("…")
-							ui.Text(c, r.Target+" · "+roundDur(time.Since(r.LastUsed))+" ago").FontSize(11.5).TextColor(k.textFaint).SingleLine().Ellipsis("…")
+							detail := r.Target + " · " + roundDur(time.Since(r.LastUsed)) + " ago"
+							if r.Kind == kindPlain {
+								detail = "plain ssh · " + detail
+							}
+							ui.Text(c, detail).FontSize(11.5).TextColor(k.textFaint).SingleLine().Ellipsis("…")
 						})
 						// This PC's setting for the host, which ssh's
 						// own configuration may add to (ForwardAgent).
@@ -816,7 +827,10 @@ func (a *App) hostsPage(c *ui.Context, k *colors) {
 								a.remotes = loadRemotes()
 							}
 						})
-						if "ssh/"+r.Key == a.bind.key() {
+						if textButton(c, k, "Edit…").Clicked() {
+							a.later(c, func() { a.editHost(r.Key, true) })
+						}
+						if r.bindKey() == a.bind.key() {
 							ui.Text(c, "this window").FontSize(11.5).TextColor(k.textFaint)
 						} else if textButton(c, k, "Forget").Clicked() {
 							forgetRemote(r.Key)
@@ -833,7 +847,7 @@ func (a *App) hostsPage(c *ui.Context, k *colors) {
 			ui.Column(c).Radius(10).Background(k.hover).Clip().Padding(10, 14).Gap(8).Children(func() {
 				sources := []string{"Defaults · " + thisMachine()}
 				for _, r := range a.remotes {
-					if "ssh/"+r.Key != a.bind.key() {
+					if r.bindKey() != a.bind.key() {
 						sources = append(sources, r.title()+" ("+r.Target+")")
 					}
 				}

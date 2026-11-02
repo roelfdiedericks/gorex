@@ -57,7 +57,7 @@ func TestUpgrade(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	dial := func() (net.Conn, error) { return net.Dial("unix", SocketPath()) }
+	dial := func() (net.Conn, error) { return net.Dial("unix", SocketPath(Dir())) }
 	c, err := Connect(dial)
 	if err != nil {
 		t.Fatal(err)

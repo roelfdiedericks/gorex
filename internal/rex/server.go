@@ -65,7 +65,7 @@ func serve(state string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	sock := SocketPath()
+	sock := SocketPath(Dir())
 	var (
 		lock *os.File
 		ln   net.Listener
@@ -478,17 +478,18 @@ func newID() string {
 	return hex.EncodeToString(b[:])
 }
 
-// Spawn starts a server in the background, as a process of its own that
-// outlives the app: the executable run with -server.
-func Spawn() error {
+// Spawn starts the server of directory dir in the background, as a
+// process of its own that outlives the app: the executable run with
+// -server, its GOREX_DIR dir.
+func Spawn(dir string) error {
 	exe, err := selfPath()
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(Dir(), 0o700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	logf, err := os.OpenFile(filepath.Join(Dir(), "server.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	logf, err := os.OpenFile(filepath.Join(dir, "server.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return err
 	}
@@ -499,6 +500,7 @@ func Spawn() error {
 	}
 	defer devnull.Close()
 	cmd := exec.Command(exe, "-server")
+	cmd.Env = append(os.Environ(), "GOREX_DIR="+dir)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = devnull, logf, logf
 	cmd.SysProcAttr = detached()
 	if err := cmd.Start(); err != nil {

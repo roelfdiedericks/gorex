@@ -159,7 +159,7 @@ func (a *App) tspMedia(c *ui.Context, key *ui.Context, k *colors, p *Pane, n *re
 	if f.err != "" {
 		detail += " · " + f.err
 	}
-	return a.mediaCard(c, key, k, p, file, kind, detail, f.err != "", rev == "" && mediaOpenable(file))
+	return a.mediaCard(c, key, k, p, file, kind, detail, f.err != "", rev == "" && mediaOpenable(file) && !a.bind.plain)
 }
 
 // mediaCard draws a pane's file as a card: its kind's glyph (a warning
@@ -203,6 +203,10 @@ func (a *App) mediaCard(c *ui.Context, key *ui.Context, k *colors, p *Pane, file
 // branch, the index) read again. A full sha never changes. It is nil
 // when the cache is full of files drawn in this frame (mediaAdmit).
 func (a *App) mediaEntry(file, rev, kind string) *mediaFile {
+	if a.bind.plain {
+		// The file is the host's, which GoRex can't read.
+		return &mediaFile{loaded: true, mediaData: mediaData{err: plainReason + "."}}
+	}
 	if a.client == nil {
 		return &mediaFile{loaded: true, mediaData: mediaData{err: "Not connected to the server."}}
 	}

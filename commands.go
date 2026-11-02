@@ -304,11 +304,18 @@ func (a *App) clearFocused() {
 // restartFocused ends the focused pane's session and starts a shell in
 // its place, in the same directory.
 func (a *App) restartFocused() {
-	t := a.tab()
-	if t == nil || t.Focus == nil || a.client == nil {
+	if t := a.tab(); t != nil && t.Focus != nil {
+		a.restartPane(t.Focus)
+	}
+}
+
+// restartPane ends old's session and starts a new one in its place, in
+// the directory new panes open in.
+func (a *App) restartPane(old *Pane) {
+	t := old.Tab
+	if t == nil || old.closed || a.client == nil {
 		return
 	}
-	old := t.Focus
 	cols, rows := 80, 24
 	if old.term != nil {
 		cols, rows = old.term.Size()
@@ -423,16 +430,23 @@ func (a *App) paletteItems() []paletteItem {
 			items = append(items, paletteItem{title: "Connect to " + rest, glyph: "server", run: func() { a.openHost(rest) }})
 		}
 	}
-	if a.bind.remote && match(thisMachine()+" local sessions") {
+	if a.bind.host() && match(thisMachine()+" local sessions") {
 		items = append(items, paletteItem{title: thisMachine(), detail: "local sessions", glyph: "monitor",
 			run: func() { a.switchTo(binding{}, false) }})
 	}
 	for _, r := range a.remotes {
-		if "ssh/"+r.Key == a.bind.key() || !match(r.title()+" "+r.Target) {
+		if r.bindKey() == a.bind.key() || !match(r.title()+" "+r.Target) {
 			continue
 		}
-		items = append(items, paletteItem{title: r.title(), detail: r.Target, glyph: "server", keys: "Host",
+		detail, glyph := r.Target, "server"
+		if r.Kind == kindPlain {
+			detail, glyph = "plain ssh · "+r.Target, "globe"
+		}
+		items = append(items, paletteItem{title: r.title(), detail: detail, glyph: glyph, keys: "Host",
 			run: func() { a.openHost(r.Target) }})
+	}
+	if match("Add Host…") {
+		items = append(items, paletteItem{title: "Add Host…", glyph: "plus", run: func() { a.editHost("", false) }})
 	}
 	for _, r := range a.remotes {
 		if !match("Forget " + r.title() + " " + r.Target) {

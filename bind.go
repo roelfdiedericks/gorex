@@ -6,6 +6,7 @@ import (
 	"log"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,25 +17,55 @@ import (
 	"gorex/internal/rex"
 )
 
-// binding is the server a window shows the sessions of: this machine's,
-// or one reached over ssh.
+// binding is the server a window shows the sessions of: this machine's;
+// one reached over ssh (remote); or, for a host reached over plain ssh,
+// one on this machine of that host's own, whose sessions run ssh to it
+// (plain).
 type binding struct {
 	remote bool
+	plain  bool
 	target remote.Target
 }
 
 func (b binding) key() string {
-	if !b.remote {
-		return "local"
+	switch {
+	case b.plain:
+		return "plain/" + b.target.Key()
+	case b.remote:
+		return "ssh/" + b.target.Key()
 	}
-	return "ssh/" + b.target.Key()
+	return "local"
 }
 
 func (b binding) label() string {
-	if !b.remote {
+	if !b.host() {
 		return thisMachine()
 	}
 	return b.target.Spec
+}
+
+// host reports whether b is another machine's, reached over ssh.
+func (b binding) host() bool { return b.remote || b.plain }
+
+// dir is the directory of the local server of b: the app's, or a plain
+// host's own.
+func (b binding) dir() string {
+	if b.plain {
+		return plainDir(b.target.Key())
+	}
+	return rex.Dir()
+}
+
+// plainDir is the directory of the server of the plain host of key, its
+// sessions, layout and settings, among the app's data.
+func plainDir(key string) string {
+	name := []rune(key)
+	for i, c := range name {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("._-@", c)) {
+			name[i] = '_'
+		}
+	}
+	return filepath.Join(rex.Dir(), "hosts", string(name))
 }
 
 var (
@@ -114,7 +145,7 @@ func dialBinding(b binding, prog remote.Progress, login *askpass.Session, restar
 	var link *remote.Link
 	var err error
 	if !b.remote {
-		client, err = rex.Connect(rex.LocalDialer())
+		client, err = rex.Connect(rex.LocalDialer(b.dir()))
 	} else {
 		var p remote.Payload
 		if p, err = loadPayload(); err != nil {
@@ -276,14 +307,19 @@ func (a *App) connectLoop(win *mygo.Window, b binding, gen int64, attempts int, 
 			return
 		}
 		// A login the user cancelled or got wrong, a host key not trusted
-		// or changed, a server copied there that does not start: retrying
-		// by itself would only fail again, and ask the user again.
+		// or changed, GoRex's server that can't run there: retrying by
+		// itself would only fail again, and ask the user again. Where the
+		// server can't run, the host may do with another folder, or with
+		// plain ssh (fallback.go).
 		var failed *remote.StopError
 		if errors.As(err, &failed) {
 			win.Update(func() {
 				if current() {
 					a.status = failed.Reason
 					a.connDown = true
+					if failed.CantRun != "" && b.remote {
+						a.serverCantRun(b, failed)
+					}
 				}
 			})
 			return
@@ -344,7 +380,7 @@ func (a *App) attachBinding(win *mygo.Window, b binding, gen int64, client *rex.
 	a.detachAll()
 	a.reset()
 	a.client, a.link, a.hello = client, link, h
-	setHost(h, b.remote)
+	setHost(h, b)
 	a.setHostSettings(settings)
 	a.status, a.connDown = "", false
 	if a.logAuto {
@@ -361,8 +397,15 @@ func (a *App) attachBinding(win *mygo.Window, b binding, gen int64, client *rex.
 	}
 	a.changed()
 	go a.poll(win, client)
-	if b.remote {
-		touchRemote(savedRemote{Key: b.target.Key(), Target: b.target.Spec, Name: h.Host.Name, LastUsed: time.Now()})
+	if b.host() {
+		r := savedRemote{Key: b.target.Key(), Target: b.target.Spec, Kind: kindServer, LastUsed: time.Now()}
+		if b.plain {
+			// Its server is this machine's, whose name is not the host's.
+			r.Kind = kindPlain
+		} else {
+			r.Name = h.Host.Name
+		}
+		touchRemote(r)
 	}
 }
 

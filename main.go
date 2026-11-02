@@ -25,7 +25,6 @@ import (
 
 	"gorex/internal/askpass"
 	"gorex/internal/cli"
-	"gorex/internal/remote"
 	"gorex/internal/rex"
 )
 
@@ -76,31 +75,33 @@ func main() {
 	a := &App{stateKey: "main", k: &lightColors}
 	a.loadSettings()
 	a.registerProtocols()
-	// ssh [-A | -a] <destination> opens a window on the sessions of a
-	// server there. -A forwards the ssh agent to it and -a doesn't, as
-	// ssh's own -A and -a, over the host's switch and ssh's configuration,
-	// for this window. Its window keeps a place of its own, and the process
-	// is the window's: it quits when the window closes, on macOS too, as
-	// ssh itself ends with its session.
+	// ssh [-A | -a] [--plain | --server] <destination> opens a window on
+	// the sessions of a host: of GoRex's server there, or with ssh alone,
+	// as the host's settings say, or --plain or --server. -A forwards the
+	// ssh agent to it and -a doesn't, as ssh's own -A and -a, over the
+	// host's switch and ssh's configuration, for this window. Its window
+	// keeps a place of its own, and the process is the window's: it quits
+	// when the window closes, on macOS too, as ssh itself ends with its
+	// session.
 	oneOff := len(os.Args) > 2 && os.Args[1] == "ssh"
 	if oneOff {
-		agent, spec, err := sshArgs(os.Args[2:])
-		var t remote.Target
+		agent, force, spec, err := sshArgs(os.Args[2:])
+		var b binding
 		if err == nil {
-			t, err = remote.Resolve(spec)
+			b, err = hostBinding(spec, force)
 		}
 		if err != nil {
 			a.err = "Can't connect to " + strings.Join(os.Args[2:], " ") + ": " + err.Error()
 		} else {
-			t.Agent = agent
-			a.bind = binding{remote: true, target: t}
-			a.stateKey = "ssh/" + t.Key()
+			b.target.Agent = agent
+			a.bind = b
+			a.stateKey = b.key()
 		}
 	} else if a.eff.General.StartWith == "lastHost" {
 		// The host used last, as the settings say, when none is named.
 		if rs := loadRemotes(); len(rs) > 0 {
-			if t, err := remote.Resolve(rs[0].Target); err == nil {
-				a.bind = binding{remote: true, target: t}
+			if b, err := hostBinding(rs[0].Target, ""); err == nil {
+				a.bind = b
 			}
 		}
 	}
