@@ -102,9 +102,17 @@ func (a *App) hostChip(c *ui.Context, k *colors) {
 		})
 	})
 	ui.PopoverBase(c, chip, &a.hostOpen, func(panel ui.Element) {
-		panel.Margin(8, 0, 0, 0).Width(560).Padding(14).Radius(14).Background(k.panel).Border(1, k.panelBorder).
-			Shadow(0, 12, 32, 0, k.shadowFocused).Gap(12)
-		a.hostPanel(c, k, name, glyph)
+		panel.Margin(8, 0, 0, 0).Width(560).Radius(14).Background(k.panel).Border(1, k.panelBorder).
+			Shadow(0, 12, 32, 0, k.shadowFocused).Clip()
+		// Taller than the window has room for under the title bar, as
+		// with many hosts, it scrolls.
+		s := ui.Scroll(c.Key("host-panel"))
+		if h := c.Root().Bounds().H; h > 0 {
+			s.MaxHeight(max(h-titleH-16, 200))
+		}
+		s.Children(func() {
+			ui.Column(c).Padding(14).Gap(12).Children(func() { a.hostPanel(c, k, name, glyph) })
+		})
 	})
 }
 
@@ -262,6 +270,48 @@ func (a *App) hostsSection(c *ui.Context, k *colors) {
 		entries = append(entries, entry{title: spec, detail: a.bind.target.Key(), current: true, open: func() { a.openHost(spec) }, window: []string{"ssh", spec}})
 	}
 
+	connect := func() {
+		spec := strings.TrimSpace(a.hostQuery)
+		spec = strings.TrimSpace(strings.TrimPrefix(spec, "ssh "))
+		if spec == "" {
+			return
+		}
+		a.later(c, func() {
+			if err := a.connectSpec(spec); err != nil {
+				a.hostErr = err.Error()
+				return
+			}
+			a.hostQuery, a.hostErr, a.hostOpen = "", "", false
+		})
+	}
+	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+		field := ui.Row(c).Grow(1).MinWidth(0).Height(30).Padding(0, 10).Radius(8).Border(1, k.panelBorder).AlignItems(ui.Center)
+		field.Children(func() {
+			// The popover opens with the keyboard here: click the chip,
+			// type a destination, Enter.
+			in := ui.TextInputBase(c, &a.hostQuery).Grow(1).FontSize(12.5).Placeholder("ssh user@host").AutoFocus()
+			if in.Changed() {
+				a.hostErr = ""
+			}
+			if in.Submitted() {
+				connect()
+			}
+		})
+		b := ui.Box(c).Height(30).Padding(0, 12).Radius(8).Center().Background(k.hover).Cursor(ui.CursorPointer).
+			Role(ui.RoleButton).Label("Connect")
+		if b.Pressed() {
+			b.Background(k.pressed)
+		}
+		if b.Clicked() {
+			connect()
+		}
+		b.Children(func() {
+			ui.Text(c, "Connect").FontSize(12.5).FontWeight(600).TextColor(k.text)
+		})
+	})
+	if a.hostErr != "" {
+		ui.Text(c, a.hostErr).FontSize(11.5).TextColor(ui.Hex("#ef4444")).LineHeight(1.35)
+	}
 	ui.Column(c).Gap(2).Children(func() {
 		ui.Row(c).AlignItems(ui.Center).Gap(4).Padding(0, 0, 4, 0).Children(func() {
 			ui.Text(c, "HOSTS").FontSize(11).FontWeight(700).TextColor(k.textFaint).Grow(1)
@@ -353,47 +403,6 @@ func (a *App) hostsSection(c *ui.Context, k *colors) {
 			})
 		}
 	})
-
-	connect := func() {
-		spec := strings.TrimSpace(a.hostQuery)
-		spec = strings.TrimSpace(strings.TrimPrefix(spec, "ssh "))
-		if spec == "" {
-			return
-		}
-		a.later(c, func() {
-			if err := a.connectSpec(spec); err != nil {
-				a.hostErr = err.Error()
-				return
-			}
-			a.hostQuery, a.hostErr, a.hostOpen = "", "", false
-		})
-	}
-	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-		field := ui.Row(c).Grow(1).MinWidth(0).Height(30).Padding(0, 10).Radius(8).Border(1, k.panelBorder).AlignItems(ui.Center)
-		field.Children(func() {
-			in := ui.TextInputBase(c, &a.hostQuery).Grow(1).FontSize(12.5).Placeholder("ssh user@host")
-			if in.Changed() {
-				a.hostErr = ""
-			}
-			if in.Submitted() {
-				connect()
-			}
-		})
-		b := ui.Box(c).Height(30).Padding(0, 12).Radius(8).Center().Background(k.hover).Cursor(ui.CursorPointer).
-			Role(ui.RoleButton).Label("Connect")
-		if b.Pressed() {
-			b.Background(k.pressed)
-		}
-		if b.Clicked() {
-			connect()
-		}
-		b.Children(func() {
-			ui.Text(c, "Connect").FontSize(12.5).FontWeight(600).TextColor(k.text)
-		})
-	})
-	if a.hostErr != "" {
-		ui.Text(c, a.hostErr).FontSize(11.5).TextColor(ui.Hex("#ef4444")).LineHeight(1.35)
-	}
 }
 
 // openHost switches the window to the host of an ssh destination, or to
