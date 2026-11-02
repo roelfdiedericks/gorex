@@ -125,6 +125,19 @@ type Pane struct {
 	composerFocused bool
 	composerFocus   bool
 	termHeld        bool
+	// tspSized is what the last frames measured of the nodes of the
+	// surfaces' long lists, by surface and node, which those far from the
+	// view are drawn as space of (tsp_cull.go); tspView is the terminal's
+	// box as a frame last laid it out, and tspSettles how each surface
+	// settles after the width changed.
+	tspSized   map[tspCullKey]*tspSizedNode
+	tspView    ui.Rect
+	tspSettles map[uint32]*tspSettle
+	// tspOverlayScroll is how far each overlay, or pane of an overlay's
+	// sheet, scrolls, by node, which its scroller tracks and scroll ops
+	// move; tspOverlayH how tall it was laid out, for a page.
+	tspOverlayScroll map[string]*ui.ScrollState
+	tspOverlayH      map[string]float32
 	// tspNeed is how many rows each inline surface's content took in the
 	// last frame (by anchor), more than it has when its head is cut.
 	tspNeed map[uint32]int
@@ -338,6 +351,22 @@ type App struct {
 	// in the window in use (claimSize).
 	frame       uint64
 	gainedFocus bool
+	// drawn counts the frames the window drew, of one or more passes of
+	// the view each (frame counts those), and drawnAt is when the last
+	// started: for what a pass measures of the frame before (tsp_cull.go).
+	drawn   uint64
+	drawnAt time.Time
+	// tspGen counts the changes of the surfaces' style (applySettings),
+	// which what was measured of their nodes is good for.
+	tspGen int
+	// tspCull is how the inline surface being drawn leaves out the nodes
+	// far from the view (tsp_cull.go); off between surfaces.
+	tspCull tspCulling
+	// tspSheet is how the overlay being drawn lays out its panes, nil for
+	// one that scrolls whole; tspScrolled the scrollers of overlays and
+	// panes drawn this frame, whose scroll stays (surfaceOverlays).
+	tspSheet    *tspSheetLayout
+	tspScrolled map[string]bool
 
 	// posted are changes to make in the next frame, from terminals of a
 	// view without a window, as in tests.
@@ -1410,7 +1439,7 @@ func (a *App) sessionNotice(sid string, n rex.Notice) {
 				if n.Title == "" {
 					n.Title = "GoRex"
 				}
-				mygo.NewNotification(mygo.NotificationOptions{Title: n.Title, Body: n.Body}).Show()
+				a.notify(n.Title, n.Body)
 				return
 			}
 		}
@@ -1437,12 +1466,7 @@ func (a *App) apply(byID map[string]rex.SessionInfo) {
 				}
 				ran := time.Since(was.LastInput)
 				if !a.focusedWin && is(a.eff.General.Notify) && ran > time.Duration(a.eff.General.NotifyAfter)*time.Second {
-					prog := programOf(was.Program)
-					n := mygo.NewNotification(mygo.NotificationOptions{
-						Title: prog.Name + " finished",
-						Body:  "in " + shortDir(in.Dir),
-					})
-					n.Show()
+					a.notify(programOf(was.Program).Name+" finished", "in "+shortDir(in.Dir))
 				}
 			}
 			if was.Dir != in.Dir {

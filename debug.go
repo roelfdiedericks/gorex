@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime/pprof"
 	"strings"
 	"time"
 )
@@ -79,6 +80,46 @@ func (a *App) debug(dir, line string) {
 				a.openFile(t, arg, false)
 			}
 		})
+	case "scroll":
+		// scroll <by> [n] [ms]: scrolls the focused pane's terminal as
+		// its keys do (scrollTerm), n times, ms apart (16 by default).
+		by, rest, _ := strings.Cut(arg, " ")
+		ns, ms, _ := strings.Cut(rest, " ")
+		n, gap := max(atoi(ns), 1), 16*time.Millisecond
+		if ms != "" {
+			gap = time.Duration(atoi(ms)) * time.Millisecond
+		}
+		for range n {
+			win.Update(func() {
+				if t := a.tab(); t != nil && t.Focus != nil && t.Focus.term != nil {
+					a.scrollTerm(t.Focus, by)
+					a.changed()
+				}
+			})
+			time.Sleep(gap)
+		}
+	case "prof":
+		// prof <file>: starts a CPU profile of the app, which profstop
+		// ends.
+		if f, err := os.Create(filepath.Join(dir, arg)); err == nil {
+			if pprof.StartCPUProfile(f) != nil {
+				f.Close()
+			} else {
+				profFile = f
+			}
+		}
+	case "profstop":
+		if profFile != nil {
+			pprof.StopCPUProfile()
+			profFile.Close()
+			profFile = nil
+		}
+	case "log":
+		// log <text>: a mark in the log, between measurements.
+		log.Print("debug: ", arg)
+	case "cull":
+		// cull on|off: whether long lists of surfaces are culled.
+		win.Update(func() { tspCullOff = arg == "off"; a.changed() })
 	default:
 		for _, cmd := range commands {
 			if strings.EqualFold(strings.ReplaceAll(cmd.Title, " ", "-"), verb) {
@@ -116,6 +157,9 @@ func (a *App) debug(dir, line string) {
 		}
 	}
 }
+
+// profFile is the CPU profile the debug verb prof writes.
+var profFile *os.File
 
 func atoi(s string) int {
 	n := 0

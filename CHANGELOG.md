@@ -4,6 +4,41 @@ The version of each release is its heading here, which `mygo.json`'s
 `version` must match: `make website` refuses to build otherwise, and
 refuses a version already published.
 
+## Unreleased
+
+- A long omp transcript draws fast: of the hundreds of messages and
+  tools of a day's session, only those near the view are built and laid
+  out each frame, the rest standing as space of the height they were
+  measured at, until they change or come near. On a transcript of 815
+  of them, a frame took 37 ms while scrolling (27 frames a second) and
+  38 ms while a command ran; it takes 6 ms and 4 ms. Switching back to
+  its tab took half a second; it takes 4 ms.
+- Resizing a window over a long omp transcript is smooth: while the
+  width changes, only what is near the view is laid out again, the
+  transcript drawn from its end; the rest is measured again a few
+  messages a frame once the width stands. On the same transcript a
+  frame of the drag took 157 ms on average and up to half a second; it
+  takes 8 ms, and the second after it 13 ms a frame.
+- After a narrower window was made wider again, the end of omp's
+  transcript stood above a blank band over the composer, or out of the
+  view: the terminal keeps the rows it no longer needs in its
+  scrollback. The transcript now ends right over the composer.
+- Leaving omp from its composer, as with Ctrl+C twice, gives the keys
+  back to the terminal: the shell after it took none until a click.
+- Desktop notifications are off unless Settings turns them on (Show
+  desktop notifications): those of long commands, of programs' status
+  and those programs send. On Windows each came with an icon in the
+  notification area, one for each GoRex running, which could stay.
+- omp's BTW history reads well: the answer takes the room its list of
+  questions leaves, rather than a strip as narrow as a word, as GoRex
+  now follows the sizes programs give their nodes (shrink, min and max
+  widths and heights, a row's align). Page Up, Page Down, Home and End
+  in the answer scroll the sheet, not the terminal under it. A list's
+  selected item no longer pins the scroll of what holds it.
+- An overlay of panes side by side, as the BTW history's questions
+  beside the answer, is a sheet of its own height: each pane scrolls on
+  its own, the title and the buttons stay in view.
+
 ## 0.1.7
 
 - omp's transcript scrolls with the keys, as in Tern: Page Up and Page

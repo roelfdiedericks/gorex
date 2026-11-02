@@ -104,6 +104,12 @@ type Surface struct {
 	// content taller than that from its end, its head cut. 0 when
 	// unknown.
 	Most int `json:"most,omitempty"`
+	// Spare is how many of a live docked surface's rows its content and
+	// dock leave blank, with its anchor in the scrollback: it takes the
+	// screen down from its anchor (padding), and rows a narrower pane
+	// gave it stay when a wider one takes them back, the scrollback's.
+	// A window draws its content under them, ending where the rows end.
+	Spare int `json:"spare,omitempty"`
 	// Closed tells a surface kept after its program closed it: drawn as
 	// it was, taking no events; closedAt is when, for its rows to grow
 	// once (resize).
@@ -187,12 +193,15 @@ func sheetName(s string) bool {
 }
 
 // TSPNode is a node of a surface's document: the kind, the props and the
-// children, as the protocol's add op carries them.
+// children, as the protocol's add op carries them. Rev counts the
+// changes the document's ops made to it and to the nodes under it, which
+// a window keys what it measured of the node by.
 type TSPNode struct {
 	ID       string         `json:"id"`
 	Kind     string         `json:"k"`
 	Props    map[string]any `json:"p,omitempty"`
 	Children []*TSPNode     `json:"c,omitempty"`
+	Rev      uint64         `json:"-"`
 }
 
 // tspTracker reads a session's output for TSP messages and keeps the
@@ -826,33 +835,65 @@ func (t *tspTracker) grow(placements map[uint32]int, cursor, screen int) string 
 // on the screen are taken back, so that what follows the surface comes
 // right after it.
 func (t *tspTracker) padding(placements map[uint32]int, cursor, screen int) int {
-	if len(t.order) == 0 {
-		return 0
-	}
-	s := t.surfaces[t.order[len(t.order)-1]]
-	if s == nil || s.Image == 0 {
-		return 0
-	}
-	row, ok := placements[s.Image]
+	s, row, ok := t.padded(placements)
 	if !ok {
 		return 0
 	}
-	rows := s.Rows
-	if !s.Closed {
-		rows += s.Dock
-		if s.docked() {
-			// Down to the screen's last row, where the cursor stays:
-			// a row further would scroll, and the anchor with it,
-			// without end.
-			rows = max(rows, screen-1-row)
-		}
-	}
-	n := rows - (cursor - row)
+	n := s.under(row, screen) - (cursor - row)
 	if n < 0 {
 		// Rows above the screen are the scrollback's, which stay.
 		n = max(n, -cursor)
 	}
 	return n
+}
+
+// padded returns the last opened inline surface, which padding pads, and
+// its anchor's row, if it has one.
+func (t *tspTracker) padded(placements map[uint32]int) (*Surface, int, bool) {
+	if len(t.order) == 0 {
+		return nil, 0, false
+	}
+	s := t.surfaces[t.order[len(t.order)-1]]
+	if s == nil || s.Image == 0 {
+		return nil, 0, false
+	}
+	row, ok := placements[s.Image]
+	return s, row, ok
+}
+
+// under is how many rows a surface anchored at row takes above the
+// cursor: its rows, and its dock's while it is live; a live one with a
+// dock takes the screen down to its last row, where the cursor stays: a
+// row further would scroll, and the anchor with it, without end.
+func (s *Surface) under(row, screen int) int {
+	rows := s.Rows
+	if !s.Closed {
+		rows += s.Dock
+		if s.docked() {
+			rows = max(rows, screen-1-row)
+		}
+	}
+	return rows
+}
+
+// setSpare sets the Spare of the last opened inline surface, after
+// padding: the rows between its anchor and the cursor that its content
+// and dock leave, while it is live, has a dock and its anchor is in the
+// scrollback. With its anchor on the screen, those rows show between
+// its content and its dock, as the program would leave them.
+func (t *tspTracker) setSpare(placements map[uint32]int, cursor int) {
+	s, row, ok := t.padded(placements)
+	if !ok {
+		return
+	}
+	spare := 0
+	if !s.Closed && s.docked() && row < 0 {
+		spare = max(cursor-row-s.Rows-s.Dock, 0)
+	}
+	if s.Spare != spare {
+		s.Spare = spare
+		t.changed = true
+	}
 }
 
 // docked reports whether the surface has a dock region, which windows

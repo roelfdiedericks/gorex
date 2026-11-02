@@ -103,5 +103,14 @@ func (a *App) statusNotice(p *Pane, was, now *rex.ProgramStatus, seen bool, dir 
 	if msg := plainText(now.Msg); msg != "" {
 		body = msg + "\n" + body
 	}
-	mygo.NewNotification(mygo.NotificationOptions{Title: name + what, Body: body}).Show()
+	a.notify(name+what, body)
+}
+
+// notify shows a desktop notification, if the settings show them
+// (General.Notifications).
+func (a *App) notify(title, body string) {
+	if !is(a.eff.General.Notifications) {
+		return
+	}
+	mygo.NewNotification(mygo.NotificationOptions{Title: title, Body: body}).Show()
 }

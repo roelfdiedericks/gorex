@@ -718,7 +718,9 @@ func (s *session) tspPad() {
 	case n < 0:
 		// Up over the spare rows, which are blank, and clear them.
 		s.vt.Feed([]byte(reclaim(-n)))
+		rows, cursor = s.anchorRows()
 	}
+	s.tsp.setSpare(rows, cursor)
 	s.placeEnds()
 }
 

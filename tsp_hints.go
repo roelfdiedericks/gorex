@@ -10,9 +10,10 @@ import (
 
 // The ops that keep nothing, which a window acts on as it draws: reveal
 // brings a node into view (in its scroll container, or the terminal's
-// scrollback for one drawn among its rows), scroll moves the scrollback
-// by a line, a page or to an end, focus gives a field the keys (none:
-// the terminal). A reveal of a node not drawn yet waits a few frames.
+// scrollback for one drawn among its rows), scroll moves the scroller
+// holding a node by a line, a page or to an end (an overlay's, or the
+// terminal's scrollback), focus gives a field the keys (none: the
+// terminal). A reveal of a node not drawn yet waits a few frames.
 
 // tspHintFrames is how many frames a reveal waits for its node.
 const tspHintFrames = 3
@@ -50,13 +51,75 @@ func (a *App) takeHints(c *ui.Context, p *Pane) {
 				a.focusReq = p
 			}
 		case "scroll":
-			a.scrollTerm(p, h.Arg)
+			a.scrollHint(p, h.SurfaceHint)
 		}
 	}
 	p.tspPending = keep
 	if len(keep) > 0 {
 		c.Invalidate()
 	}
+}
+
+// scrollHint acts on a scroll op: the nearest scroller holding the node
+// scrolls, a pane of an overlay's sheet or the overlay; a picker or a
+// settings sheet keeps its own lists (none of them moves); a node of the
+// surface's rows or dock scrolls the terminal.
+func (a *App) scrollHint(p *Pane, h rex.SurfaceHint) {
+	var holder *rex.TSPNode
+	for i := range p.surfaces {
+		sf := &p.surfaces[i]
+		if sf.ID != h.SF || sf.Image != h.Image {
+			continue
+		}
+		p.mirror.Ancestors(sf, h.ID, func(n *rex.TSPNode) {
+			_, scroller := p.tspOverlayH[n.ID]
+			if holder == nil && (scroller || n.Kind == "overlay" || n.Kind == "picker" || n.Kind == "prefs") {
+				holder = n
+			}
+		})
+	}
+	switch {
+	case holder == nil:
+		a.scrollTerm(p, h.Arg)
+	case holder.Kind != "picker" && holder.Kind != "prefs":
+		st := p.overlayScroll(holder.ID)
+		line := float32(17)
+		if _, lh := mediaCell(p); lh > 0 {
+			line = lh
+		}
+		page := max(p.tspOverlayH[holder.ID]-line, line)
+		// From where it shows, which an end past the content is not.
+		st.Y = min(st.Y, st.MaxY)
+		switch h.Arg {
+		case "line-up":
+			st.Y -= line
+		case "line-down":
+			st.Y += line
+		case "page-up":
+			st.Y -= page
+		case "page-down":
+			st.Y += page
+		case "start":
+			st.Y = 0
+		case "end":
+			st.Y = math.MaxFloat32
+		}
+		st.Y = max(st.Y, 0)
+	}
+}
+
+// overlayScroll is how far the overlay or pane id scrolls, which its
+// scroller tracks (surfaceOverlays, tspNode).
+func (p *Pane) overlayScroll(id string) *ui.ScrollState {
+	if p.tspOverlayScroll == nil {
+		p.tspOverlayScroll = map[string]*ui.ScrollState{}
+	}
+	st := p.tspOverlayScroll[id]
+	if st == nil {
+		st = &ui.ScrollState{}
+		p.tspOverlayScroll[id] = st
+	}
+	return st
 }
 
 // revealed acts on a reveal of node n, drawn as el: its scroll container
@@ -127,6 +190,9 @@ func (a *App) scrollTerm(p *Pane, by string) {
 	case "end":
 		p.term.ScrollToBottom()
 	}
+	// The terminal tells where its surfaces are as it paints: the frame
+	// after it draws them where the scroll put them.
+	a.services.Invalidate()
 }
 
 // dockOver is how tall the dock of the pane's live surface is where it

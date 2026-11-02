@@ -105,7 +105,7 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 	docked := !sf.Closed && tspDocked(sf)
 	// A live surface with a dock reaches the pane's bottom whatever rows
 	// it has: it shows while its anchor is above the view's end.
-	rows := max(sf.Rows+sf.Dock, p.surfaceRows[sf.ID].rows+p.surfaceRows[sf.ID].dock, 1)
+	rows := max(sf.Rows+sf.Dock, p.surfaceRows[sf.ID].rows+p.surfaceRows[sf.ID].dock, 1) + sf.Spare
 	if pl.Row >= screenRows || !docked && pl.Row+rows <= 0 {
 		// Scrolled above a live surface's start, its dock stays pinned
 		// at the pane's bottom, as Tern's composer does: the user types,
@@ -126,8 +126,21 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 			most = sf.Most
 		}
 	}
-	cut := headless || most > 0 && p.tspNeed[sf.Image] > most
+	// A surface settling after a change of the pane's width is laid out
+	// from its end, as one cut, while what is far above the view keeps
+	// the heights measured before (tsp_cull.go).
+	settle := a.settling(p, sf)
+	if !docked {
+		settle.synced = true
+	}
+	cut := headless || most > 0 && p.tspNeed[sf.Image] > most || docked && settle.on
 	box := ui.Box(c.Key(fmt.Sprintf("tsp-%d", sf.Image))).Absolute().Left(pl.Rect.X).Top(pl.Rect.Y).Right(tspAside(p, sf, pl)).Background(k.bgBottom).Font(a.tspLook().font)
+	// A live surface with a dock reaches the screen's last row, under its
+	// rows, where the cursor stays (rex.tspTracker.padding).
+	below := float32(0)
+	if docked {
+		below = cell
+	}
 	switch {
 	case sf.Closed:
 		box.Height(cell * float32(sf.Rows))
@@ -135,7 +148,7 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 		// Its rows, and its dock's, which reach the pane's bottom
 		// when it is scrolled to the end: a surface cut takes the
 		// screen.
-		box.Height(cell * float32(sf.Rows+sf.Dock))
+		box.Height(cell*float32(sf.Rows+sf.Dock+sf.Spare) + below)
 	case docked:
 		box.Bottom(0)
 	}
@@ -143,7 +156,10 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 		box.Clip()
 	}
 	if !cut {
-		box.Padding(4, 8)
+		// Under the rows the surface has spare above its content, with
+		// its anchor in the scrollback (rex.Surface.Spare): its content
+		// ends where its rows do, above its dock.
+		box.Padding(4+cell*float32(sf.Spare), 8, 4, 8)
 	}
 	// The wheel over the surface scrolls the terminal, as over its rows.
 	term, at := p.term, pl.Rect
@@ -157,6 +173,7 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 	a.tspOverlays = a.tspOverlays[:0]
 	a.tspDock = nil
 	var content ui.Element
+	a.startCulling(p, sf, settle, box.Bounds(), pl.Rect.Y)
 	box.Children(func() {
 		if !cut {
 			content = a.surfaceContent(c, k, t, p, sf, !sf.Closed)
@@ -164,9 +181,10 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 		}
 		// Laid out from the box's bottom, the content's head goes out
 		// of the top, where the box cuts it.
-		end := ui.Box(c.Key("end")).Absolute().Left(8).Right(8).Bottom(4)
+		end := ui.Box(c.Key("end")).Absolute().Left(8).Right(8).Bottom(4 + below)
 		end.Children(func() { content = a.surfaceContent(c, k, t, p, sf, !sf.Closed) })
 	})
+	a.endCulling(p, settle)
 	if box.Pressed() {
 		// A press in the transcript, between its blocks, leaves the
 		// composer: the keys go to the terminal, and the page keys
@@ -214,6 +232,9 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 		p.tspNeed[sf.Image] = size.rows
 		if most > 0 {
 			size.rows = min(size.rows, most)
+		}
+		if docked {
+			settle.synced = size.rows == sf.Rows && size.dock == sf.Dock
 		}
 		if sf.Closed && size.rows <= sf.Rows {
 			return
@@ -666,8 +687,9 @@ func (a *App) surfacePressed(t *Tab, p *Pane) {
 	a.changed()
 }
 
-// tspNode draws a node and its children.
-func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, n *rex.TSPNode) {
+// tspNode draws a node and its children, and returns its element: none
+// for a node drawn elsewhere (an overlay) or not at all.
+func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, n *rex.TSPNode) (el ui.Element) {
 	if hidden, _ := n.Props["hidden"].(bool); hidden || tspBlank(n) {
 		return
 	}
@@ -686,23 +708,47 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		a.tspHead = true
 		defer func() { a.tspHead = false }()
 	}
-	var el ui.Element
 	switch n.Kind {
 	case "col":
 		if a.tspPinned && strings.HasPrefix(role, "omp.editor") {
 			el = a.tspComposer(c, key, k, t, p, sf, n)
 			break
 		}
+		sheet := a.tspSheet
+		if sheet != nil && sheet.panes[n.ID] {
+			// A pane of an overlay's sheet: it scrolls on its own, as
+			// tall as the row of panes (tspPaneSheet).
+			pane := ui.Scroll(key).TrackScroll(p.overlayScroll(n.ID))
+			a.scrolled(p, n.ID, pane)
+			if !tspFlexed(n) {
+				pane.Grow(1)
+			}
+			// Clear of its scroll bar, which draws over its right edge.
+			el = pane.Children(func() { ui.Column(c).Gap(a.tspGap(8)).FillWidth().Padding(0, 12, 0, 0).Children(children) })
+			break
+		}
 		col := ui.Column(key).Gap(a.tspGap(8))
-		if a.tspPinned && role == "omp.hud.status" {
+		switch {
+		case a.tspPinned && role == "omp.hud.status":
 			// The working rows, beside the todo HUD on their line.
 			col.Grow(1).MinWidth(0)
-		} else {
+		case tspFlexed(n):
+			// Sized by its row (tspFlex), as a pane beside another.
+		default:
 			col.FillWidth()
+		}
+		if sheet != nil && sheet.path[n.ID] {
+			// Between a sheet and its row of panes: as tall as the sheet
+			// leaves it.
+			col.Grow(1).MinHeight(0)
 		}
 		el = col.Children(children)
 	case "row":
-		row := ui.Row(key).Gap(8).AlignItems(ui.Center)
+		row := ui.Row(key).Gap(8).AlignItems(tspRowAlign(n))
+		if s := a.tspSheet; s != nil && s.row == n.ID {
+			// A sheet's row of panes fills it, each pane as tall.
+			row.Grow(1).MinHeight(0).AlignItems(ui.Stretch)
+		}
 		switch {
 		case !a.tspPinned:
 			row.FillWidth()
@@ -903,9 +949,13 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		if disabled, _ := n.Props["disabled"].(bool); disabled {
 			item.Opacity(0.5)
 		}
-		if a.tspSelected != "" && a.tspSelected == n.ID {
-			item.Background(k.hover).ScrollIntoView()
+		selected := a.tspSelected != "" && a.tspSelected == n.ID
+		if selected {
+			item.Background(k.hover)
 		}
+		// Into view as it is selected, not every frame after, which would
+		// pin the scroll on it.
+		tspReveal(item, selected)
 		item.Children(func() {
 			if icon, _ := n.Props["icon"].(string); icon != "" {
 				a.tspIcon(c, k, icon)
@@ -1332,10 +1382,82 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 	if grow, _ := n.Props["grow"].(float64); grow > 0 {
 		el.Grow(float32(grow))
 	}
+	tspFlex(p, n, el)
 	if title, _ := n.Props["title"].(string); title != "" {
 		el.Tooltip(title)
 	}
 	a.tspClick(t, p, sf, n, el)
+	return el
+}
+
+// tspFlexed reports whether a node sizes itself in its row (grow, shrink
+// or basis), which it then does rather than fill the row.
+func tspFlexed(n *rex.TSPNode) bool {
+	for _, k := range []string{"grow", "shrink", "basis"} {
+		if _, ok := n.Props[k]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// tspRowAlign is how a row aligns its children across: as its align
+// prop says; else centered, but at the top for a row of panes (a column
+// sized in it, as a list beside a reader).
+func tspRowAlign(n *rex.TSPNode) ui.Align {
+	switch align, _ := n.Props["align"].(string); align {
+	case "start":
+		return ui.Start
+	case "end":
+		return ui.End
+	case "stretch":
+		return ui.Stretch
+	case "center", "baseline":
+		return ui.Center
+	}
+	for _, ch := range n.Children {
+		if ch.Kind == "col" && tspFlexed(ch) {
+			return ui.Start
+		}
+	}
+	return ui.Center
+}
+
+// tspFlex applies a node's common sizing props to el: shrink, and the min
+// and max bounds, in "<n>ch", "<n>lines" or a fraction of the parent (0
+// for a min: as small as the row needs, under its content). A basis is
+// the layout's own: one that grows starts from nothing (Grow), as omp's
+// basis 0 beside a grow asks.
+func tspFlex(p *Pane, n *rex.TSPNode, el ui.Element) {
+	if s, ok := n.Props["shrink"].(float64); ok && s >= 0 {
+		el.Shrink(float32(s))
+	}
+	cw, lh := mediaCell(p)
+	bound := func(prop, axis string, px, pct func(float32) ui.Element) {
+		m, _ := n.Props[prop].(map[string]any)
+		v, ok := m[axis]
+		if !ok {
+			return
+		}
+		unit := cw
+		if axis == "h" {
+			unit = lh
+		}
+		if f, ok := v.(float64); ok && f == 0 && prop == "min" {
+			px(0)
+			return
+		}
+		switch d, frac := mediaExtent(v, unit, unit); {
+		case d > 0:
+			px(d)
+		case frac > 0:
+			pct(frac * 100)
+		}
+	}
+	bound("min", "w", el.MinWidth, el.MinWidthPercent)
+	bound("min", "h", el.MinHeight, el.MinHeightPercent)
+	bound("max", "w", el.MaxWidth, el.MaxWidthPercent)
+	bound("max", "h", el.MaxHeight, el.MaxHeightPercent)
 }
 
 // tspClick sends the program n's click action, where it has one and the
@@ -1378,6 +1500,10 @@ func tspMeterFill(k *colors, n *rex.TSPNode) ui.Color {
 }
 
 func (a *App) tspChildren(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, n *rex.TSPNode) {
+	if a.tspCull.on && !a.tspPinned && len(n.Children) >= tspCullMin {
+		a.tspCulledChildren(c, k, t, p, sf, n)
+		return
+	}
 	for _, ch := range n.Children {
 		a.tspNode(c, k, t, p, sf, ch)
 	}
@@ -1648,6 +1774,20 @@ func (a *App) surfaceOverlays(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex
 	a.tspOverlays = nil
 	a.tspPinned = true
 	defer func() { a.tspPinned = false }()
+	a.tspScrolled = map[string]bool{}
+	defer func() {
+		// A closed overlay opens again at its start, unless told
+		// otherwise.
+		if !sf.Closed {
+			for id := range p.tspOverlayScroll {
+				if !a.tspScrolled[id] {
+					delete(p.tspOverlayScroll, id)
+					delete(p.tspOverlayH, id)
+				}
+			}
+		}
+		a.tspScrolled = nil
+	}()
 	for _, ov := range overlays {
 		if ov.Kind == "prefs" {
 			a.tspPrefsSheet(c, k, t, p, sf, ov)
@@ -1680,8 +1820,25 @@ func (a *App) surfaceOverlays(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex
 		if width == 0 {
 			width = 60
 		}
-		panel := ui.Scroll(c.Key("tsp-ov-"+ov.ID)).Absolute().MaxHeightPercent(85).
-			Radius(cardR).Background(k.panel).Border(1, k.panelBorder).Padding(12, 14).Font(a.tspLook().font)
+		// An overlay of panes side by side (tspPaneSheet) is a sheet of
+		// its own height, which the panes' row fills, each scrolling on
+		// its own, what is above and under them staying in view; any
+		// other scrolls whole.
+		sheet := tspPaneSheet(ov)
+		if anchored && size != "full" {
+			sheet = nil
+		}
+		var panel ui.Element
+		if sheet != nil {
+			panel = ui.Column(c.Key("tsp-sheet-" + ov.ID)).Absolute()
+			if !anchored {
+				panel.HeightPercent(84)
+			}
+		} else {
+			panel = ui.Scroll(c.Key("tsp-ov-" + ov.ID)).Absolute().MaxHeightPercent(85).TrackScroll(p.overlayScroll(ov.ID))
+			a.scrolled(p, ov.ID, panel)
+		}
+		panel.Radius(cardR).Background(k.panel).Border(1, k.panelBorder).Padding(12, 14).Font(a.tspLook().font)
 		if anchored {
 			a.tspOverlayAt(panel, p, at, near, size)
 		} else {
@@ -1700,13 +1857,86 @@ func (a *App) surfaceOverlays(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex
 			if head := ov.Props["head"]; head != nil {
 				a.tspRich(c, k, head, 14, true)
 			}
+			a.tspSheet = sheet
 			for _, ch := range ov.Children {
 				a.tspNode(c, k, t, p, sf, ch)
 			}
+			a.tspSheet = nil
 		})
 		if panel.Pressed() {
 			a.surfacePressed(t, p)
 		}
+	}
+}
+
+// tspSheetLayout is how an overlay of panes lays out (tspPaneSheet): the
+// panes' row, the nodes between it and the overlay, which grow to the
+// sheet's height, and the panes, which scroll each.
+type tspSheetLayout struct {
+	row   string
+	path  map[string]bool
+	panes map[string]bool
+}
+
+// tspPaneSheet finds in an overlay a row of panes, columns side by side
+// one of which sizes itself in the row (grow or basis), as a list beside
+// a reader: nil for none.
+func tspPaneSheet(ov *rex.TSPNode) *tspSheetLayout {
+	var path []string
+	var find func(n *rex.TSPNode) *tspSheetLayout
+	find = func(n *rex.TSPNode) *tspSheetLayout {
+		if hidden, _ := n.Props["hidden"].(bool); hidden {
+			return nil
+		}
+		if n.Kind == "row" {
+			panes := map[string]bool{}
+			sized := false
+			for _, ch := range n.Children {
+				if ch.Kind == "col" {
+					panes[ch.ID] = true
+					_, grow := ch.Props["grow"]
+					_, basis := ch.Props["basis"]
+					sized = sized || grow || basis
+				}
+			}
+			if sized {
+				s := &tspSheetLayout{row: n.ID, path: map[string]bool{}, panes: panes}
+				for _, id := range path {
+					s.path[id] = true
+				}
+				return s
+			}
+		}
+		if n.Kind != "col" && n.Kind != "row" {
+			return nil
+		}
+		path = append(path, n.ID)
+		for _, ch := range n.Children {
+			if s := find(ch); s != nil {
+				return s
+			}
+		}
+		path = path[:len(path)-1]
+		return nil
+	}
+	for _, ch := range ov.Children {
+		if s := find(ch); s != nil {
+			return s
+		}
+	}
+	return nil
+}
+
+// scrolled notes that the scroller of node id (an overlay or a pane of
+// one) was drawn as el, and how tall it was laid out, for a page of the
+// scroll ops (scrollHint).
+func (a *App) scrolled(p *Pane, id string, el ui.Element) {
+	if p.tspOverlayH == nil {
+		p.tspOverlayH = map[string]float32{}
+	}
+	p.tspOverlayH[id] = el.Bounds().H
+	if a.tspScrolled != nil {
+		a.tspScrolled[id] = true
 	}
 }
 

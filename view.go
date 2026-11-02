@@ -41,6 +41,9 @@ func (a *App) view(c *ui.Context) {
 	a.gainedFocus = focused && !a.focusedWin
 	a.focusedWin = focused
 	a.frame++
+	if now := c.Now(); !now.Equal(a.drawnAt) {
+		a.drawn, a.drawnAt = a.drawn+1, now
+	}
 	a.k = k
 	if dark := c.Theme().Dark; dark != a.dark {
 		a.dark = dark
@@ -378,6 +381,15 @@ func (a *App) paneCard(c *ui.Context, k *colors, t *Tab, p *Pane) ui.Element {
 				}
 				if dock && tv.Focused() {
 					p.composerFocus = true
+				}
+				// The program ended with the keys in its composer, which is
+				// gone with its dock: they go back to the terminal, for the
+				// shell after it.
+				if p.composerFocused && p.composerAt+1 < a.frame && !p.tspDockLive() {
+					p.composerFocused = false
+					if t.Focus == p && a.tab() == t {
+						tv.Focus()
+					}
 				}
 				if tv.Focused() && t.Focus != p {
 					t.setFocus(p)

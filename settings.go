@@ -160,7 +160,12 @@ type Shell struct {
 
 type General struct {
 	ConfirmClose *bool `json:"confirmClose,omitempty" kind:"pc" label:"Confirm closing a pane running a program" group:"Panes"`
-	Notify       *bool `json:"notify,omitempty" kind:"pc" label:"Notify when a long command finishes" group:"Notifications"`
+	// Notifications turns the desktop's notifications on: those of long
+	// commands (Notify), of programs' status (Terminal.StatusNotify) and
+	// those programs send (OSC 9, 777). Off, none shows, and on Windows
+	// no notification area icon comes with them.
+	Notifications *bool `json:"notifications,omitempty" kind:"pc" label:"Show desktop notifications" group:"Notifications"`
+	Notify        *bool `json:"notify,omitempty" kind:"pc" label:"Notify when a long command finishes" group:"Notifications"`
 	// NotifyAfter is how many seconds a command must have run for.
 	NotifyAfter        int   `json:"notifyAfter,omitempty" kind:"pc" label:"After" group:"Notifications"`
 	Attention          *bool `json:"attention,omitempty" kind:"pc" label:"Mark panes that need attention" group:"Panes"`
@@ -215,7 +220,7 @@ var builtin = Settings{
 	},
 	Shell: Shell{Login: on, StartIn: "current"},
 	General: General{
-		ConfirmClose: off, Notify: on, NotifyAfter: 8, Attention: on, ReconnectAttempts: 5,
+		ConfirmClose: off, Notifications: off, Notify: on, NotifyAfter: 8, Attention: on, ReconnectAttempts: 5,
 		LogWhileConnecting: on, StartWith: "local",
 	},
 }

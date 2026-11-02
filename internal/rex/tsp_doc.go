@@ -81,8 +81,14 @@ func (d *tspDoc) apply(sf *Surface, raw json.RawMessage) (name, id, arg string) 
 		if json.Unmarshal(op[4], &n) != nil || n.ID == "" {
 			return
 		}
+		if nodes[n.ID] != nil {
+			touch(nodes, parents, parents[n.ID])
+		}
 		d.remove(sf, n.ID)
 		parent, before := str(2), str(3)
+		if nodes[parent] == nil {
+			parent = sf.ID
+		}
 		d.insert(sf, &n, parent, before)
 		var index func(n *TSPNode, parent string)
 		index = func(n *TSPNode, parent string) {
@@ -93,6 +99,7 @@ func (d *tspDoc) apply(sf *Surface, raw json.RawMessage) (name, id, arg string) 
 		}
 		index(&n, parent)
 		patchItems(n.Props)
+		touch(nodes, parents, n.ID)
 	case "set":
 		// ["set", id, props]: a null prop deletes it.
 		n := nodes[str(1)]
@@ -114,6 +121,7 @@ func (d *tspDoc) apply(sf *Surface, raw json.RawMessage) (name, id, arg string) 
 			}
 		}
 		patchItems(n.Props)
+		touch(nodes, parents, n.ID)
 	case "text":
 		// ["text", id, "append"|"replace", text]
 		n := nodes[str(1)]
@@ -129,6 +137,7 @@ func (d *tspDoc) apply(sf *Surface, raw json.RawMessage) (name, id, arg string) 
 		} else {
 			n.Props["text"] = str(3)
 		}
+		touch(nodes, parents, n.ID)
 	case "splice":
 		// ["splice", id, at, del, text]: at and del count UTF-16 units.
 		n := nodes[str(1)]
@@ -143,17 +152,23 @@ func (d *tspDoc) apply(sf *Surface, raw json.RawMessage) (name, id, arg string) 
 		}
 		text, _ := n.Props["text"].(string)
 		n.Props["text"] = spliceUTF16(text, at, del, str(4))
+		touch(nodes, parents, n.ID)
 	case "move":
 		// ["move", id, parent, before]
 		n := nodes[str(1)]
 		if n == nil {
 			return
 		}
+		touch(nodes, parents, n.ID)
 		d.remove(sf, n.ID)
 		d.insert(sf, n, str(2), str(3))
-		parents[n.ID] = str(2)
+		if parents[n.ID] = str(2); nodes[str(2)] == nil {
+			parents[n.ID] = sf.ID
+		}
 		nodes[n.ID] = n
+		touch(nodes, parents, n.ID)
 	case "del":
+		touch(nodes, parents, parents[str(1)])
 		d.remove(sf, str(1))
 		var drop func(id string)
 		drop = func(id string) {
@@ -172,6 +187,19 @@ func (d *tspDoc) apply(sf *Surface, raw json.RawMessage) (name, id, arg string) 
 		return name, str(1), str(2)
 	}
 	return name, "", ""
+}
+
+// touch counts a change of the node id, and of the nodes over it, in
+// their revs.
+func touch(nodes map[string]*TSPNode, parents map[string]string, id string) {
+	for range len(nodes) {
+		n := nodes[id]
+		if n == nil {
+			return
+		}
+		n.Rev++
+		id = parents[id]
+	}
 }
 
 // insert puts n under parent (the surface itself when parent is the
@@ -342,6 +370,21 @@ func (m *SurfaceMirror) relist(list []Surface) {
 
 // List returns the surfaces, in the server's order.
 func (m *SurfaceMirror) List() []Surface { return m.list }
+
+// Ancestors calls fn with the node id of the surface sf and each node
+// over it, up to the root, nearest first.
+func (m *SurfaceMirror) Ancestors(sf *Surface, id string, fn func(n *TSPNode)) {
+	key := surfaceKey(sf)
+	nodes, parents := m.doc.nodes[key], m.doc.parent[key]
+	for range len(nodes) {
+		n := nodes[id]
+		if n == nil {
+			return
+		}
+		fn(n)
+		id = parents[id]
+	}
+}
 
 // Version is the version of the surfaces the mirror has.
 func (m *SurfaceMirror) Version() uint64 { return m.v }

@@ -217,6 +217,15 @@ func TestTSPTracker(t *testing.T) {
 	if got := ch.padding(map[uint32]int{TSPImageFirst: 10}, 11, 12); got != 6 {
 		t.Errorf("live padding with a dock: %d, want 6", got)
 	}
+	// With its anchor in the scrollback, the rows its content and dock
+	// leave under it are spare, drawn over its content; on the screen,
+	// none: they show between content and dock.
+	for _, c := range []struct{ anchor, cursor, want int }{{-50, 39, 82}, {-5, 39, 37}, {-2, 5, 0}, {10, 39, 0}, {-50, 3, 46}} {
+		ch.setSpare(map[uint32]int{TSPImageFirst: c.anchor}, c.cursor)
+		if s4.Spare != c.want {
+			t.Errorf("spare with the anchor at %d, the cursor at %d: %d, want %d", c.anchor, c.cursor, s4.Spare, c.want)
+		}
+	}
 	s4.Closed = true
 	if got := ch.padding(map[uint32]int{TSPImageFirst: 10}, 20, 40); got != -6 {
 		t.Errorf("closed docked padding: %d, want -6", got)
@@ -597,5 +606,56 @@ func TestPlaceAnchors(t *testing.T) {
 	delete(starts, TSPImageFirst+3)
 	if rows, ends := anchorRows(got), endRows(got); !maps.Equal(rows, starts) || !maps.Equal(ends, wantEnds) {
 		t.Errorf("with an anchor and a row gone, anchors at %v, ends at %v; want %v, %v", rows, ends, starts, wantEnds)
+	}
+}
+
+// Each op that changes a node counts in its rev and in the revs of the
+// nodes over it, and in no other: a window keeps what it measured of a
+// node while its rev stands.
+func TestNodeRevs(t *testing.T) {
+	sf := &Surface{ID: "s1", Root: &TSPNode{ID: "s1", Kind: "col"}}
+	var d tspDoc
+	d.index(sf)
+	op := func(s string) {
+		t.Helper()
+		d.apply(sf, json.RawMessage(s))
+	}
+	op(`["add","main","s1",null,{"id":"main","k":"col","c":[{"id":"a","k":"card","c":[{"id":"a.t","k":"text","p":{"text":"x"}}]},{"id":"b","k":"card"}]}]`)
+	op(`["add","dock","s1",null,{"id":"dock","k":"col"}]`)
+	nodes := d.nodes[surfaceKey(sf)]
+	revs := func() map[string]uint64 {
+		m := map[string]uint64{}
+		for id, n := range nodes {
+			m[id] = n.Rev
+		}
+		return m
+	}
+	for _, c := range []struct {
+		op      string
+		changed []string
+	}{
+		{`["set","a.t",{"text":"y"}]`, []string{"a.t", "a", "main", "s1"}},
+		{`["text","a.t","append","z"]`, []string{"a.t", "a", "main", "s1"}},
+		{`["splice","a.t",0,1,"w"]`, []string{"a.t", "a", "main", "s1"}},
+		{`["set","b",{"status":"done"}]`, []string{"b", "main", "s1"}},
+		{`["add","b.t","b",null,{"id":"b.t","k":"text"}]`, []string{"b", "b.t", "main", "s1"}},
+		{`["move","b.t","a",null]`, []string{"a", "b", "b.t", "main", "s1"}},
+		{`["del","b.t"]`, []string{"a", "main", "s1"}},
+		{`["set","dock",{"x":1}]`, []string{"dock", "s1"}},
+		{`["reveal","a","end"]`, nil},
+	} {
+		before := revs()
+		op(c.op)
+		after := revs()
+		var changed []string
+		for id, rev := range after {
+			if rev != before[id] {
+				changed = append(changed, id)
+			}
+		}
+		slices.Sort(changed)
+		if want := slices.Sorted(slices.Values(c.changed)); !slices.Equal(changed, want) {
+			t.Errorf("%s changed the revs of %v, want %v", c.op, changed, want)
+		}
 	}
 }
