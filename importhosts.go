@@ -457,7 +457,7 @@ func (a *App) importDialog(c *ui.Context, k *colors) {
 				a.chooseKittyFolder(f)
 			}
 			// One button ticks every session that can be imported, or,
-			// when all are, none.
+			// when all are, none; greyed when none can be.
 			all, some := true, false
 			for _, r := range f.rows {
 				if r.blocked == "" {
@@ -465,7 +465,13 @@ func (a *App) importDialog(c *ui.Context, k *colors) {
 					all = all && r.checked
 				}
 			}
-			if some && !f.loading {
+			switch {
+			case f.loading || len(f.rows) == 0:
+			case !some:
+				ui.Box(c).Height(22).Padding(0, 9).Center().Shrink(0).Children(func() {
+					ui.Text(c, "Select All").FontSize(12).FontWeight(600).TextColor(k.textFaint)
+				})
+			default:
 				label := "Select All"
 				if all {
 					label = "Select None"
