@@ -18,6 +18,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"gorex/internal/askpass"
+	"gorex/internal/openssh"
 	"gorex/internal/remote"
 	"gorex/internal/rex"
 )
@@ -367,8 +368,10 @@ type App struct {
 	hostForget string
 	// restartAsk has the window ask before its session server restarts.
 	restartAsk bool
-	// importForm is the import dialog of PuTTY's and KiTTY's sessions.
+	// importForm is the import dialog of PuTTY's and KiTTY's sessions,
+	// and convertKey the palette's dialog converting a PuTTY key.
 	importForm   *importForm
+	convertKey   *ppkForm
 	renaming     *Tab
 	renameText   string
 	renameFocus  bool
@@ -486,9 +489,13 @@ func (a *App) newPane(dir string, cols, rows int) *Pane {
 	var err error
 	switch {
 	case a.bind.plain:
-		// A plain host's sessions run ssh to it, whatever its shell.
+		// A plain host's sessions run ssh to it, whatever its shell,
+		// with the agent GoRex's ssh uses.
 		o.Command, err = plainCommand(a.bind)
 		o.Login = false
+		if sock := openssh.AgentSock(); sock != "" {
+			o.Env = append(o.Env, "SSH_AUTH_SOCK="+sock)
+		}
 	case a.bind.serial != "":
 		// A serial host's session is its port's.
 		r, _ := findRemote(a.bind.serial)

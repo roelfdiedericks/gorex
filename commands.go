@@ -88,6 +88,7 @@ var (
 	cmdRestartServer = command{Title: "Restart Session Server…", Run: func(a *App) { a.restartAsk = true }, Shown: func(a *App) bool { return a.client != nil }}
 	// PuTTY and KiTTY keep their sessions on Windows.
 	cmdImportHosts = command{Title: "Import Hosts from PuTTY / KiTTY…", Run: func(a *App) { a.openImport() }, Shown: func(*App) bool { return importSupported() }}
+	cmdConvertKey  = command{Title: "Convert PuTTY Key…", Run: func(a *App) { a.chooseKeyToConvert() }, Shown: func(*App) bool { return importSupported() }}
 )
 
 // paletteCommands are those the command palette lists, before the tabs.
@@ -99,7 +100,7 @@ var paletteCommands = []*command{
 	&cmdGrowLeft, &cmdGrowRight, &cmdGrowUp, &cmdGrowDown,
 	&cmdBigger, &cmdSmaller, &cmdDefaultSize, &cmdLight, &cmdDark, &cmdSystem,
 	&cmdClearScroll, &cmdRestart, &cmdReconnect, &cmdConnLog, &cmdSettings, &cmdUpdates, &cmdEndAll,
-	&cmdSendBreak, &cmdReleasePort, &cmdHostSettings, &cmdRestartServer, &cmdImportHosts,
+	&cmdSendBreak, &cmdReleasePort, &cmdHostSettings, &cmdRestartServer, &cmdImportHosts, &cmdConvertKey,
 }
 
 // commands are all of them.

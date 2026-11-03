@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -19,6 +20,9 @@ import (
 func doctor(w io.Writer, args []string) int {
 	p := func(format string, a ...any) { fmt.Fprintf(w, format+"\n", a...) }
 	exe, _ := os.Executable()
+	// ssh runs here with the agent GoRex's would use.
+	mode := savedAgent()
+	openssh.SetAgent(mode)
 	p("GoRex doctor")
 	p("")
 	p("GoRex     %s, %s/%s", orNone(version), runtime.GOOS, runtime.GOARCH)
@@ -49,12 +53,23 @@ func doctor(w io.Writer, args []string) int {
 	p("")
 
 	p("ssh-agent")
+	if runtime.GOOS == "windows" {
+		p("  setting        %s (Settings, Hosts, ssh agent)", mode)
+		if pipe, running := openssh.PageantPipe(); running {
+			p("  Pageant        runs, at %s", pipe)
+		} else {
+			p("  Pageant        not running")
+		}
+	}
 	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
 		p("  SSH_AUTH_SOCK  %s", sock)
 	} else if runtime.GOOS == "windows" {
 		p("  SSH_AUTH_SOCK  unset: Windows' OpenSSH uses the ssh-agent service's pipe")
 	} else {
 		p("  SSH_AUTH_SOCK  unset: no agent")
+	}
+	if name, sock := openssh.AgentInUse(); name != "" {
+		p("  GoRex uses     %s, at %s; its keys:", name, sock)
 	}
 	if ssh != "" {
 		out, _ := openssh.Run(openssh.Beside(ssh, "ssh-add"), "-l")
@@ -174,4 +189,30 @@ func orNone(s string) string {
 		return "(no version)"
 	}
 	return s
+}
+
+// savedAgent is the ssh agent this PC's GoRex settings choose (Settings,
+// Hosts, ssh agent), in its data folder's defaults.json: automatic when
+// it says none.
+func savedAgent() string {
+	dir := os.Getenv("GOREX_DIR")
+	if dir == "" {
+		base, err := os.UserConfigDir()
+		if err != nil {
+			return openssh.AgentAuto
+		}
+		dir = filepath.Join(base, "GoRex")
+	}
+	var s struct {
+		Hosts struct {
+			Agent string `json:"agent"`
+		} `json:"hosts"`
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, "defaults.json")); err == nil {
+		json.Unmarshal(b, &s)
+	}
+	if s.Hosts.Agent == "" {
+		return openssh.AgentAuto
+	}
+	return s.Hosts.Agent
 }

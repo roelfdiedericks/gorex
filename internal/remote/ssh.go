@@ -33,15 +33,16 @@ type sshProc struct {
 }
 
 // sshCmd makes an ssh that runs script with sh on t, with openssh.Options,
-// t's options and opts. Each line ssh prints goes to logf. It asks the
-// user through login, or, with none, nothing.
+// t's options and opts, and the agent GoRex's ssh uses (openssh.Env).
+// Each line ssh prints goes to logf. It asks the user through login, or,
+// with none, nothing.
 func sshCmd(t Target, script string, logf func(string), login *askpass.Session, opts ...string) (*sshProc, error) {
 	ssh, err := openssh.Path()
 	if err != nil {
 		return nil, err
 	}
 	args := slices.Concat(openssh.Options, t.Opts, opts)
-	var env []string
+	env := openssh.Env()
 	if login == nil {
 		args = append(args, openssh.Batch...)
 	} else {
@@ -49,7 +50,10 @@ func sshCmd(t Target, script string, logf func(string), login *askpass.Session, 
 		if err != nil {
 			return nil, err
 		}
-		env = append(os.Environ(), login.Env(exe)...)
+		if env == nil {
+			env = os.Environ()
+		}
+		env = append(env, login.Env(exe)...)
 	}
 	cmd := exec.Command(ssh, append(args, "--", t.Spec, "sh -c "+shQuote(script))...)
 	cmd.Env = env

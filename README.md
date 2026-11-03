@@ -57,8 +57,21 @@ terminal plugin (Ghostty's libghostty-vt). No webview, no cgo: one ~15 MB app.
   user, port, agent forwarding, an ssh jump host, compression and key
   carry over, a session without a user takes Default Settings'. Each row
   says what doesn't carry over (other proxies, a remote command) and which
-  sessions are hosts GoRex has already. ssh can't read PuTTY's .ppk keys:
-  the host's settings say to export one from PuTTYgen.
+  sessions are hosts GoRex has already, and what a session's PuTTY key
+  (.ppk) needs: none when Pageant holds it, else converting (below).
+- **Pageant and PuTTY keys** (Windows). Settings, Hosts, *ssh agent*:
+  *Automatic* (the default) has GoRex's ssh use Pageant, or KiTTY's
+  Kageant, when it runs, so that the keys loaded in it log in and Forward
+  ssh agent passes them on, else Windows' own ssh-agent; or always
+  *Pageant*, or *Windows ssh-agent*. The page says which agent is used and
+  how many keys it holds; `gorex doctor` too. ssh can't read PuTTY's .ppk
+  files: a host's settings, for a host imported with one or an identity
+  file that is one, say when its key is in the agent already, and
+  otherwise convert it (Convert, after its passphrase) into your `.ssh`
+  folder in OpenSSH's format, with the same passphrase and a `.pub`
+  beside it, never over a file there; Convert PuTTY Key… in the palette
+  converts any. PuTTYgen's formats 2 and 3 convert, with RSA, ECDSA and
+  Ed25519 keys.
 - **Remote sessions over ssh.** `GoRex ssh user@host` opens a window on
   the sessions of a GoRex server on that host, as VS Code's Remote-SSH
   does: GoRex copies the server for the host's system to `~/.cache/gorex/<id>/` there (or the host's Server folder) the
@@ -86,12 +99,13 @@ terminal plugin (Ghostty's libghostty-vt). No webview, no cgo: one ~15 MB app.
   too; the server and its sessions go on.
 - **Host settings** (⚙ in the host list, Edit… in Settings, Hosts, or Add
   Host… there, in the host list or the palette): a host's name, its ssh
-  destination, identity file and more ssh options (`-p 2222 -o
-  ProxyJump=bastion`, which every ssh to it takes), Forward ssh agent, and
-  how GoRex reaches it: with **GoRex's server** there, in the folder of the
-  host's Server folder (`~/.cache/gorex` when empty; one GoRex makes is the
-  user's alone, and none of another user's is used), with **plain ssh**,
-  or as a **serial port** of this PC (below).
+  destination, identity file (a PuTTY key converts: above) and more ssh
+  options (`-p 2222 -o ProxyJump=bastion`, which every ssh to it takes),
+  Forward ssh agent, and how GoRex reaches it: with **GoRex's server**
+  there, in the folder of the host's Server folder (`~/.cache/gorex` when
+  empty; one GoRex makes is the user's alone, and none of another user's
+  is used), with **plain ssh**, or as a **serial port** of this PC
+  (below).
 - **Plain ssh hosts.** A host where GoRex's server can't run, or that you
   want so, is reached with ssh alone: its tabs and panes run `ssh` from
   this PC, in a session server of the host's own on this PC (in

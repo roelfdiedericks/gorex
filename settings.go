@@ -38,6 +38,7 @@ type Settings struct {
 	Editor     Editor     `json:"editor,omitzero"`
 	Shell      Shell      `json:"shell,omitzero"`
 	General    General    `json:"general,omitzero"`
+	Hosts      Hosts      `json:"hosts,omitzero"`
 }
 
 // settingsVersion is the document's version: for migrating a field whose
@@ -180,6 +181,14 @@ type General struct {
 	ServerFallback string `json:"serverFallback,omitempty" kind:"pc" label:"When GoRex's server can't run on a host" group:"Hosts"`
 }
 
+// Hosts are this PC's settings of the ssh to hosts, which the Hosts page
+// of the Defaults draws (hostsPage).
+type Hosts struct {
+	// Agent is the ssh agent of GoRex's ssh (openssh.SetAgent): "auto",
+	// Pageant when it runs; "pageant"; or "windows", Windows' own.
+	Agent string `json:"agent,omitempty" kind:"pc" label:"ssh agent" group:"ssh agent" os:"windows"`
+}
+
 // Editor is the code editor of editor tabs and their file browser.
 type Editor struct {
 	// Font and Size are the editor's, the terminal's when unset.
@@ -227,6 +236,7 @@ var builtin = Settings{
 		ConfirmClose: off, Notifications: off, Notify: on, NotifyAfter: 8, Attention: on, ReconnectAttempts: 5,
 		LogWhileConnecting: on, StartWith: "local", ServerFallback: "ask",
 	},
+	Hosts: Hosts{Agent: "auto"},
 }
 
 var on, off = new(true), new(false)

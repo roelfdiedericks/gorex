@@ -28,6 +28,9 @@ type hostForm struct {
 	err          string
 	busy         bool
 	fromSettings bool
+	// ppk is the panel of the PuTTY key the identity file names, or the
+	// host was imported with (ppkconvert.go).
+	ppk *ppkForm
 }
 
 // hostKinds are the ways a host can be reached, as the host dialog
@@ -207,8 +210,20 @@ func (a *App) hostDialog(c *ui.Context, k *colors) {
 			row("Name", func() { input(&f.label, "as the host names itself", false) })
 			row("Destination", func() { input(&f.target, "user@host, or a Host of ~/.ssh/config", f.old == "") })
 			row("Identity file", func() { input(&f.identity, "ssh's default keys", false) })
-			if f.orig.PuttyKey != "" && strings.TrimSpace(f.identity) == "" {
-				help("PuTTY key " + f.orig.PuttyKey + " isn't usable by ssh: export it from PuTTYgen (Conversions → Export OpenSSH key) and choose the exported file here.")
+			// A PuTTY key, which ssh can't read: in the agent, or to
+			// convert, which makes the converted file the identity.
+			id, key := strings.TrimSpace(f.identity), ""
+			switch {
+			case isPPK(id):
+				key = id
+			case id == "" && f.orig.PuttyKey != "":
+				key = f.orig.PuttyKey
+			}
+			if key != "" && (f.ppk == nil || f.ppk.path != key) {
+				f.ppk = a.newPPKForm(key)
+			}
+			if f.ppk != nil && (key == f.ppk.path || f.ppk.done != "" && id == f.ppk.done) {
+				a.ppkPanel(c, k, f.ppk, 142, func(out string) { f.identity = out })
 			}
 			row("More ssh options", func() { input(&f.options, "-p 2222 -o ProxyJump=bastion", false) })
 			row("Forward ssh agent", func() { ui.Switch(c, &f.agent) })

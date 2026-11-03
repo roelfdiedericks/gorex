@@ -72,12 +72,13 @@ func Beside(path, program string) string {
 	return filepath.Join(filepath.Dir(path), program)
 }
 
-// Run runs path with args, for at most 30 seconds, and returns what it
-// printed.
+// Run runs path with args, for at most 30 seconds, with the agent GoRex's
+// ssh uses (Env), and returns what it printed.
 func Run(path string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, path, args...)
+	cmd.Env = Env()
 	Detach(cmd)
 	out, err := cmd.CombinedOutput()
 	return strings.TrimRight(string(out), "\r\n"), err

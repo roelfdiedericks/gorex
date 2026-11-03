@@ -11,6 +11,8 @@ import (
 
 	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
+
+	"gorex/internal/openssh"
 )
 
 // settingsUI is the state of the settings dialogue: a sidebar of pages in
@@ -30,7 +32,13 @@ type settingsUI struct {
 	// copyFrom is the source chosen on the Hosts page, and copyMsg how
 	// the last copy went.
 	copyFrom, copyMsg string
-	themes            themesUI
+	// agent says which ssh agent GoRex's ssh uses and what keys it holds,
+	// on the Hosts page (refreshAgent): agentUsed its choice of the ssh
+	// agent row, and agentOK whether it answered.
+	agent     string
+	agentUsed string
+	agentOK   bool
+	themes    themesUI
 	// fonts are the font rows' choices: this PC's monospaced families;
 	// uiFonts all its families, for the surfaces' text.
 	fonts, uiFonts []string
@@ -99,6 +107,7 @@ func (a *App) openSettings() {
 		s.page = scopeHost + "/Appearance"
 	}
 	s.copyMsg = ""
+	a.refreshAgent()
 	a.remotes = loadRemotes()
 	a.focusReq = nil
 	// The monospaced families this PC has, but the icons, and the generic
@@ -475,6 +484,11 @@ func (a *App) settingControl(c *ui.Context, k *colors, scope string, f field) {
 		choices(c, &target, effv, []string{"local", "lastHost"}, []string{thisMachine(), "The last host"}, changed)
 	case "general.serverFallback":
 		choices(c, &target, effv, []string{"ask", "folders", "plain"}, []string{"Ask", "Try other folders, then plain ssh", "Plain ssh"}, changed)
+	case "hosts.agent":
+		a.agentChoice(c, k, &target, effv, func() {
+			changed()
+			a.refreshAgent()
+		})
 	case "appearance.windowTitle":
 		choices(c, &target, effv, []string{"host", "hostAndTab", "tab"}, []string{"Host", "Host and tab", "Tab"}, changed)
 	case "appearance.windowMaterial":
@@ -791,11 +805,138 @@ func hexOf(col ui.Color) string {
 	return fmt.Sprintf("#%02x%02x%02x", s.R, s.G, s.B)
 }
 
+// refreshAgent finds, in the background, which ssh agent GoRex's ssh
+// uses, whether it answers and how many keys it holds, for the Hosts page.
+func (a *App) refreshAgent() {
+	win := a.win
+	go func() {
+		msg, used, ok := agentStatus()
+		set := func() {
+			s := &a.settings
+			s.agent, s.agentUsed, s.agentOK = msg, used, ok
+			a.changed()
+		}
+		if win == nil {
+			set()
+			return
+		}
+		win.Update(set)
+	}()
+}
+
+// agentStatus says which agent GoRex's ssh uses and how many keys it
+// holds, as a sentence, with the choice of the ssh agent row that agent
+// is (openssh.AgentPageant or AgentWindows; "" for SSH_AUTH_SOCK's) and
+// whether it answered; nothing outside Windows, which has no choice of
+// agent.
+func agentStatus() (msg, used string, ok bool) {
+	if runtime.GOOS != "windows" {
+		return "", "", false
+	}
+	name, sock := openssh.AgentInUse()
+	switch name {
+	case "Pageant":
+		used = openssh.AgentPageant
+	case "Windows ssh-agent":
+		used = openssh.AgentWindows
+	}
+	if _, running := openssh.PageantPipe(); !running && name != "Pageant" {
+		msg = "Pageant isn't running. "
+	}
+	type listed struct {
+		n   int
+		err error
+	}
+	done := make(chan listed, 1)
+	go func() {
+		keys, err := openssh.AgentKeys(sock)
+		done <- listed{len(keys), err}
+	}()
+	select {
+	case l := <-done:
+		switch {
+		case l.err != nil:
+			msg += name + " isn't running: ssh asks for a key's passphrase on each connect. "
+		case l.n == 1:
+			msg += "Using " + name + ", which holds 1 key. "
+			ok = true
+		default:
+			msg += "Using " + name + ", which holds " + strconv.Itoa(l.n) + " keys. "
+			ok = true
+		}
+	case <-time.After(5 * time.Second):
+		msg += "Using " + name + ", which doesn't answer. "
+	}
+	return msg, used, ok
+}
+
+// agentChoice is the ssh agent row's control: the theme's segmented
+// control, whose segment of the agent ssh uses now has a dot, green when
+// it answers, else red, as Automatic picks one of the other two.
+func (a *App) agentChoice(c *ui.Context, k *colors, target *reflect.Value, eff reflect.Value, changed func()) {
+	s := &a.settings
+	t := c.Theme()
+	values := []string{openssh.AgentAuto, openssh.AgentPageant, openssh.AgentWindows}
+	labels := []string{"Automatic", "Pageant", "Windows ssh-agent"}
+	sel := max(slices.Index(values, eff.String()), 0)
+	parts := ui.SegmentedBase(c, &sel, len(values))
+	parts.Track.AlignItems(ui.Stretch).Padding(t.Space(0.5)).Gap(t.Space(0.5)).Radius(t.Radius).
+		Background(t.Surface).Border(1, t.Border)
+	parts.Track.Children(func() {
+		for i, label := range labels {
+			seg := parts.Segment(i).Padding(t.Space(1), t.Space(3)).Radius(max(t.Radius-t.Space(0.5), 0)).
+				Gap(t.Space(1.5)).AlignItems(ui.Center)
+			switch {
+			case i == sel:
+				// Raised from the track, as Segmented's chosen one.
+				bg := t.Background
+				if t.Dark {
+					bg = t.SurfacePressed
+				}
+				seg.Background(bg).Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, 0.12))
+			case seg.Pressed():
+				seg.Background(t.SurfacePressed)
+			case seg.Hovered():
+				seg.Background(t.SurfaceHover)
+			}
+			seg.Children(func() {
+				ui.Text(c, label).TextColor(t.Text).SingleLine()
+				if values[i] == s.agentUsed {
+					dot := k.busy
+					if !s.agentOK {
+						dot = ui.Hex("#ef4444")
+					}
+					ui.Box(c).Size(7, 7).Radius(4).Background(dot).Shrink(0)
+				}
+			})
+		}
+	})
+	if parts.Track.Changed() {
+		target.SetString(values[sel])
+		changed()
+	}
+}
+
 // hostsPage lists the known hosts, with Forget, and copies a look between
 // hosts and the Defaults.
 func (a *App) hostsPage(c *ui.Context, k *colors) {
 	s := &a.settings
 	ui.Column(c).Gap(18).Children(func() {
+		// This PC's ssh agent (Windows): its row, and which agent ssh
+		// uses now, with how many keys.
+		for _, f := range fields {
+			if f.key != "hosts.agent" || !f.inScope(scopeDefaults) {
+				continue
+			}
+			ui.Column(c).Gap(8).Children(func() {
+				ui.Text(c, f.group).FontSize(13).FontWeight(700).TextColor(k.text)
+				ui.Column(c).Radius(10).Background(k.hover).Clip().Children(func() {
+					a.settingRow(c, k, scopeDefaults, f)
+				})
+				ui.Text(c, s.agent+"Automatic uses Pageant (or KiTTY's Kageant) when it runs, so that the keys loaded in it log in to hosts and Forward ssh agent passes them on; else Windows' own ssh-agent. It applies from the next connection.").
+					FontSize(11.5).TextColor(k.textFaint).LineHeight(1.35)
+			})
+		}
 		ui.Column(c).Gap(8).Children(func() {
 			ui.Row(c).AlignItems(ui.Center).Children(func() {
 				ui.Text(c, "Known hosts").FontSize(13).FontWeight(700).TextColor(k.text).Grow(1)

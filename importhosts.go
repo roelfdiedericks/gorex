@@ -152,9 +152,9 @@ func sessionHost(s puttySession, defaults map[string]string, sessions map[string
 		c.options = append(c.options, "-6")
 	}
 	if key := strings.TrimSpace(v["PublicKeyFile"]); key != "" {
-		if strings.EqualFold(filepath.Ext(key), ".ppk") {
+		if isPPK(key) {
+			// What it is for ssh, scanImport tells (checkPPK).
 			c.puttyKey = key
-			c.notes = append(c.notes, "key "+key+" is PuTTY's: export it from PuTTYgen (Conversions → Export OpenSSH key)")
 		} else {
 			c.identity = key
 		}
@@ -344,6 +344,31 @@ func (a *App) scanImport(f *importForm) {
 	go func() {
 		sessions, problems := importSources(folders)
 		rows := importCandidates(sessions)
+		// Each PuTTY key once: in the agent, to convert, or already in
+		// ssh's format, which then is the identity.
+		keys := map[string]ppkInfo{}
+		for _, c := range rows {
+			if c.puttyKey == "" {
+				continue
+			}
+			info, ok := keys[c.puttyKey]
+			if !ok {
+				info = checkPPK(c.puttyKey)
+				keys[c.puttyKey] = info
+			}
+			switch info.kind {
+			case ppkInAgent:
+				c.notes = append(c.notes, "key "+filepath.Base(c.puttyKey)+" is in "+info.agent+", which ssh uses")
+			case ppkConvert:
+				c.notes = append(c.notes, "key "+c.puttyKey+" is PuTTY's: convert it in the host's settings")
+			case ppkPublicOnly:
+				c.notes = append(c.notes, "key "+c.puttyKey+" holds only a public key")
+			case ppkOpenSSH:
+				c.identity, c.puttyKey = c.puttyKey, ""
+			case ppkBad:
+				c.notes = append(c.notes, "key "+c.puttyKey+": "+info.err)
+			}
+		}
 		var wg sync.WaitGroup
 		sem := make(chan struct{}, 8)
 		for _, c := range rows {
