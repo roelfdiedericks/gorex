@@ -4,6 +4,28 @@ The version of each release is its heading here, which `mygo.json`'s
 `version` must match: `make website` refuses to build otherwise, and
 refuses a version already published.
 
+## 0.1.12
+
+- Import Hosts from PuTTY / KiTTY… (Windows, in the palette) makes hosts
+  of the saved ssh sessions of PuTTY and KiTTY: in the registry, or in
+  the folder of a KiTTY that keeps them in one, found by its kitty.ini or
+  chosen. Each becomes a host named as its session, with its user (a
+  session without one takes Default Settings'), port, agent forwarding,
+  ssh jump host, compression and key. The dialog says what doesn't carry
+  over, as other proxies or a remote command, leaves out the hosts GoRex
+  has, and has Select All / Select None. ssh can't read PuTTY's .ppk
+  keys: the host's settings say to export one from PuTTYgen.
+- The host popover filters its hosts as you type, by name or address:
+  Enter switches to the one left, or the one chosen with ↑↓, and
+  otherwise connects to what you typed, as before. An address picks only
+  a host of that address in full. A line under the field says what Enter
+  does; Escape clears the text first.
+- Each host in the list has its machine's icon, as the host chip's, and
+  the window's own has a dot of its connection's color. A host shows its
+  machine's icon once connected to with this version.
+- omp's composer, with GoRex's TSP: an image pasted in a message stays
+  in it when sent, as omp's own Enter does, also while omp's turn runs.
+
 ## 0.1.11
 
 - Serial ports: Add Host…, Connect with Serial port, makes a host of a
