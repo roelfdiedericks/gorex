@@ -4,6 +4,23 @@ The version of each release is its heading here, which `mygo.json`'s
 `version` must match: `make website` refuses to build otherwise, and
 refuses a version already published.
 
+## 0.1.13
+
+- Pageant (Windows): Settings, Hosts, *ssh agent* chooses the agent
+  GoRex's ssh logs in with. Automatic, the default, uses Pageant, or
+  KiTTY's Kageant, when it runs, so that the keys loaded in it log in to
+  hosts and Forward ssh agent passes them on; else Windows' own
+  ssh-agent. Pageant or Windows ssh-agent can be chosen too. A dot marks
+  the agent in use, green when it answers, red when not, and the line
+  under it says how many keys it holds. `gorex doctor` tells it too.
+- PuTTY keys (.ppk), which ssh can't read: a host's settings, for a host
+  imported with one or an identity file that is one, say when the key is
+  in the agent already, and otherwise convert it, after its passphrase,
+  into your .ssh folder in OpenSSH's format, with the same passphrase and
+  its .pub beside it, never over a file there. Convert PuTTY Key… in the
+  palette converts any. PuTTYgen's formats 2 and 3, with RSA, ECDSA and
+  Ed25519 keys. The import dialog says what each session's key needs.
+
 ## 0.1.12
 
 - Import Hosts from PuTTY / KiTTY… (Windows, in the palette) makes hosts
