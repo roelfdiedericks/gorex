@@ -214,6 +214,9 @@ type App struct {
 	win    *mygo.Window
 	client *rex.Client
 	hello  rex.Hello
+	// pcHost is this machine as its server told, last the window was
+	// on it, for its icon in the host list.
+	pcHost rex.HostInfo
 	// err shows in a banner, with errAction a button running errRun when
 	// there is something to do about it.
 	err       string
@@ -353,12 +356,15 @@ type App struct {
 	paletteQuery string
 	paletteSel   int
 	hostOpen     bool
-	// hostQuery is the ssh destination typed in the host's popover, and
-	// hostErr why connecting to it failed; hostForget is the key of the
-	// host its list asks to forget.
-	hostQuery    string
-	hostErr      string
-	hostForget   string
+	// hostQuery is what is typed in the host's popover, which filters its
+	// hosts or is an ssh destination, hostSel the row of those shown the
+	// arrows chose, counting from 1 (0 for none), and hostErr why
+	// connecting failed; hostForget is the key of the host its list asks
+	// to forget.
+	hostQuery  string
+	hostSel    int
+	hostErr    string
+	hostForget string
 	// restartAsk has the window ask before its session server restarts.
 	restartAsk bool
 	// importForm is the import dialog of PuTTY's and KiTTY's sessions.

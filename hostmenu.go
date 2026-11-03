@@ -69,7 +69,7 @@ func (a *App) hostMenu(m *ui.Menu) {
 			}
 			if n == most {
 				if m.Item("More…").Chosen() {
-					a.remotes, a.hostErr, a.hostForget, a.hostOpen = loadRemotes(), "", "", true
+					a.remotes, a.hostErr, a.hostForget, a.hostQuery, a.hostSel, a.hostOpen = loadRemotes(), "", "", "", 0, true
 				}
 				break
 			}

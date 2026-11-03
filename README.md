@@ -32,14 +32,19 @@ terminal plugin (Ghostty's libghostty-vt). No webview, no cgo: one ~15 MB app.
   front, as Rex does. Tabs reorder by dragging, rename by double-click, and
   have a context menu.
 - **Host chip** with the machine's name and model; its popover shows the
-  chip, memory, OS and the session server, and lists the hosts: click one
-  to switch the window to it, ⚙ for its settings (This PC's are the
-  Defaults), ⧉ to open it in a new window, ↻ to reconnect, ✕ to forget it
-  (which asks first), Add Host… for a new one, or type `user@host` to
-  connect to another. Right-clicked, the chip has a menu: Reconnect, Host
-  Settings…, Open in New Window, Copy Address (`user@host`, as ssh takes
-  it), Copy ssh Command (with the host's options), Connection Log…, Send
-  Break and Release Port on a serial port, Restart Session Server…
+  chip, memory, OS and the session server, and lists the hosts, each with
+  its machine's icon (the window's own with a dot of its connection's
+  color): click one to switch the window to it, ⚙ for its settings (This
+  PC's are the Defaults), ⧉ to open it in a new window, ↻ to reconnect, ✕
+  to forget it (which asks first), Add Host… for a new one. Typing filters
+  the list by name or address: Enter switches to the host left (or the
+  one chosen with ↑↓; an address picks only a host of it in full), else
+  connects to what is typed, as `ssh user@host`; the line under the field
+  says which, and Escape clears it. Right-clicked, the chip has a menu:
+  Reconnect, Host Settings…, Open in New Window, Copy Address
+  (`user@host`, as ssh takes it), Copy ssh Command (with the host's
+  options), Connection Log…, Send Break and Release Port on a serial
+  port, Restart Session Server…
   (which says first whether the sessions keep running: they do where the
   server can replace itself in place, not on Windows), Switch to the
   hosts used last, Add Host… and Settings….

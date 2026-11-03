@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -54,13 +56,29 @@ func labelOf(b binding) string {
 	return ""
 }
 
-// hostChip shows the machine the sessions run on; a click shows more of
-// it, and of the session server.
-func (a *App) hostChip(c *ui.Context, k *colors) {
+// hostGlyph is the icon of a host of kind, by what its server told of the
+// machine: a serial port's, a plain host's, a laptop, a desktop, Linux,
+// else a Mac; a host it told nothing of yet, a server.
+func hostGlyph(kind, model, goos string, portable bool) string {
+	switch {
+	case kind == kindSerial:
+		return "cable"
+	case kind == kindPlain:
+		return "globe"
+	case strings.Contains(model, "MacBook"), portable:
+		return "laptop"
+	case strings.Contains(model, "iMac"), goos == "windows":
+		return "monitor"
+	case model == "Linux", goos == "linux", goos == "":
+		return "server"
+	}
+	return "mac-studio"
+}
+
+// windowGlyph is the icon of the host the window shows: as its server
+// tells, or while the window connects, as it likely is.
+func (a *App) windowGlyph() string {
 	h := a.hello.Host
-	name, model := a.hostName(), h.Model
-	// The server's system, or while the window connects, the one it will
-	// likely have.
 	goos := h.GOOS
 	if goos == "" {
 		goos = runtime.GOOS
@@ -68,21 +86,43 @@ func (a *App) hostChip(c *ui.Context, k *colors) {
 			goos = "linux"
 		}
 	}
-	glyph := "mac-studio"
+	kind := kindServer
 	switch {
 	case a.bind.serial != "":
 		// The server, of a serial port, is this machine's.
-		glyph, model = "cable", "serial · "+a.bind.port+" · "+a.bind.line
+		kind = kindSerial
 	case a.bind.plain:
 		// What the server tells is this machine's, not the host's.
-		glyph, model = "globe", "plain ssh"
-	case strings.Contains(model, "MacBook"), h.Portable:
-		glyph = "laptop"
-	case strings.Contains(model, "iMac"), goos == "windows":
-		glyph = "monitor"
-	case model == "Linux", goos == "linux":
-		glyph = "server"
+		kind = kindPlain
 	}
+	return hostGlyph(kind, h.Model, goos, h.Portable)
+}
+
+// connState is the color of the window's connection and what it is.
+func (a *App) connState(k *colors) (ui.Color, string) {
+	switch {
+	case a.connDown:
+		return ui.Hex("#ef4444"), "not connected"
+	case a.client == nil:
+		return k.attention, "connecting…"
+	case a.status != "":
+		return k.attention, "reconnecting…"
+	}
+	return k.busy, "connected"
+}
+
+// hostChip shows the machine the sessions run on; a click shows more of
+// it, and of the session server.
+func (a *App) hostChip(c *ui.Context, k *colors) {
+	h := a.hello.Host
+	name, model := a.hostName(), h.Model
+	switch {
+	case a.bind.serial != "":
+		model = "serial · " + a.bind.port + " · " + a.bind.line
+	case a.bind.plain:
+		model = "plain ssh"
+	}
+	glyph := a.windowGlyph()
 	chip := ui.Row(c).Gap(9).Padding(3, 8, 3, 6).Radius(9).AlignItems(ui.Center).Cursor(ui.CursorPointer).
 		Role(ui.RoleButton).Label("Host " + name).MaxWidth(190).Shrink(0)
 	if chip.Hovered() || a.hostOpen {
@@ -91,7 +131,7 @@ func (a *App) hostChip(c *ui.Context, k *colors) {
 	if chip.Clicked() {
 		a.hostOpen = !a.hostOpen
 		if a.hostOpen {
-			a.remotes, a.hostErr, a.hostForget = loadRemotes(), "", ""
+			a.remotes, a.hostErr, a.hostForget, a.hostQuery, a.hostSel = loadRemotes(), "", "", "", 0
 		}
 	}
 	chip.ContextMenu(func(m *ui.Menu) { a.hostMenu(m) })
@@ -135,15 +175,7 @@ func (a *App) hostPanel(c *ui.Context, k *colors, name, glyph string) {
 				case a.bind.remote:
 					where = "ssh"
 				}
-				dot, state := k.busy, "connected"
-				switch {
-				case a.connDown:
-					dot, state = ui.Hex("#ef4444"), "not connected"
-				case a.client == nil:
-					dot, state = k.attention, "connecting…"
-				case a.status != "":
-					dot, state = k.attention, "reconnecting…"
-				}
+				dot, state := a.connState(k)
 				ui.Box(c).Size(7, 7).Radius(4).Background(dot)
 				ui.Text(c, where+" · "+state).FontSize(12).TextColor(k.textFaint)
 			})
@@ -232,48 +264,150 @@ func roundDur(d time.Duration) string {
 	return fmt.Sprintf("%dd", int(d.Hours()/24))
 }
 
+// hostEntry is a row of the host popover's list: its icon (hostGlyph), its
+// name, the line after it (the address, or a serial port's) and how long
+// ago it was used; whether the window shows it. open switches the window
+// to it, and window opens it in a window of its own, as GoRex's arguments;
+// key is a saved host's, for its settings and to forget it; pc marks this
+// machine, whose settings are the Defaults; addrs are its ssh
+// destinations, by which the text typed picks it only in full.
+type hostEntry struct {
+	glyph, title, detail, age string
+	current                   bool
+	open                      func()
+	window                    []string
+	key                       string
+	pc                        bool
+	addrs                     []string
+}
+
+// hostQueryText is the text typed in the host popover, without an ssh in
+// front.
+func hostQueryText(q string) string {
+	q = strings.TrimSpace(q)
+	return strings.TrimSpace(strings.TrimPrefix(q, "ssh "))
+}
+
+// filterHosts answers the text typed in the host popover: the rows of the
+// entries whose name or line has it, ignoring case (all for none), and the
+// one Enter switches to, -1 for none: the only one left, or, for an
+// address (a user@, an IP), only a host of that address in full, as the
+// only one left of 192.168.0.18 is a 192.168.0.180, which isn't it.
+func filterHosts(entries []hostEntry, q string) (shown []int, pick int) {
+	q = strings.ToLower(hostQueryText(q))
+	addr := strings.Contains(q, "@") || isAddress(q)
+	for i, e := range entries {
+		if q == "" || strings.Contains(strings.ToLower(e.title+" "+e.detail), q) || addr && hasAddr(e, q) {
+			shown = append(shown, i)
+		}
+	}
+	pick = -1
+	switch {
+	case q == "":
+	case !addr:
+		if len(shown) == 1 {
+			pick = shown[0]
+		}
+	default:
+		for _, i := range shown {
+			if hasAddr(entries[i], q) {
+				if pick >= 0 {
+					// Two hosts of the address, as two kinds of it:
+					// neither.
+					return shown, -1
+				}
+				pick = i
+			}
+		}
+	}
+	return shown, pick
+}
+
+// isAddress tells an IP address, with a port or not.
+func isAddress(q string) bool {
+	if h, _, err := net.SplitHostPort(q); err == nil {
+		q = h
+	}
+	return net.ParseIP(strings.Trim(q, "[]")) != nil
+}
+
+// hasAddr tells whether q, lower case, is one of the entry's destinations,
+// with or without its user and its port.
+func hasAddr(e hostEntry, q string) bool {
+	for _, a := range e.addrs {
+		a = strings.ToLower(a)
+		user, host := "", a
+		if i := strings.LastIndex(a, "@"); i >= 0 {
+			user, host = a[:i+1], a[i+1:]
+		}
+		forms := []string{a, host}
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			forms = append(forms, h, user+h)
+		}
+		if slices.Contains(forms, q) {
+			return true
+		}
+	}
+	return false
+}
+
 // hostsSection lists the hosts the window can show the sessions of: this
 // machine, those connected to before, the serial hosts, and one to type.
+// What is typed filters them: Enter switches to the one it picks (or the
+// arrows), else connects to it as an ssh destination.
 func (a *App) hostsSection(c *ui.Context, k *colors) {
-	type entry struct {
-		title, detail string
-		current       bool
-		// open switches the window to the host, and window opens it in
-		// a window of its own, as GoRex's arguments; key is a saved
-		// host's, for its settings and to forget it; pc marks this
-		// machine, whose settings are the Defaults.
-		open   func()
-		window []string
-		key    string
-		pc     bool
+	pcGOOS := a.pcHost.GOOS
+	if pcGOOS == "" {
+		pcGOOS = runtime.GOOS
 	}
-	entries := []entry{{title: thisMachine(), detail: "local sessions", current: !a.bind.away(), open: func() { a.openHost("") }, pc: true}}
+	entries := []hostEntry{{glyph: hostGlyph(kindServer, a.pcHost.Model, pcGOOS, a.pcHost.Portable), title: thisMachine(), detail: "local sessions",
+		current: !a.bind.away(), open: func() { a.openHost("") }, pc: true}}
 	listed := false
 	for _, r := range a.remotes {
 		cur := r.bindKey() == a.bind.key()
 		listed = listed || cur
-		detail, window := r.Target, []string{"ssh", r.Target}
+		detail, window, addrs := r.Target, []string{"ssh", r.Target}, []string{r.Target, r.Key}
 		switch r.Kind {
 		case kindPlain:
 			detail = "plain ssh · " + detail
 		case kindSerial:
 			c := r.config()
-			detail, window = "serial · "+r.Port+" · "+strconv.Itoa(c.Baud)+" "+c.Framing(), []string{"serial", r.Key}
+			detail, window, addrs = "serial · "+r.Port+" · "+strconv.Itoa(c.Baud)+" "+c.Framing(), []string{"serial", r.Key}, nil
 		}
+		age := ""
 		if !cur {
-			detail += " · " + roundDur(time.Since(r.LastUsed)) + " ago"
+			age = " · " + roundDur(time.Since(r.LastUsed)) + " ago"
 		}
-		entries = append(entries, entry{title: r.title(), detail: detail, current: cur, open: func() { a.openSaved(r) }, window: window, key: r.Key})
+		entries = append(entries, hostEntry{glyph: hostGlyph(r.Kind, r.Model, r.GOOS, r.Portable), title: r.title(), detail: detail, age: age, current: cur,
+			open: func() { a.openSaved(r) }, window: window, key: r.Key, addrs: addrs})
 	}
 	if a.bind.host() && !listed {
 		// A host the window connects to for the first time.
 		spec := a.bind.target.Spec
-		entries = append(entries, entry{title: spec, detail: a.bind.target.Key(), current: true, open: func() { a.openHost(spec) }, window: []string{"ssh", spec}})
+		entries = append(entries, hostEntry{glyph: a.windowGlyph(), title: spec, detail: a.bind.target.Key(), current: true, open: func() { a.openHost(spec) }, window: []string{"ssh", spec},
+			addrs: []string{spec, a.bind.target.Key()}})
+	}
+	shown, auto := filterHosts(entries, a.hostQuery)
+	a.hostSel = min(a.hostSel, len(shown))
+	// pick is the row Enter switches to: the one the arrows chose, else
+	// the one the text picks.
+	pick := func() int {
+		if a.hostSel > 0 {
+			return shown[a.hostSel-1]
+		}
+		return auto
 	}
 
 	connect := func() {
-		spec := strings.TrimSpace(a.hostQuery)
-		spec = strings.TrimSpace(strings.TrimPrefix(spec, "ssh "))
+		if p := pick(); p >= 0 {
+			e := entries[p]
+			a.hostQuery, a.hostErr, a.hostSel, a.hostOpen = "", "", 0, false
+			if !e.current {
+				a.later(c, e.open)
+			}
+			return
+		}
+		spec := hostQueryText(a.hostQuery)
 		if spec == "" {
 			return
 		}
@@ -285,14 +419,30 @@ func (a *App) hostsSection(c *ui.Context, k *colors) {
 			a.hostQuery, a.hostErr, a.hostOpen = "", "", false
 		})
 	}
+	// reveal scrolls the row the arrows chose into view, in the frame they
+	// move it only, that the wheel scrolls the list.
+	reveal := false
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 		field := ui.Row(c).Grow(1).MinWidth(0).Height(30).Padding(0, 10).Radius(8).Border(1, k.panelBorder).AlignItems(ui.Center)
 		field.Children(func() {
 			// The popover opens with the keyboard here: click the chip,
-			// type a destination, Enter.
-			in := ui.TextInputBase(c, &a.hostQuery).Grow(1).FontSize(12.5).Placeholder("ssh user@host").AutoFocus()
+			// type a host's name or a destination, Enter.
+			in := ui.TextInputBase(c, &a.hostQuery).Grow(1).FontSize(12.5).Placeholder("Filter hosts, or ssh user@host").AutoFocus()
 			if in.Changed() {
-				a.hostErr = ""
+				a.hostErr, a.hostSel = "", 0
+				shown, auto = filterHosts(entries, a.hostQuery)
+			}
+			if in.Shortcut(0, ui.KeyDown) && len(shown) > 0 {
+				a.hostSel, reveal = min(a.hostSel+1, len(shown)), true
+			}
+			if in.Shortcut(0, ui.KeyUp) && a.hostSel > 0 {
+				// Up from the first row leaves the rows to the text.
+				a.hostSel, reveal = a.hostSel-1, true
+			}
+			// Escape clears the text first, then closes the popover.
+			if a.hostQuery != "" && in.Shortcut(0, ui.KeyEscape) {
+				a.hostQuery, a.hostErr, a.hostSel = "", "", 0
+				shown, auto = filterHosts(entries, "")
 			}
 			if in.Submitted() {
 				connect()
@@ -310,6 +460,19 @@ func (a *App) hostsSection(c *ui.Context, k *colors) {
 			ui.Text(c, "Connect").FontSize(12.5).FontWeight(600).TextColor(k.text)
 		})
 	})
+	// What Enter does, as the one field both filters and connects.
+	hint := ""
+	switch p := pick(); {
+	case p >= 0 && entries[p].current:
+		hint = "↵ stay on " + entries[p].title
+	case p >= 0:
+		hint = "↵ switch to " + entries[p].title
+	case hostQueryText(a.hostQuery) != "":
+		hint = "↵ connect to ssh " + hostQueryText(a.hostQuery)
+	}
+	if hint != "" {
+		ui.Text(c, hint).FontSize(11.5).TextColor(k.textFaint).SingleLine().Ellipsis("…")
+	}
 	if a.hostErr != "" {
 		ui.Text(c, a.hostErr).FontSize(11.5).TextColor(ui.Hex("#ef4444")).LineHeight(1.35)
 	}
@@ -328,7 +491,12 @@ func (a *App) hostsSection(c *ui.Context, k *colors) {
 		// host has none: its settings, a window of its own (Reconnect for
 		// the window's own host), and forgetting it, which asks first.
 		slot := func() { ui.Box(c).Size(24, 24).Shrink(0) }
-		for _, e := range entries {
+		if len(shown) == 0 {
+			ui.Text(c, "No saved host matches.").FontSize(12).TextColor(k.textFaint).Padding(6, 6)
+		}
+		picked := pick()
+		for _, i := range shown {
+			e := entries[i]
 			row := ui.Row(c.Key("host/"+e.key+"/"+e.title)).Height(34).Padding(0, 4, 0, 6).Gap(4).Radius(8).AlignItems(ui.Center)
 			if e.key != "" && a.hostForget == e.key {
 				row.Background(k.hover).Children(func() {
@@ -343,10 +511,16 @@ func (a *App) hostsSection(c *ui.Context, k *colors) {
 				})
 				continue
 			}
-			if e.current {
+			// One row is blue: the one Enter switches to, else the
+			// window's own, which keeps its tick.
+			switch {
+			case i == picked, e.current && picked < 0:
 				row.Background(k.panelSel)
-			} else if row.Hovered() {
+			case row.Hovered():
 				row.Background(k.hover)
+			}
+			if i == picked && reveal {
+				row.ScrollIntoView()
 			}
 			row.Children(func() {
 				main := ui.Row(c).Grow(1).MinWidth(0).Height(34).Gap(8).AlignItems(ui.Center).
@@ -359,13 +533,17 @@ func (a *App) hostsSection(c *ui.Context, k *colors) {
 					}
 				}
 				main.Children(func() {
-					ui.Box(c).Size(14, 14).Center().Shrink(0).Children(func() {
+					// The host's icon; the window's own host has a dot of
+					// its connection's color on it, as the popover's top.
+					ui.Box(c).Size(16, 16).Center().Shrink(0).Children(func() {
+						ui.Icon(c, icon(e.glyph)).Size(16, 16).TextColor(k.textMuted)
 						if e.current {
-							ui.Icon(c, icon("check")).Size(14, 14).TextColor(k.text)
+							dot, _ := a.connState(k)
+							ui.Box(c).Absolute().Right(-2).Bottom(-2).Size(7, 7).Radius(4).Background(dot).Border(1, k.panel)
 						}
 					})
 					ui.Text(c, e.title).FontSize(13).FontWeight(600).TextColor(k.text).SingleLine().Ellipsis("…").Shrink(0).MaxWidth(300)
-					ui.Text(c, e.detail).FontSize(12).TextColor(k.textFaint).SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
+					ui.Text(c, e.detail+e.age).FontSize(12).TextColor(k.textFaint).SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
 				})
 				switch {
 				case e.pc:

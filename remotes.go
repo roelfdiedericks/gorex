@@ -31,6 +31,12 @@ type savedRemote struct {
 	Kind string `json:"kind,omitempty"`
 	// Label is the user's name for the host, over Name, its own.
 	Label string `json:"label,omitempty"`
+	// Model, GOOS and Portable are what the host's server told of the
+	// machine when the window connected last, which its icon shows
+	// (hostGlyph).
+	Model    string `json:"model,omitempty"`
+	GOOS     string `json:"goos,omitempty"`
+	Portable bool   `json:"portable,omitempty"`
 	// Identity is the key ssh logs in with (-i), and Options more of
 	// ssh's options, as typed (-p 2222 -o ProxyJump=bastion). PuttyKey is
 	// the PuTTY key file (.ppk) of a host imported from PuTTY or KiTTY,
@@ -178,16 +184,16 @@ func saveRemotes(rs []savedRemote) {
 }
 
 // touchRemote adds r to the known remotes, or updates the one of its key
-// with r's target, name, kind and use, keeping its settings. A host the
-// window reached with GoRex's server there keeps no note of why it was
-// plain.
+// with r's target, name and machine, kind and use, keeping its settings. A
+// host the window reached with GoRex's server there keeps no note of why
+// it was plain.
 func touchRemote(r savedRemote) {
 	rs := loadRemotes()
 	if i := slices.IndexFunc(rs, func(o savedRemote) bool { return o.Key == r.Key }); i >= 0 {
 		o := rs[i]
 		o.Target, o.Kind, o.LastUsed = r.Target, r.Kind, r.LastUsed
 		if r.Name != "" {
-			o.Name = r.Name
+			o.Name, o.Model, o.GOOS, o.Portable = r.Name, r.Model, r.GOOS, r.Portable
 		}
 		if r.Kind == kindServer {
 			o.Note = ""

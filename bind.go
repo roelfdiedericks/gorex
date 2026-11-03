@@ -418,13 +418,18 @@ func (a *App) attachBinding(win *mygo.Window, b binding, gen int64, client *rex.
 	}
 	a.changed()
 	go a.poll(win, client)
+	if !b.host() || b.plain {
+		// The server is this machine's: of its own sessions, a serial
+		// port's, or a plain host's.
+		a.pcHost = h.Host
+	}
 	if b.host() {
 		r := savedRemote{Key: b.target.Key(), Target: b.target.Spec, Kind: kindServer, LastUsed: time.Now()}
 		if b.plain {
 			// Its server is this machine's, whose name is not the host's.
 			r.Kind = kindPlain
 		} else {
-			r.Name = h.Host.Name
+			r.Name, r.Model, r.GOOS, r.Portable = h.Host.Name, h.Host.Model, h.Host.GOOS, h.Host.Portable
 		}
 		touchRemote(r)
 	}
