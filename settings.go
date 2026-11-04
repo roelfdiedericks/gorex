@@ -223,7 +223,7 @@ var builtin = Settings{
 	Appearance: Appearance{Theme: "GoRex", ThemeLight: "GoRex", Tint: "gorex", Transparent: on, WindowTitle: "host", ScrollbarWidth: 10, ScrollbarMinLength: 48, ScrollbarsAlways: off},
 	Terminal: Terminal{
 		Font: "JetBrains Mono", Size: defaultFontSize, Weight: 400, LineHeight: 1, Ligatures: on, Thicken: off,
-		Cursor: "block", Blink: on, Scrollback: 10000, Images: 320, CopyOnSelect: off, OptionAsAlt: off, Bell: "mark", Identity: "ghostty", StatusNotify: on,
+		Cursor: "block", Blink: on, Scrollback: 10000, Images: 320, CopyOnSelect: notOnMac, OptionAsAlt: off, Bell: "mark", Identity: "ghostty", StatusNotify: on,
 		CtrlCCopies: onWindows, CtrlVPastes: onWindows, InsertKeys: on, RightClickPastes: onWindows,
 	},
 	OMP: OMP{Size: 13, LineHeight: 1.5, DockWidth: 800, Spacing: "normal", Motion: on},
@@ -242,8 +242,10 @@ var builtin = Settings{
 var on, off = new(true), new(false)
 
 // onWindows is on for this PC when it runs Windows: the defaults of its
-// copy and paste habits.
+// copy and paste habits. notOnMac is on except on macOS, where ⌘C
+// copies: copying on select, PuTTY's and xterm's habit.
 var onWindows = new(runtime.GOOS == "windows")
+var notOnMac = new(runtime.GOOS != "darwin")
 
 // field is one setting: where it is in Settings, and what its tag says.
 type field struct {

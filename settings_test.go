@@ -15,8 +15,9 @@ func TestEffective(t *testing.T) {
 		Shell:      Shell{Command: "/bin/pc-shell"},
 		General:    General{ReconnectAttempts: 2},
 	}
+	// The host sets a pc field, copy on select, against its default.
 	host := Settings{
-		Terminal: Terminal{Size: 16, Scrollback: 20000, Bell: "none", CopyOnSelect: on},
+		Terminal: Terminal{Size: 16, Scrollback: 20000, Bell: "none", CopyOnSelect: new(!is(builtin.Terminal.CopyOnSelect))},
 		Shell:    Shell{Command: "/usr/bin/fish"},
 		General:  General{ReconnectAttempts: 9},
 	}
@@ -35,7 +36,7 @@ func TestEffective(t *testing.T) {
 			t.Errorf("%s: got %v, want %v", name, got[0], got[1])
 		}
 	}
-	if is(eff.Terminal.CopyOnSelect) {
+	if is(eff.Terminal.CopyOnSelect) != is(builtin.Terminal.CopyOnSelect) {
 		t.Error("a pc field set on the host applied")
 	}
 
