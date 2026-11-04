@@ -90,7 +90,7 @@ func (s *serialForm) config() (c serialport.Config, err string) {
 	}
 	c.Baud, _ = strconv.Atoi(speed)
 	if c.Baud <= 0 {
-		return c, "Type the speed, in bits per second: 115200, or one of the port's own, as 74880."
+		return c, "Enter the speed in bits per second, such as 115200, or a non-standard speed that your device uses, such as 74880."
 	}
 	c.DataBits, _ = strconv.Atoi(s.dataBits)
 	c.Parity = s.parity[:1]
@@ -172,7 +172,7 @@ func (a *App) serialFields(c *ui.Context, k *colors, f *hostForm, row func(strin
 		a.watchPorts(f)
 	}
 	row("Name", func() {
-		placeholder := "the port's, as COM13 · Prolific PL2303 · 115200"
+		placeholder := "taken from the port, such as COM13 · Prolific PL2303 · 115200"
 		if s.port.Path != "" {
 			c, _ := s.config()
 			placeholder = serialName(s.port, c.Baud)
@@ -219,7 +219,7 @@ func (a *App) serialFields(c *ui.Context, k *colors, f *hostForm, row func(strin
 	row("Enter sends", func() { ui.Segmented(c, &s.enter, enterNames...) })
 	row("Backspace sends", func() { ui.Segmented(c, &s.backspace, backspaceNames...) })
 	row("Local echo", func() { ui.Switch(c, &s.echo) })
-	help("Most consoles take 115200 8N1, Enter as CR and Backspace as DEL; local echo shows what you type on a device that doesn't echo it.")
+	help("Most consoles use 115200 8N1, with Enter as CR and Backspace as DEL. Local echo shows what you type on a device that doesn't echo it.")
 }
 
 // portPicker draws the port chosen, and on a click the ports to choose
@@ -257,7 +257,7 @@ func (a *App) portPicker(c *ui.Context, k *colors, s *serialForm) {
 		panel.Margin(4, 0, 0, 0).Width(400).Radius(10).Background(k.panel).Border(1, k.panelBorder).
 			Shadow(0, 12, 32, 0, k.shadowFocused)
 		if len(s.ports) == 0 {
-			ui.Text(c, "No serial ports: plug one in, and it shows here.").FontSize(12.5).TextColor(k.textFaint).Padding(14)
+			ui.Text(c, "No serial ports found. Plug one in and it will show here.").FontSize(12.5).TextColor(k.textFaint).Padding(14)
 			return
 		}
 		ui.Scroll(c.Key("ports")).MaxHeight(320).Padding(6).Children(func() {
@@ -285,7 +285,7 @@ func (a *App) portPicker(c *ui.Context, k *colors, s *serialForm) {
 func (a *App) saveSerial(f *hostForm, connect bool) {
 	s := &f.serial
 	if s.port.Path == "" {
-		f.err = "Choose the port."
+		f.err = "Choose a port."
 		return
 	}
 	c, msg := s.config()

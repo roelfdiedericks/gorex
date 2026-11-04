@@ -47,5 +47,5 @@ func gui() (string, error) {
 			return p, nil
 		}
 	}
-	return "", fmt.Errorf("GoRex.exe is not beside %s, nor above it", self)
+	return "", fmt.Errorf("cannot find GoRex.exe in the folder of %s or in the folder above it", self)
 }

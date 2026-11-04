@@ -36,7 +36,7 @@ func doctor(w io.Writer, args []string) int {
 	p("ssh")
 	ssh, err := openssh.Path()
 	if err != nil {
-		p("  GoRex finds none: %v", err)
+		p("  GoRex cannot find ssh: %v", err)
 	}
 	for _, s := range openssh.Found() {
 		mark := "   "
@@ -47,8 +47,9 @@ func doctor(w io.Writer, args []string) int {
 		p(" %s%s  %s", mark, s, firstLine(v))
 	}
 	if ssh != "" {
-		p("  * is the one GoRex runs: the first on PATH. A shell may run another, by an alias or")
-		p("    a PATH of its own: compare with `Get-Command ssh` (PowerShell) or `command -v ssh`.")
+		p("  * marks the ssh that GoRex runs, which is the first one on PATH. Your shell may run a")
+		p("    different one because of an alias or a different PATH. To check, run `Get-Command ssh`")
+		p("    (PowerShell) or `command -v ssh`.")
 	}
 	p("")
 
@@ -56,7 +57,7 @@ func doctor(w io.Writer, args []string) int {
 	if runtime.GOOS == "windows" {
 		p("  setting        %s (Settings, Hosts, ssh agent)", mode)
 		if pipe, running := openssh.PageantPipe(); running {
-			p("  Pageant        runs, at %s", pipe)
+			p("  Pageant        running at %s", pipe)
 		} else {
 			p("  Pageant        not running")
 		}
@@ -64,12 +65,12 @@ func doctor(w io.Writer, args []string) int {
 	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
 		p("  SSH_AUTH_SOCK  %s", sock)
 	} else if runtime.GOOS == "windows" {
-		p("  SSH_AUTH_SOCK  unset: Windows' OpenSSH uses the ssh-agent service's pipe")
+		p("  SSH_AUTH_SOCK  not set, so the Windows OpenSSH uses the pipe of the ssh-agent service")
 	} else {
-		p("  SSH_AUTH_SOCK  unset: no agent")
+		p("  SSH_AUTH_SOCK  not set, so there is no agent")
 	}
 	if name, sock := openssh.AgentInUse(); name != "" {
-		p("  GoRex uses     %s, at %s; its keys:", name, sock)
+		p("  GoRex uses     %s at %s. Its keys:", name, sock)
 	}
 	if ssh != "" {
 		out, _ := openssh.Run(openssh.Beside(ssh, "ssh-add"), "-l")
@@ -78,19 +79,19 @@ func doctor(w io.Writer, args []string) int {
 		}
 		switch {
 		case strings.Contains(out, "no identities"):
-			p("  -> the agent runs but holds no key: GoRex asks for a key's passphrase on each connect;")
-			p("     `ssh-add` loads the key once, and GoRex need not ask")
+			p("  -> The agent is running but holds no keys, so GoRex asks for a key's passphrase each time it connects.")
+			p("     Run `ssh-add` to load the key once. Then GoRex does not need to ask.")
 		case strings.Contains(out, "Error connecting to agent"), strings.Contains(out, "Could not open a connection"):
-			p("  -> no agent: GoRex asks for a key's passphrase on each connect")
+			p("  -> No agent is running, so GoRex asks for a key's passphrase each time it connects.")
 			if runtime.GOOS == "windows" {
-				p("     to ask once instead: Start-Service ssh-agent; Set-Service ssh-agent -StartupType Automatic; ssh-add")
+				p("     To enter the passphrase only once, run: Start-Service ssh-agent; Set-Service ssh-agent -StartupType Automatic; ssh-add")
 			}
 		}
 	}
 
 	if len(args) == 0 {
 		p("")
-		p("`gorex doctor user@host` checks a host too, connecting as GoRex does.")
+		p("Run `gorex doctor user@host` to check a host as well. It connects the way GoRex does.")
 		if ssh == "" {
 			return 1
 		}
@@ -106,7 +107,7 @@ func doctor(w io.Writer, args []string) int {
 	if err != nil {
 		p("  ssh -G: %v %s", err, cfg)
 	} else {
-		p("  as ssh's configuration makes it (ssh -G):")
+		p("  settings from the ssh configuration (ssh -G):")
 		for _, l := range lines(cfg) {
 			k, _, _ := strings.Cut(l, " ")
 			switch k {
@@ -115,7 +116,7 @@ func doctor(w io.Writer, args []string) int {
 			}
 		}
 	}
-	p("  connecting as GoRex does: %s %s", filepath.Base(ssh), strings.Join(openssh.ProbeArgs(spec), " "))
+	p("  connecting the way GoRex does: %s %s", filepath.Base(ssh), strings.Join(openssh.ProbeArgs(spec), " "))
 	out, err := openssh.Probe(spec)
 	var methods string
 	// What says how the connection went: ssh's own lines, and its debug
@@ -143,29 +144,29 @@ func doctor(w io.Writer, args []string) int {
 	// it says.
 	switch {
 	case err == nil:
-		p("  -> GoRex connects without asking. If its window still fails, the trouble is past ssh: see its Connection Log.")
+		p("  -> GoRex connects without asking for anything. If the GoRex window still fails, the problem is not in ssh. Check the Connection Log.")
 		return 0
 	case strings.Contains(out, "REMOTE HOST IDENTIFICATION HAS CHANGED"):
-		p("  -> the host's key changed since ssh last saw it, which ssh refuses: if the host was reinstalled,")
+		p("  -> The host's key has changed since ssh last saw it, so ssh refuses to connect. If the host was reinstalled,")
 		p("     remove the old key with ssh-keygen -R <host>.")
 	case strings.Contains(out, "Host key verification failed"):
-		p("  -> ssh has not seen this host's key: GoRex shows it, and asks whether to trust it.")
+		p("  -> ssh has not seen this host's key before. GoRex shows the key and asks whether to trust it.")
 		return 0
 	case strings.Contains(out, "Could not resolve"):
-		p("  -> the name does not resolve here.")
+		p("  -> This computer cannot resolve the host name.")
 	case strings.Contains(out, "timed out"), strings.Contains(out, "refused"):
-		p("  -> the host can't be reached on that port.")
+		p("  -> The host cannot be reached on that port.")
 	case strings.Contains(out, "Permission denied"):
 		if !strings.Contains(out, "Offering public key") {
-			p("  -> ssh offered no key: none in the agent, and none it could read without a passphrase.")
+			p("  -> ssh offered no key. The agent has no keys, and ssh found no key it could read without a passphrase.")
 		} else if !strings.Contains(out, "Server accepts key") {
-			p("  -> ssh offered keys the host refused: it doesn't list them in authorized_keys.")
+			p("  -> ssh offered keys, but the host refused them. They are not in the host's authorized_keys file.")
 		}
 		if strings.Contains(methods, "password") || strings.Contains(methods, "keyboard-interactive") {
-			p("     GoRex asks for the password (or a key's passphrase) in its window, on each connect.")
+			p("     GoRex asks for the password (or a key's passphrase) in its window each time it connects.")
 			return 0
 		}
-		p("     The host takes no password either: GoRex can't log in.")
+		p("     The host does not accept a password either, so GoRex cannot log in.")
 	default:
 		p("  -> ssh failed: %v", err)
 	}

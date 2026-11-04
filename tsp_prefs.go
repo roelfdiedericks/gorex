@@ -481,7 +481,7 @@ func (v *tspPrefsView) doc(c *ui.Context) {
 			}
 		}
 		if shown == 0 {
-			text := "Nothing to set here"
+			text := "There are no settings on this page"
 			if v.query != "" {
 				text = "No settings match “" + v.query + "”"
 			}

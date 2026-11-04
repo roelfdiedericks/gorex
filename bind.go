@@ -151,7 +151,7 @@ type upgradeLoopError struct {
 }
 
 func (e *upgradeLoopError) Error() string {
-	return fmt.Sprintf("Another GoRex keeps replacing the session server of %s with its own build (%s), and this one replaced it back %d times in %d seconds; the sessions are kept, but neither window can stay connected. Close the other GoRex, or update it to this build, then Connect Again.",
+	return fmt.Sprintf("Another GoRex keeps replacing the session server on %s with its own build (%s). This GoRex replaced it back %d times in %d seconds. The sessions are kept, but neither window can stay connected. Close the other GoRex, or update it to this build, then click Connect Again.",
 		e.host, e.other, upgradeLoop, int(upgradeWindow.Seconds()))
 }
 
@@ -212,11 +212,11 @@ func dialBinding(b binding, prog remote.Progress, login *askpass.Session, restar
 		if b.remote {
 			exe = link.Exe()
 		}
-		prog.Status("Upgrading the session server of " + b.label() + "…")
+		prog.Status("Upgrading the session server on " + b.label() + "…")
 		prog.Log(fmt.Sprintf("upgrading the server (%s, protocol %d, pid %d) to %s", h.Exe, h.Version, h.PID, exe))
 		nc, err := client.Upgrade(h, exe)
 		if errors.Is(err, rex.ErrNoUpgrade) {
-			prog.Log(fmt.Sprintf("%v: restarting it, ending its sessions", err))
+			prog.Log(fmt.Sprintf("%v: restarting the server, which ends its sessions", err))
 			nc, err = client.Restart(h.PID)
 		}
 		if err != nil {
@@ -319,7 +319,7 @@ func (a *App) connectLoop(win *mygo.Window, b binding, gen int64, attempts int, 
 			// Retrying would only go on with the other GoRex.
 			win.Update(func() {
 				if current() {
-					a.status = "Stopped: another GoRex keeps replacing the session server of " + b.label()
+					a.status = "Stopped: another GoRex keeps replacing the session server on " + b.label()
 					a.connDown = true
 					a.err = loop.Error()
 					a.errAction, a.errRun = "Connect Again", a.connectAgain
@@ -408,7 +408,7 @@ func (a *App) attachBinding(win *mygo.Window, b binding, gen int64, client *rex.
 		a.logOpen, a.logAuto = false, false
 	}
 	if h.Version != rex.ProtocolVersion {
-		a.err = fmt.Sprintf("The session server on %s speaks protocol %d; this GoRex speaks %d. Replacing it with this GoRex's server keeps its sessions on Linux and macOS, and ends them on Windows.",
+		a.err = fmt.Sprintf("The session server on %s uses protocol %d, but this GoRex uses protocol %d. Replacing it with this GoRex's server keeps its sessions on Linux and macOS, but ends them on Windows.",
 			b.label(), h.Version, rex.ProtocolVersion)
 		a.errAction, a.errRun = "Replace server", a.restartServer
 	}

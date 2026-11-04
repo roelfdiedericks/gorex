@@ -40,10 +40,10 @@ func (a *App) editorHeader(c *ui.Context, k *colors, t *Tab, p *Pane, focused, h
 				ui.Text(c, detail).FontSize(12.5).FontWeight(500).TextColor(k.text.Alpha(0.86)).SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
 			}
 			if e.elsewhere {
-				ui.Text(c, "closed elsewhere").FontSize(11.5).TextColor(k.attention).SingleLine().Shrink(0)
+				ui.Text(c, "closed in another window").FontSize(11.5).TextColor(k.attention).SingleLine().Shrink(0)
 			}
 			if e.onDisk != "" {
-				ui.Text(c, e.onDisk).FontSize(11.5).TextColor(k.attention).SingleLine().Shrink(0).Tooltip("The file on the host differs from this buffer: Reload File drops your changes, Save overwrites it.")
+				ui.Text(c, e.onDisk).FontSize(11.5).TextColor(k.attention).SingleLine().Shrink(0).Tooltip("The file on the host is different from this copy. Reload File discards your changes. Save overwrites the file.")
 			}
 		})
 		show := focused || hovered
@@ -79,9 +79,9 @@ func (a *App) editorHeader(c *ui.Context, k *colors, t *Tab, p *Pane, focused, h
 					if previewing {
 						// The renderer of the preview: the web view's, or
 						// MyGo's, on trial.
-						label, tooltip := "Web", "Previewed by the web view: click for MyGo's renderer"
+						label, tooltip := "Web", "Shown by the web view. Click to use MyGo's renderer."
 						if e.mode == modeNative {
-							label, tooltip = "MyGo", "Previewed by MyGo's renderer: click for the web view"
+							label, tooltip = "MyGo", "Shown by MyGo's renderer. Click to use the web view."
 						}
 						if textButton(c, k, label).Tooltip(tooltip).Clicked() {
 							t.setFocus(p)
@@ -154,14 +154,14 @@ func (a *App) editorBody(c *ui.Context, k *colors, t *Tab, p *Pane) {
 		}
 		switch {
 		case e.path == "":
-			a.editorNote(c, k, "No file open", "Choose a file in the browser, or press Enter on one to open it here.")
+			a.editorNote(c, k, "No file open", "Choose a file in the browser, or select one and press Enter, to open it here.")
 		case e.loading:
 			a.editorNote(c, k, "Loading…", e.path)
 		case e.err != "":
 			ui.Column(c).Grow(1).Center().Gap(10).Padding(16).Children(func() {
 				ui.Text(c, e.err).FontSize(12.5).TextColor(k.textMuted).MaxWidth(520)
 				ui.Row(c).Gap(8).Children(func() {
-					if e.tooLarge && textButton(c, k, "Open anyway").Clicked() {
+					if e.tooLarge && textButton(c, k, "Open Anyway").Clicked() {
 						a.loadFile(p, -1)
 					}
 					if textButton(c, k, "Reload").Clicked() {
@@ -210,7 +210,7 @@ func (a *App) editorBody(c *ui.Context, k *colors, t *Tab, p *Pane) {
 					a.changed()
 				}
 			} else {
-				a.editorNote(c, k, "No preview", "The web view could not be made.")
+				a.editorNote(c, k, "No preview", "The web view could not be created.")
 			}
 		} else if e.mode == modeChanges {
 			d := e.diff
@@ -275,7 +275,7 @@ func (a *App) viewBody(c *ui.Context, k *colors, t *Tab, p *Pane) {
 		pv = e.preview
 	}
 	if pv == nil || pv.web == nil {
-		a.editorNote(c, k, "Can't show "+baseName(e.path), "The web view could not be made.")
+		a.editorNote(c, k, "Can't show "+baseName(e.path), "The web view could not be created.")
 		return
 	}
 	v := ui.WebView(c.Key("view"), pv.web).Grow(1).FillWidth().MinHeight(0)

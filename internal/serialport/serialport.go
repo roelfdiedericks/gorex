@@ -269,13 +269,13 @@ func classify(path string, err error) error {
 	}
 	switch {
 	case code == serial.PortNotFound || errors.Is(err, fs.ErrNotExist):
-		return &OpenError{Missing: true, msg: path + " is not there"}
+		return &OpenError{Missing: true, msg: path + " was not found"}
 	case code == serial.PortBusy:
 		return &OpenError{Busy: true, msg: path + " is in use by another program"}
 	case code == serial.PermissionDenied || errors.Is(err, fs.ErrPermission):
 		return &OpenError{msg: "No permission to open " + path + permissionHint(path)}
 	case code == serial.InvalidSpeed:
-		return &OpenError{msg: path + " does not take that speed"}
+		return &OpenError{msg: path + " does not support that speed"}
 	}
-	return &OpenError{msg: "Can't open " + path + ": " + err.Error()}
+	return &OpenError{msg: "Cannot open " + path + ": " + err.Error()}
 }

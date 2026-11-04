@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>GoRex: a terminal of tabs, panes and sessions that stay</title>
+<title>GoRex: a terminal with tabs, panes and sessions that keep running</title>
 <link rel="icon" type="image/png" href="icon.png">
 <link rel="apple-touch-icon" href="icon.png">
-<meta name="description" content="GoRex is a native terminal of tabs and split panes whose sessions outlive the app, on this machine or on your servers over ssh.">
+<meta name="description" content="GoRex is a native terminal with tabs and split panes. Its sessions keep running after you quit the app, on this computer or on your servers over ssh.">
 <style>
   :root {
     --bg: #0f1115;
@@ -55,7 +55,7 @@
 <body>
 <main>
   <div class="brand"><img src="icon.png" alt=""><h1>GoRex</h1></div>
-  <p class="tagline">A terminal of tabs and split panes whose sessions stay: quit it, open it again, and everything is where you left it.</p>
+  <p class="tagline">A terminal with tabs and split panes whose sessions keep running. Quit it, open it again, and everything is where you left it.</p>
 
   <div class="download">
     <div class="tabs" role="tablist">
@@ -66,21 +66,21 @@
     <div class="platform" id="platform"></div>
   </div>
 
-  <img class="shot" src="screenshot.png" alt="GoRex showing omp natively, its settings sheet open beside the transcript">
+  <img class="shot" src="screenshot.png" alt="GoRex running omp, with the settings sheet open next to the transcript">
 
   <h2>What it does</h2>
   <ul class="features">
-    <li><strong>Sessions that stay</strong>: shells run in a session server of their own, so quitting GoRex leaves them running, and every tab and pane comes back.</li>
-    <li><strong>Your servers too</strong>: <code>gorex ssh user@host</code> opens a window on sessions that live on that host. GoRex copies its server there over ssh and reconnects when the link drops.</li>
-    <li><strong>Tabs and split panes</strong>, with each pane's program, directory and status in its header.</li>
-    <li><strong>An editor</strong> with a file tree, the changes git sees, and a Markdown preview.</li>
-    <li><strong>Built for coding agents</strong>: images (Kitty graphics), pasting images into programs that take them, and what agents report they are doing.</li>
-    <li><strong>Native</strong>: Go and Ghostty's terminal emulator; the Markdown and file previews use the system's web view.</li>
+    <li><strong>Sessions that stay</strong>: shells run in a separate session server. When you quit GoRex, they keep running, and every tab and pane comes back when you open it again.</li>
+    <li><strong>Your servers too</strong>: <code>gorex ssh user@host</code> opens a window with sessions that run on that host. GoRex copies its server to the host over ssh and reconnects if the connection drops.</li>
+    <li><strong>Tabs and split panes</strong>. Each pane's header shows its program, directory and status.</li>
+    <li><strong>An editor</strong> with a file tree, a list of your git changes, and a Markdown preview.</li>
+    <li><strong>Built for coding agents</strong>: it shows images (Kitty graphics), lets you paste images into programs that accept them, and shows what agents say they are doing.</li>
+    <li><strong>Native</strong>: built with Go and Ghostty's terminal emulator. The Markdown and file previews use the system's web view.</li>
   </ul>
 
   <h2>Updates</h2>
-  <p>GoRex checks for a new version after it starts and once a day, and offers to install it: Check for Updates… in the command
-  palette asks now. What changed in each version is in the <a href="https://github.com/roelfdiedericks/gorex/blob/master/CHANGELOG.md">changelog</a>.</p>
+  <p>GoRex checks for a new version when it starts and once a day, and offers to install it. To check now, run Check for Updates… from the command
+  palette. The <a href="https://github.com/roelfdiedericks/gorex/blob/master/CHANGELOG.md">changelog</a> lists what changed in each version.</p>
 
   <footer>gorex.goclaw.org · <a href="https://github.com/roelfdiedericks/gorex">source</a></footer>
 </main>
@@ -89,22 +89,22 @@
     windows: {
       manifest: "update-windows-amd64.json",
       html: `<a class="button" href="download/GoRex-Setup-amd64.exe">Download for Windows</a>
-        <p class="note">Version <code class="version">…</code>, Windows 10 and 11 (x64). Installs for you alone, puts
-        <code>gorex</code> on your PATH, and updates itself. The installer is not signed: Windows SmartScreen asks you to
-        confirm it (More info, Run anyway).</p>`
+        <p class="note">Version <code class="version">…</code>, Windows 10 and 11 (x64). It installs for your user only, adds
+        <code>gorex</code> to your PATH, and updates itself. The installer is not signed, so Windows SmartScreen asks you to
+        confirm it: click More info, then Run anyway.</p>`
     },
     macos: {
       manifest: "update-darwin-arm64.json",
       html: `<a class="button" href="download/GoRex-arm64.dmg">Download for macOS</a>
         <p class="note">Version <code class="version">…</code>, Apple silicon, macOS 13 or later. Drag GoRex to
-        Applications; it updates itself. It is not notarized: the first time, right-click GoRex and choose Open, or run
+        Applications; it updates itself. The app is not notarized. The first time, right-click GoRex and choose Open, or run
         <code>xattr -dr com.apple.quarantine /Applications/GoRex.app</code>.</p>`
     },
     linux: {
       manifest: "update-linux-amd64.json",
       html: `<div class="command"><code>curl -fsSL https://gorex.goclaw.org/updates/install.sh | sh</code></div>
-        <p class="note">Version <code class="version">…</code>, x86-64 with GTK 3, and WebKitGTK 4.1 for the previews. Installs for you alone in
-        <code>~/.local</code>, where it updates itself. Or the <a href="download/gorex-amd64.deb">Debian package</a>,
+        <p class="note">Version <code class="version">…</code>, x86-64 with GTK 3. The previews need WebKitGTK 4.1. The script installs GoRex for your user only in
+        <code>~/.local</code>, and it updates itself there. You can also use the <a href="download/gorex-amd64.deb">Debian package</a>,
         which apt updates.</p>`
     }
   };

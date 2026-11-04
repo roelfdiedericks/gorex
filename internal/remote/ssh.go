@@ -153,9 +153,9 @@ func (p *sshProc) err() error {
 		asked, cancelled, refused := p.login.Outcome()
 		switch {
 		case cancelled:
-			return &StopError{Reason: "Login to " + p.t.Spec + " cancelled"}
+			return &StopError{Reason: "Login to " + p.t.Spec + " was cancelled"}
 		case refused:
-			return &StopError{Reason: "Not connected: the key of " + p.t.Spec + " was not trusted"}
+			return &StopError{Reason: "Not connected, because the host key of " + p.t.Spec + " was not trusted"}
 		case asked && strings.Contains(out, "Permission denied"):
 			return &StopError{Reason: "Login to " + p.t.Spec + " failed: " + msg}
 		}
@@ -165,7 +165,7 @@ func (p *sshProc) err() error {
 		if p.t.Port != "" && p.t.Port != "22" {
 			host = "[" + host + "]:" + p.t.Port
 		}
-		return &StopError{Reason: "The key of " + p.t.Spec + " has changed since ssh last saw it, which ssh refuses. If the host was reinstalled, remove its old key with: ssh-keygen -R \"" + host + "\", then Retry."}
+		return &StopError{Reason: "The host key of " + p.t.Spec + " has changed since ssh last saw it, so ssh refuses to connect. If the host was reinstalled, remove the old key with ssh-keygen -R \"" + host + "\" and then click Retry."}
 	}
 	if p.login == nil && strings.Contains(out, "Host key verification failed") {
 		msg += " (run ssh " + p.t.Spec + " once in a terminal to accept its host key)"
@@ -231,7 +231,7 @@ const handshakeLines = 200
 
 // errNoisyHost tells a host whose login printed handshakeLines lines with
 // no answer from GoRex among them, and may go on printing.
-var errNoisyHost = fmt.Errorf("no answer from GoRex among the first %d lines the host printed", handshakeLines)
+var errNoisyHost = fmt.Errorf("no answer from GoRex in the first %d lines that the host printed", handshakeLines)
 
 // readHandshake reads the first line of the remote script's own: a
 // bridge's ready line, the request of a deployment with the system that

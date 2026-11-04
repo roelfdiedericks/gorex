@@ -114,7 +114,7 @@ func sessionHost(s puttySession, defaults map[string]string, sessions map[string
 	if user == "" && v["UserNameFromEnvironment"] != "1" {
 		if d := defaults["UserName"]; d != "" {
 			user = d
-			c.notes = append(c.notes, "user "+d+", as Default Settings has it")
+			c.notes = append(c.notes, "User "+d+", taken from Default Settings")
 		}
 	}
 	c.spec = host
@@ -127,20 +127,20 @@ func sessionHost(s puttySession, defaults map[string]string, sessions map[string
 	method := v["ProxyMethod"]
 	if method == "" && v["ProxyType"] != "" && v["ProxyType"] != "0" {
 		// Before ProxyMethod, PuTTY kept ProxyType.
-		c.notes = append(c.notes, "its proxy isn't imported")
+		c.notes = append(c.notes, "The proxy isn't imported")
 	}
 	switch name := importProxies[method]; {
 	case method == "6":
 		if jump := jumpHost(v, sessions); jump != "" {
 			c.options = append(c.options, "-J", jump)
 		} else {
-			c.notes = append(c.notes, "its jump host names no host")
+			c.notes = append(c.notes, "The jump host setting has no host name")
 		}
 	case name != "":
-		c.notes = append(c.notes, "its proxy ("+name+") isn't imported")
+		c.notes = append(c.notes, "The proxy ("+name+") isn't imported")
 	}
 	if sel := v["ProxySelection"]; sel != "" && sel != "- Session defined proxy -" {
-		c.notes = append(c.notes, "its KiTTY proxy "+sel+" isn't imported")
+		c.notes = append(c.notes, "The KiTTY proxy "+sel+" isn't imported")
 	}
 	if v["Compression"] == "1" {
 		c.options = append(c.options, "-C")
@@ -160,7 +160,7 @@ func sessionHost(s puttySession, defaults map[string]string, sessions map[string
 		}
 	}
 	if strings.TrimSpace(v["RemoteCommand"]) != "" {
-		c.notes = append(c.notes, "its remote command isn't imported")
+		c.notes = append(c.notes, "The remote command isn't imported")
 	}
 	return c, true
 }
@@ -358,15 +358,15 @@ func (a *App) scanImport(f *importForm) {
 			}
 			switch info.kind {
 			case ppkInAgent:
-				c.notes = append(c.notes, "key "+filepath.Base(c.puttyKey)+" is in "+info.agent+", which ssh uses")
+				c.notes = append(c.notes, "Key "+filepath.Base(c.puttyKey)+" is already in "+info.agent+", so ssh can use it")
 			case ppkConvert:
-				c.notes = append(c.notes, "key "+c.puttyKey+" is PuTTY's: convert it in the host's settings")
+				c.notes = append(c.notes, "Key "+c.puttyKey+" is in PuTTY's format. Convert it in Host Settings")
 			case ppkPublicOnly:
-				c.notes = append(c.notes, "key "+c.puttyKey+" holds only a public key")
+				c.notes = append(c.notes, "Key file "+c.puttyKey+" contains only a public key")
 			case ppkOpenSSH:
 				c.identity, c.puttyKey = c.puttyKey, ""
 			case ppkBad:
-				c.notes = append(c.notes, "key "+c.puttyKey+": "+info.err)
+				c.notes = append(c.notes, "Key "+c.puttyKey+": "+info.err)
 			}
 		}
 		var wg sync.WaitGroup
@@ -383,7 +383,7 @@ func (a *App) scanImport(f *importForm) {
 				}
 				t, err := remote.Resolve(c.spec, opts)
 				if err != nil {
-					c.blocked = "ssh makes no host of it: " + err.Error()
+					c.blocked = "ssh can't resolve this host: " + err.Error()
 					return
 				}
 				c.key = t.Key()
@@ -399,9 +399,9 @@ func (a *App) scanImport(f *importForm) {
 			switch {
 			case c.blocked != "":
 			case have[c.key]:
-				c.blocked = "already in GoRex"
+				c.blocked = "Already in GoRex"
 			case first[c.key] != "":
-				c.blocked = "the same host as " + first[c.key]
+				c.blocked = "Same host as " + first[c.key]
 			default:
 				first[c.key] = c.s.Name
 			}
@@ -441,7 +441,7 @@ func (a *App) importChosen(f *importForm) {
 	if n == 1 {
 		what = "1 host"
 	}
-	a.toast(ui.Toast{ID: "import", Title: "Imported " + what, Description: "from PuTTY and KiTTY: they are in the host list.", Timeout: 3 * time.Second})
+	a.toast(ui.Toast{ID: "import", Title: "Imported " + what, Description: "From PuTTY and KiTTY. They are now in the host list.", Timeout: 3 * time.Second})
 }
 
 // importDialog draws the import dialog: the sessions found, each as the
@@ -461,10 +461,10 @@ func (a *App) importDialog(c *ui.Context, k *colors) {
 		case f.loading:
 			ui.Text(c, "Reading the saved sessions…").FontSize(12.5).TextColor(k.textMuted)
 		case len(f.rows) == 0:
-			ui.Text(c, "No saved ssh sessions of PuTTY or KiTTY were found. A KiTTY that keeps its sessions in a folder of its own may be chosen.").
+			ui.Text(c, "No saved ssh sessions were found in PuTTY or KiTTY. If your KiTTY keeps its sessions in a folder, choose that folder.").
 				FontSize(12.5).TextColor(k.textMuted).LineHeight(1.45)
 		default:
-			ui.Text(c, "Each becomes a host of GoRex's server, named as its session. Sessions of hosts GoRex has are left out.").
+			ui.Text(c, "Each session becomes a host that uses GoRex's server, with the session's name. Sessions for hosts already in GoRex are not imported.").
 				FontSize(12).TextColor(k.textFaint).LineHeight(1.4)
 			ui.Scroll(c.Key("import-rows")).MaxHeight(420).Children(func() {
 				ui.Column(c).Gap(10).Children(func() {
@@ -478,7 +478,7 @@ func (a *App) importDialog(c *ui.Context, k *colors) {
 			ui.Text(c, p).FontSize(11.5).TextColor(ui.Hex("#ef4444")).LineHeight(1.35).Selectable()
 		}
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-			if textButton(c, k, "Choose KiTTY folder…").Clicked() && !f.loading {
+			if textButton(c, k, "Choose KiTTY Folder…").Clicked() && !f.loading {
 				a.chooseKittyFolder(f)
 			}
 			// One button ticks every session that can be imported, or,
@@ -563,7 +563,7 @@ func (a *App) importRow(c *ui.Context, k *colors, r *importCandidate) {
 func (a *App) chooseKittyFolder(f *importForm) {
 	win := a.win
 	go func() {
-		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: win, Title: "KiTTY's folder", Directory: true})
+		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: win, Title: "Choose KiTTY's sessions folder", Directory: true})
 		if err != nil || len(paths) == 0 || win == nil {
 			return
 		}

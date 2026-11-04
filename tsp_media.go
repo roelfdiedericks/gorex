@@ -333,7 +333,7 @@ func mediaReadDisk(client *rex.Client, file, kind string) (d mediaData, data []b
 		return d, nil
 	}
 	if fi.Size > limit {
-		d.err = fmt.Sprintf("over %s, too large to show here", sizeText(limit))
+		d.err = fmt.Sprintf("larger than %s, too large to show here", sizeText(limit))
 		return d, nil
 	}
 	fd, err := client.ReadFile(file, limit)
@@ -360,7 +360,7 @@ func mediaReadRev(client *rex.Client, file, rev, kind, blob string) (d mediaData
 	case err != nil && strings.Contains(err.Error(), rex.ErrTooLarge):
 		d.found, d.size = true, sizeIn(err.Error())
 		if !probe {
-			d.err = fmt.Sprintf("over %s, too large to show here", sizeText(limit))
+			d.err = fmt.Sprintf("larger than %s, too large to show here", sizeText(limit))
 		}
 	case err != nil:
 		d.err = err.Error()
@@ -423,7 +423,7 @@ func mediaDecode(data []byte) (*ui.Bitmap, error) {
 		return nil, errors.New("not a picture GoRex can show")
 	}
 	if cfg.Width > mediaSide || cfg.Height > mediaSide {
-		return nil, fmt.Errorf("%d×%d, over %d pixels a side", cfg.Width, cfg.Height, mediaSide)
+		return nil, fmt.Errorf("%d×%d, more than %d pixels on a side", cfg.Width, cfg.Height, mediaSide)
 	}
 	bm, err := ui.DecodeBitmap(data)
 	if err != nil {
@@ -440,7 +440,7 @@ func mediaDecode(data []byte) (*ui.Bitmap, error) {
 func (a *App) openPaneFile(p *Pane, path string) {
 	file := mediaPath(p, path)
 	if !mediaOpenable(file) {
-		a.toast(ui.Toast{Title: "Can't show " + baseName(file), Description: "Not a file GoRex's viewer or editor shows.", Timeout: 4 * time.Second})
+		a.toast(ui.Toast{Title: "Can't show " + baseName(file), Description: "GoRex's viewer and editor can't open this kind of file.", Timeout: 4 * time.Second})
 		return
 	}
 	for i, t := range a.tabs {

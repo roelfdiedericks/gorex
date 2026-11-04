@@ -264,7 +264,7 @@ func (a *App) loadFile(p *Pane, max int64) {
 				e.err = err.Error()
 				if strings.Contains(err.Error(), rex.ErrTooLarge) {
 					e.tooLarge = true
-					e.err = fmt.Sprintf("%s is %s; files over %s are not opened by themselves.", baseName(path), sizeText(sizeIn(err.Error())), sizeText(max))
+					e.err = fmt.Sprintf("%s is %s. Files over %s are not opened automatically.", baseName(path), sizeText(sizeIn(err.Error())), sizeText(max))
 				}
 				return
 			}
@@ -421,7 +421,7 @@ func (a *App) askChanged(p *Pane) {
 	e := p.edit
 	res, err := mygo.Dialog.Message(mygo.MessageOptions{
 		Parent: a.win, Type: mygo.MessageWarning, Title: baseName(e.path) + " changed on disk",
-		Message: "Something else wrote the file since it was opened here. Overwrite it with your edits, or reload it and lose them?",
+		Message: "The file was changed after you opened it here. Do you want to overwrite it with your edits, or reload it and lose your edits?",
 		Buttons: []string{"Overwrite", "Reload", "Cancel"}, DefaultButton: 2, CancelButton: 2,
 	})
 	if err != nil {

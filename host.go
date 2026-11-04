@@ -216,10 +216,10 @@ func (a *App) hostPanel(c *ui.Context, k *colors, name, glyph string) {
 	})
 	switch {
 	case a.bind.plain:
-		ui.Text(c, "A plain ssh host: its tabs run ssh from this PC, and GoRex shows none of its files or git.").
+		ui.Text(c, "A plain ssh host. Its tabs run ssh on this PC, and GoRex doesn't show its files or git.").
 			FontSize(11.5).TextColor(k.textFaint).LineHeight(1.35)
 	case a.bind.serial != "":
-		ui.Text(c, "A serial port of this PC: its session stays open while GoRex is closed, and waits for the port when it is unplugged.").
+		ui.Text(c, "A serial port on this PC. Its session stays open while GoRex is closed. If the port is unplugged, the session waits for it to come back.").
 			FontSize(11.5).TextColor(k.textFaint).LineHeight(1.35)
 	}
 	ui.Divider(c)
@@ -241,14 +241,14 @@ func (a *App) hostPanel(c *ui.Context, k *colors, name, glyph string) {
 		row("Sessions", fmt.Sprintf("%d open, %d running a program", sessions, running))
 	})
 	if a.bind.plain {
-		ui.Text(c, "Sessions live in a server on this PC: quit GoRex and they keep running, and come back as they were when it opens again, as long as their connections last.").
+		ui.Text(c, "Sessions run in a server on this PC. If you quit GoRex, they keep running. When GoRex opens again, they come back as they were, as long as their connections are still up.").
 			FontSize(11.5).TextColor(k.textFaint).LineHeight(1.35)
 		return
 	}
 	if a.bind.serial != "" {
 		return
 	}
-	ui.Text(c, "Sessions live in the server: quit GoRex and they keep running, and come back as they were when it opens again.").
+	ui.Text(c, "Sessions run in the server. If you quit GoRex, they keep running. When GoRex opens again, they come back as they were.").
 		FontSize(11.5).TextColor(k.textFaint).LineHeight(1.35)
 }
 
@@ -468,7 +468,7 @@ func (a *App) hostsSection(c *ui.Context, k *colors) {
 	case p >= 0:
 		hint = "↵ switch to " + entries[p].title
 	case hostQueryText(a.hostQuery) != "":
-		hint = "↵ connect to ssh " + hostQueryText(a.hostQuery)
+		hint = "↵ connect with ssh to " + hostQueryText(a.hostQuery)
 	}
 	if hint != "" {
 		ui.Text(c, hint).FontSize(11.5).TextColor(k.textFaint).SingleLine().Ellipsis("…")
@@ -492,7 +492,7 @@ func (a *App) hostsSection(c *ui.Context, k *colors) {
 		// the window's own host), and forgetting it, which asks first.
 		slot := func() { ui.Box(c).Size(24, 24).Shrink(0) }
 		if len(shown) == 0 {
-			ui.Text(c, "No saved host matches.").FontSize(12).TextColor(k.textFaint).Padding(6, 6)
+			ui.Text(c, "No saved hosts match.").FontSize(12).TextColor(k.textFaint).Padding(6, 6)
 		}
 		picked := pick()
 		for _, i := range shown {

@@ -84,7 +84,7 @@ func serve(state string) error {
 			return err
 		}
 		if err := lockFile(lock); err != nil {
-			return errors.New("rex: a server already runs")
+			return errors.New("rex: a server is already running")
 		}
 		os.Remove(sock)
 		if ln, err = net.Listen("unix", sock); err != nil {
@@ -387,7 +387,7 @@ func (s *Server) do(req Request) (any, error) {
 		}
 		st, ok := ss.p.(*serialTTY)
 		if !ok {
-			return nil, errors.New("not a serial port's session")
+			return nil, errors.New("not a serial port session")
 		}
 		switch req.Op {
 		case "serialBreak":

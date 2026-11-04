@@ -105,7 +105,7 @@ func main() {
 			a.bind = serialBinding(r)
 			a.stateKey = a.bind.key()
 		} else {
-			a.err = "No serial host is named " + strings.Join(os.Args[2:], " ") + ": add it in Add Host…, as a serial port."
+			a.err = "No serial host is named " + strings.Join(os.Args[2:], " ") + ". Add it with Add Host… and choose Serial port."
 		}
 	} else if a.eff.General.StartWith == "lastHost" {
 		// The host used last, as the settings say, when none is named.
@@ -146,7 +146,7 @@ func main() {
 // standard output carries nothing else.
 func runBridge(profile string) {
 	if profile == "" || profile == "." || profile == ".." || strings.ContainsAny(profile, `/\`) {
-		log.Fatalf("bad profile %q", profile)
+		log.Fatalf("invalid profile name %q", profile)
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {

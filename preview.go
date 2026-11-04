@@ -495,7 +495,7 @@ func (a *App) renderPreview(p *Pane) {
 					pv.busy = false
 					if err != nil {
 						log.Printf("preview: %v", err)
-						pv.phase = "the page failed: " + err.Error()
+						pv.phase = "the page reported an error: " + err.Error()
 					} else {
 						pv.version, pv.path, pv.base = v, path, base
 						pv.phase = ""
@@ -624,7 +624,7 @@ func (a *App) openHostPath(p *Pane, target, fragment string) {
 					a.previewWhenLoaded(np, fragment)
 				}
 			default:
-				a.toast(ui.Toast{Title: "Can't show " + baseName(target), Description: "Not a file the preview shows.", Timeout: 4 * time.Second})
+				a.toast(ui.Toast{Title: "Can't show " + baseName(target), Description: "The preview can't show this kind of file.", Timeout: 4 * time.Second})
 			}
 		})
 	}()

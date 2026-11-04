@@ -1,291 +1,370 @@
 # Changelog
 
-The version of each release is its heading here, which `mygo.json`'s
-`version` must match: `make website` refuses to build otherwise, and
-refuses a version already published.
+Each release's version is its heading in this file. The `version` in
+`mygo.json` must match the top heading. Otherwise `make website` refuses
+to build. It also refuses to build a version that is already published.
 
 ## 0.1.13
 
-- Pageant (Windows): Settings, Hosts, *ssh agent* chooses the agent
-  GoRex's ssh logs in with. Automatic, the default, uses Pageant, or
-  KiTTY's Kageant, when it runs, so that the keys loaded in it log in to
-  hosts and Forward ssh agent passes them on; else Windows' own
-  ssh-agent. Pageant or Windows ssh-agent can be chosen too. A dot marks
-  the agent in use, green when it answers, red when not, and the line
-  under it says how many keys it holds. `gorex doctor` tells it too.
-- PuTTY keys (.ppk), which ssh can't read: a host's settings, for a host
-  imported with one or an identity file that is one, say when the key is
-  in the agent already, and otherwise convert it, after its passphrase,
-  into your .ssh folder in OpenSSH's format, with the same passphrase and
-  its .pub beside it, never over a file there. Convert PuTTY Key… in the
-  palette converts any. PuTTYgen's formats 2 and 3, with RSA, ECDSA and
-  Ed25519 keys. The import dialog says what each session's key needs.
+- New setting on Windows: *ssh agent*, in Settings › Hosts. It chooses
+  the agent that GoRex's ssh uses to log in.
+- The default, Automatic, uses Pageant (or KiTTY's Kageant) when it is
+  running. GoRex then logs in to hosts with the keys loaded in Pageant,
+  and Forward ssh agent passes those keys on. When Pageant is not
+  running, GoRex uses the Windows ssh-agent.
+- You can also choose Pageant or the Windows ssh-agent directly.
+- A dot marks the agent in use: green when it answers, red when it does
+  not. The line under it shows how many keys the agent holds.
+  `gorex doctor` shows this too.
+- ssh cannot read PuTTY keys (.ppk files). For a host that uses one,
+  Host Settings now shows whether the key is already in the agent.
+- If it is not, Host Settings can convert the key to OpenSSH format.
+  Enter the key's passphrase if it has one. The converted key goes into
+  your .ssh folder with the same passphrase and a .pub file beside it.
+  An existing file is never overwritten.
+- Convert PuTTY Key… in the palette converts any PuTTY key.
+- Conversion supports PuTTYgen formats 2 and 3, with RSA, ECDSA and
+  Ed25519 keys.
+- The import dialog shows what each session's key needs.
 
 ## 0.1.12
 
-- Import Hosts from PuTTY / KiTTY… (Windows, in the palette) makes hosts
-  of the saved ssh sessions of PuTTY and KiTTY: in the registry, or in
-  the folder of a KiTTY that keeps them in one, found by its kitty.ini or
-  chosen. Each becomes a host named as its session, with its user (a
-  session without one takes Default Settings'), port, agent forwarding,
-  ssh jump host, compression and key. The dialog says what doesn't carry
-  over, as other proxies or a remote command, leaves out the hosts GoRex
-  has, and has Select All / Select None. ssh can't read PuTTY's .ppk
-  keys: the host's settings say to export one from PuTTYgen.
-- The host popover filters its hosts as you type, by name or address:
-  Enter switches to the one left, or the one chosen with ↑↓, and
-  otherwise connects to what you typed, as before. An address picks only
-  a host of that address in full. A line under the field says what Enter
-  does; Escape clears the text first.
-- Each host in the list has its machine's icon, as the host chip's, and
-  the window's own has a dot of its connection's color. A host shows its
-  machine's icon once connected to with this version.
-- omp's composer, with GoRex's TSP: an image pasted in a message stays
-  in it when sent, as omp's own Enter does, also while omp's turn runs.
+- New palette command on Windows: Import Hosts from PuTTY / KiTTY….
+  It creates hosts from the saved ssh sessions of PuTTY and KiTTY.
+- It reads sessions from the registry. It also reads sessions that
+  KiTTY stores as files in a folder. GoRex finds that folder through
+  kitty.ini, or you can choose it.
+- Each session becomes a host with the session's name. The host gets the
+  session's user, port, agent forwarding, ssh jump host, compression and
+  key. A session without a user gets the user from PuTTY's Default
+  Settings.
+- The dialog shows what does not carry over, such as other proxies or a
+  remote command. It leaves out hosts that GoRex already has. It has
+  Select All and Select None.
+- ssh cannot read PuTTY's .ppk keys. For such a host, Host Settings tells
+  you to export the key from PuTTYgen.
+- The host popover now filters hosts by name or address as you type.
+- Enter switches to the only remaining host, or to the host you chose
+  with ↑↓. Otherwise Enter connects to what you typed, as before.
+- If you type an address, only a host with exactly that address matches.
+- A line under the field shows what Enter will do. Escape clears the
+  text first.
+- Each host in the list shows its machine's icon, like the host chip.
+  The current window's host also has a dot in its connection's color.
+- A host shows its machine's icon after you connect to it once with this
+  version.
+- Fixed: with the Tern Surface Protocol on, an image pasted into omp's
+  composer was lost when you sent the message. It now stays in the
+  message, as with omp's own Enter, also while omp is working on a turn.
 
 ## 0.1.11
 
-- Serial ports: Add Host…, Connect with Serial port, makes a host of a
-  port of this PC, as a switch's, a router's or a board's console. The
-  dialog lists the ports as they are plugged in, each with its adapter's
-  name over its path, USB IDs and serial number, marking one another
-  host has open or one not plugged in; it takes the speed (115200 by
-  default, or any other), the framing (8N1, 7E1… or data bits, parity
-  and stop bits), what Enter and Backspace send, and local echo. The
-  host is named by its port first, as "COM8 · USB-Enhanced-SERIAL
-  CH9102 · 115200", and the host chip tells the port too.
-- A serial host's window has the port's one session, in a session server
-  of its own on this PC, which keeps the port open while GoRex is
-  closed. An adapter unplugged is waited for and found again, by its
-  serial number or USB IDs, wherever it comes back. Send Break (⇧⌘B,
-  Ctrl+Shift+B) sends a break; Release Port closes the port for another
-  program, and Enter opens it again. Settings changed in the dialog apply
-  to the open port at once. A port another serial host has open, the
-  pane says whose, and Enter takes it over. `gorex serial <name>` opens a
-  window on one.
-- The host chip has a menu when right-clicked: Reconnect, Host
-  Settings…, Open in New Window, Copy Address and Copy ssh Command, the
-  Connection Log, Restart Session Server… (which says first whether the
-  sessions keep running: they do on Linux and macOS hosts), Switch to the
-  hosts used last, Add Host… and Settings…. The palette has Host
-  Settings… and Restart Session Server… too.
-- The host popover is wider and scrolls when the window is too short for
-  it. Its ssh user@host field comes before the hosts and takes the
-  keyboard as it opens. Each host's actions show always, in columns:
-  settings (This PC's open the Defaults), a window of its own or
-  reconnect, and forget, which asks first.
+- Serial ports: in Add Host…, set Connect with to Serial port to create
+  a host for a serial port on this PC, such as the console of a switch,
+  a router or a board.
+- The dialog lists the ports and updates as you plug them in. Each port
+  shows its adapter's name above its path, USB IDs and serial number.
+  The dialog marks a port that another host has open, and a port that is
+  not plugged in.
+- The dialog sets the speed (115200 by default, or any other) and the
+  framing (8N1, 7E1…, or data bits, parity and stop bits). It also sets
+  what Enter and Backspace send, and local echo.
+- The host's name starts with the port, for example
+  "COM8 · USB-Enhanced-SERIAL CH9102 · 115200". The host chip shows the
+  port too.
+- A serial host's window has one session for the port. The session runs
+  in its own session server on this PC, which keeps the port open while
+  GoRex is closed.
+- When an adapter is unplugged, GoRex waits for it. It finds the adapter
+  again by its serial number or USB IDs, whichever port it comes back on.
+- Send Break (⇧⌘B, Ctrl+Shift+B) sends a break signal.
+- Release Port closes the port so that another program can use it. Enter
+  opens it again.
+- Settings you change in the dialog apply to the open port at once.
+- If another serial host has the port open, the pane shows which host.
+  Enter takes the port over.
+- `gorex serial <name>` opens a window for a serial host.
+- Right-click the host chip for a menu: Reconnect, Host Settings…, Open
+  in New Window, Copy Address, Copy ssh Command, Connection Log, Restart
+  Session Server…, the most recently used hosts to switch to, Add Host…
+  and Settings….
+- Restart Session Server… first tells you whether the sessions keep
+  running. They do on Linux and macOS hosts.
+- The palette also has Host Settings… and Restart Session Server….
+- The host popover is wider. It scrolls when the window is too short
+  for it.
+- The ssh user@host field now comes before the hosts and has the
+  keyboard focus when the popover opens.
+- Each host's actions are always visible, in fixed columns: settings,
+  open in a new window (reconnect, for the window's own host), and
+  forget. For This PC, settings opens the Defaults. Forget asks first.
 
 ## 0.1.10
 
-- Plain ssh hosts: a host where GoRex's server can't run, or that you
-  want so, is reached with ssh alone. Its tabs and panes each run `ssh`
-  from this PC, in a session server of the host's own here, with its own
-  tabs and layout, and it is switched to from the host list as any host.
-  Its sessions outlive the window, but not their connections: one that
-  ends other than by logging out says so, and Enter connects it again.
-  Editor tabs and the files of omp's cards, which need GoRex's server on
-  the host, show greyed out.
-- Host settings: Add Host… (in the host list, Settings, Hosts, and the
-  palette) and each host's settings (⚙ in the host list, Edit… in
-  Settings, Hosts) give a host a name, its ssh destination, an identity
-  file, more ssh options every ssh to it takes (`-p 2222 -o
-  ProxyJump=bastion`), Forward ssh agent, and how GoRex reaches it: with
-  its server there, in a folder of your choice (`~/.cache/gorex` when
-  empty), or with plain ssh, with a command to run there. Serial ports
-  are to come.
-- When GoRex's server can't run on a host (no server for its system, too
-  old a glibc, or a folder that runs no programs, as a home mounted
-  noexec), Settings, General, *When GoRex's server can't run on a host*
-  decides: ask (the default), with Try other folders and Connect with
-  plain ssh; try other folders, then plain ssh; or plain ssh. Other
-  folders are folders of your own in the runtime folder, `/var/tmp`,
-  `/dev/shm` and `/tmp`, the first where a program runs. The host's
-  settings keep what was done, and later connections follow them.
-  Failing logins and hosts out of reach never fall back.
-- A folder GoRex makes for its server on a host is yours alone, and
-  GoRex runs no server from a folder of another user's.
+- Plain ssh hosts: GoRex can reach a host with ssh alone. Use this when
+  GoRex's server cannot run on the host, or when you prefer it.
+- Each tab and pane of a plain ssh host runs `ssh` from this PC. These
+  sessions run in a separate session server on this PC for that host,
+  with their own tabs and layout. You switch to the host from the host
+  list like any other host.
+- The sessions outlive the window, but their connections do not. When a
+  connection ends for a reason other than logging out, the pane says so,
+  and Enter connects again.
+- Editor tabs and the files on omp's cards need GoRex's server on the
+  host, so they are greyed out on plain ssh hosts.
+- Host settings: Add Host… is in the host list, in Settings › Hosts and
+  in the palette. To change a host, click ⚙ in the host list, or Edit…
+  in Settings › Hosts.
+- In Host Settings you set the host's name, its ssh destination, an
+  identity file, and extra ssh options for every connection to it (for
+  example `-p 2222 -o ProxyJump=bastion`). You can also turn on Forward
+  ssh agent.
+- You also choose how GoRex reaches the host: with GoRex's server in a
+  folder you choose (`~/.cache/gorex` when empty), or with plain ssh and
+  a command to run on the host.
+- Serial ports will come in a later release.
+- Sometimes GoRex's server cannot run on a host: there is no server for
+  its system, its glibc is too old, or the folder cannot run programs
+  (for example a home folder mounted noexec). A new setting, *When
+  GoRex's server can't run on a host* in Settings › General, decides
+  what happens then:
+  - Ask (the default), with the buttons Try Other Folders and Connect
+    with Plain ssh.
+  - Try other folders, then plain ssh.
+  - Plain ssh.
+- The other folders are folders you own in your runtime folder
+  (`$XDG_RUNTIME_DIR`), `/var/tmp`, `/dev/shm` and `/tmp`. GoRex uses the
+  first one where programs can run.
+- GoRex saves what it did in the host's settings, and later connections
+  use it.
+- GoRex never falls back when a login fails or a host is out of reach.
+- A folder that GoRex creates for its server on a host is accessible to
+  you only. GoRex never runs a server from a folder that belongs to
+  another user.
 - `gorex ssh --plain user@host` connects with plain ssh, and `--server`
-  with GoRex's server, over the host's settings.
-- ssh's password prompts and the question of a host where GoRex's server
-  can't run show over the settings and every other dialog.
+  connects with GoRex's server. Both override the host's settings.
+- ssh password prompts, and the question shown when GoRex's server
+  cannot run on a host, now appear above Settings and every other
+  dialog.
 
 ## 0.1.9
 
-- GoRex connects to Linux hosts with glibc 2.17 or later, as Debian 8,
-  Ubuntu 14.04 and RHEL 7 have: the terminal library its server loads
-  there is GoRex's own, built for glibc 2.17, where MyGo's needs 2.28.
-  On a Debian 9 host (glibc 2.24) no session started: loading the
-  library failed with "version `GLIBC_2.27' not found".
-- A host whose glibc is older than the server needs gets nothing copied
-  and nothing started: GoRex says so, with the host's version and the
-  one needed, instead of a session failing to start.
+- GoRex now connects to Linux hosts with glibc 2.17 or later, such as
+  Debian 8, Ubuntu 14.04 and RHEL 7.
+- The server on the host now loads GoRex's own terminal library, built
+  for glibc 2.17. MyGo's library needs glibc 2.28.
+- Before, no session started on a Debian 9 host (glibc 2.24). Loading
+  the library failed with "version `GLIBC_2.27' not found".
+- If a host's glibc is older than the server needs, GoRex copies nothing
+  and starts nothing. Instead of a session failing to start, GoRex shows
+  the host's glibc version and the version needed.
 
 ## 0.1.8
 
-- A long omp transcript draws fast: of the hundreds of messages and
-  tools of a day's session, only those near the view are built and laid
-  out each frame, the rest standing as space of the height they were
-  measured at, until they change or come near. On a transcript of 815
-  of them, a frame took 37 ms while scrolling (27 frames a second) and
-  38 ms while a command ran; it takes 6 ms and 4 ms. Switching back to
-  its tab took half a second; it takes 4 ms.
-- Resizing a window over a long omp transcript is smooth: while the
-  width changes, only what is near the view is laid out again, the
-  transcript drawn from its end; the rest is measured again a few
-  messages a frame once the width stands. On the same transcript a
-  frame of the drag took 157 ms on average and up to half a second; it
-  takes 8 ms, and the second after it 13 ms a frame.
-- After a narrower window was made wider again, the end of omp's
-  transcript stood above a blank band over the composer, or out of the
-  view: the terminal keeps the rows it no longer needs in its
-  scrollback. The transcript now ends right over the composer.
-- Leaving omp from its composer, as with Ctrl+C twice, gives the keys
-  back to the terminal: the shell after it took none until a click.
-- Desktop notifications are off unless Settings turns them on (Show
-  desktop notifications): those of long commands, of programs' status
-  and those programs send. On Windows each came with an icon in the
-  notification area, one for each GoRex running, which could stay.
-- omp's BTW history reads well: the answer takes the room its list of
-  questions leaves, rather than a strip as narrow as a word, as GoRex
-  now follows the sizes programs give their nodes (shrink, min and max
-  widths and heights, a row's align). Page Up, Page Down, Home and End
-  in the answer scroll the sheet, not the terminal under it. A list's
-  selected item no longer pins the scroll of what holds it.
-- An overlay of panes side by side, as the BTW history's questions
-  beside the answer, is a sheet of its own height: each pane scrolls on
-  its own, the title and the buttons stay in view.
+- Long omp transcripts draw fast. A day's session can have hundreds of
+  messages and tool calls. GoRex now builds and lays out only the ones
+  near the view. The others keep their last measured height until they
+  change or scroll near the view.
+- On a transcript of 815 messages and tool calls, a frame took 37 ms
+  while scrolling (27 frames a second) and 38 ms while a command ran.
+  It now takes 6 ms and 4 ms.
+- Switching back to that transcript's tab took half a second. It now
+  takes 4 ms.
+- Resizing a window over a long omp transcript is smooth. While the
+  width changes, GoRex lays out again only what is near the view, and
+  draws the transcript from its end. When the width stops changing,
+  GoRex measures the rest again, a few messages per frame.
+- On the same transcript, a frame during the drag took 157 ms on average
+  and up to half a second. It now takes 8 ms, and 13 ms per frame in the
+  second after the drag.
+- Fixed: after you made a window narrower and then wider again, a blank
+  band could appear between the end of omp's transcript and the
+  composer, or the end was out of view. The transcript now ends right
+  above the composer.
+- Fixed: after you left omp from its composer (for example with Ctrl+C
+  twice), the shell received no keys until you clicked. The terminal
+  now gets the keys back.
+- Desktop notifications are now off unless you turn on Show desktop
+  notifications in Settings. This covers notifications for long
+  commands, for program status, and those that programs send.
+- On Windows, each notification added an icon to the notification area,
+  one for each running GoRex, and the icon could stay there.
+- omp's BTW history is easier to read. The answer now uses all the space
+  next to the list of questions. Before, it was a strip one word wide.
+- GoRex now follows the sizes that programs set on their elements:
+  shrinking, minimum and maximum width and height, and row alignment.
+- Page Up, Page Down, Home and End in the answer scroll the sheet, not
+  the terminal under it.
+- A list's selected item no longer locks the scroll position of its
+  container.
+- An overlay with panes side by side, such as the BTW history's questions
+  beside the answer, is now a sheet with its own height. Each pane
+  scrolls separately, and the title and buttons stay in view.
 
 ## 0.1.7
 
-- omp's transcript scrolls with the keys, as in Tern: Page Up and Page
-  Down by a page, Ctrl+Home and Ctrl+End to its start and end, with the
-  focus in the composer or not, and Home and End too outside the
-  composer, where they move its caret. They reached omp, which does not
-  scroll its transcript itself. The composer takes the focus a click on
-  the dock or on omp's controls, or a pane switch, gives the terminal; a
-  click in the transcript leaves it. While omp shows a picker or a
-  sheet, its keys stay its own.
-- omp's composer stays at the bottom of the pane when the scrollback is
-  scrolled above omp's start, as Tern's does: it went away with the
-  focus in it, and no key scrolled back down.
+- omp's transcript scrolls with the keyboard, as in Tern:
+  - Page Up and Page Down scroll by a page.
+  - Ctrl+Home and Ctrl+End go to the start and the end.
+  - These work whether or not the focus is in the composer.
+  - Home and End also work outside the composer. Inside it, they move
+    the caret.
+- Before, these keys went to omp, which does not scroll its own
+  transcript.
+- The composer now gets the keyboard focus when you click the dock or
+  omp's controls, or switch to the pane. Clicking in the transcript
+  leaves the focus where it is.
+- While omp shows a picker or a sheet, the keys still go to omp.
+- omp's composer now stays at the bottom of the pane when you scroll back
+  past where omp started, as in Tern. Before, it disappeared while it
+  had the focus, and no key scrolled back down.
 
 ## 0.1.6
 
-- omp's dock floats over its transcript as Tern's does: centered and at
-  most 800 DIPs wide, its composer a card with the context meter a
-  hairline along its top edge (the share used over the fill's end, the
-  window's size at the right; a glow sweeps it while a turn runs), the
-  working row above the card (a star, the time, the label on one line,
-  and the todo list as a pill at the right that shows the whole plan when
-  clicked), and in the card the session's title as the input's
-  placeholder, the model as a pill, the rate, the pane's folder, the git
-  branch on one line, the cost, and a round send or stop button. Empty
-  parts of a program's surface take no room: a band of blank space sat
-  over the context meter.
-- Text a program prints under its open surface, where it is to print
-  nothing, is erased: the ends of its lines showed beside the surface, in
-  the strip kept clear for the scroll bar.
-- Settings have an OMP Settings page, for programs that speak the Tern
-  Surface Protocol, such as omp: the protocol's switch (moved from the
-  Terminal page, and now a Default for every host as well as a host's
-  own), the font, size and line height of their text, the font, size and
-  ligatures of their code (commands and output, diffs, code blocks,
-  paths), which follow the terminal's until set, the composer's and the
-  messages' widths at most, the spacing, and whether the working
-  indicators move. A host's switch set on the Terminal page carries over.
-- omp's slash commands and other lists at its composer's caret open
-  above the composer, as wide as it: they were squeezed under the input,
-  inside the composer. A list anchored elsewhere goes to the side with
-  room when its own has too little.
-- In omp's composer, Ctrl+C goes to omp unless text is selected there
-  (and Ctrl+C copies a selection, as the terminal's setting says), so
-  pressing it twice exits; Alt with a letter or digit goes to omp too, so
-  Alt+P switches the model. On macOS, Option does so with Option as Alt.
+- omp's dock now floats over its transcript, as in Tern. It is centered
+  and at most 800 DIPs wide.
+- The composer is a card. The context meter is a thin line along its top
+  edge, filled to the share of the context window that is used. The
+  share is shown above the end of the fill, and the window's size above
+  the right end of the line. A glow moves along it while a turn runs.
+- The working row sits above the card. It shows a star, the time and
+  the label on one line, and the todo list as a pill at the right.
+  Click the pill to see the whole plan.
+- Inside the card: the session's title as the input's placeholder, the
+  model as a pill, the rate, the pane's folder and the git branch on one
+  line, the cost, and a round send or stop button.
+- Empty parts of a program's surface no longer take space. Before, a
+  band of blank space sat above the context meter.
+- Fixed: stray text that a program printed under its open surface showed
+  at the right edge, in the space kept clear for the scroll bar. GoRex
+  now erases it.
+- Settings has a new OMP Settings page, for programs that speak the Tern
+  Surface Protocol, such as omp. It contains:
+  - The switch that turns the protocol on. It moved from the Terminal
+    page. You can now set it in the Defaults for every host, as well as
+    for one host.
+  - The font, size and line height of the program's text.
+  - The font, size and ligatures of its code: commands and output,
+    diffs, code blocks and paths. These follow the terminal's settings
+    until you set them.
+  - The maximum widths of the composer and the messages.
+  - The spacing.
+  - Whether the working indicators are animated.
+- If you had turned the protocol on for a host on the Terminal page, that
+  setting carries over.
+- omp's slash commands and other lists at the composer's caret now open
+  above the composer, as wide as the composer. Before, they were squeezed
+  under the input, inside the composer.
+- A list anchored somewhere else opens on the side with more room when
+  its own side has too little.
+- In omp's composer, Ctrl+C goes to omp unless text is selected there.
+  So pressing Ctrl+C twice exits omp. When text is selected, Ctrl+C
+  copies it, following the terminal's Ctrl+C setting.
+- Alt with a letter or digit also goes to omp, so Alt+P switches the
+  model. On macOS, Option does the same when Option is set to act as Alt.
 
 ## 0.1.5
 
 - `gorex ssh -A user@host` forwards the ssh agent to the host for that
-  window, and `-a` doesn't, as ssh's own -A and -a, over the host's
-  Forward ssh agent switch and `~/.ssh/config`.
+  window, and `-a` turns forwarding off, like ssh's own -A and -a. Both
+  override the host's Forward ssh agent switch and `~/.ssh/config`.
 
 ## 0.1.4
 
-- ssh agent forwarding works with sessions that stay: where
-  `~/.ssh/config` says `ForwardAgent yes`, or a host's new Forward ssh
-  agent switch (Settings, Hosts) is on, the host's sessions use the
-  agent of the window connected now, the latest one's, at a path that
-  stays, after a reconnect too. They had the first connection's agent,
-  which was gone with it.
+- ssh agent forwarding now works with sessions that keep running. It
+  applies when `~/.ssh/config` says `ForwardAgent yes`, or when the
+  host's new Forward ssh agent switch (Settings › Hosts) is on.
+- The host's sessions use the agent of the window that connected most
+  recently. The agent's path stays the same, also after a reconnect.
+  Before, sessions used the first connection's agent, which disappeared
+  with that connection.
 - When a host's GoRex server does not start after it was copied there,
-  the Connection Log says why: no server for the host's system, none
-  there, or one there that can't be run, with its files' modes and the
-  mount it is on (noexec); and where the copy went, or that one was
-  there already. Connecting then stops, with Retry, rather than trying
-  again by itself and asking for a passphrase each time; and a server
-  folder there whose server can't be run is replaced by the copy, where
-  it was kept.
+  the Connection Log now shows why:
+  - there is no server for the host's system;
+  - the server is missing; or
+  - the server cannot run. The log shows its files' modes and the mount
+    it is on (noexec).
+- The log also shows where the copy went, or that a copy was already
+  there.
+- Connecting then stops and offers Retry. Before, GoRex tried again by
+  itself and asked for a passphrase each time.
+- If the server already in that folder cannot run, GoRex replaces it
+  with a new copy.
 
 ## 0.1.3
 
-- The file browser marks the files git sees as changed in a repository
-  reached through a link, as macOS's /tmp, /var and /etc are, or a
-  project folder of the user's that links elsewhere: it marked none.
+- Fixed: the file browser marked no files as changed in a git repository
+  reached through a link. Examples are macOS's /tmp, /var and /etc, or
+  a project folder that links somewhere else. It now marks the files git
+  sees as changed.
 
 ## 0.1.2
 
-- A pane scrolls as one document with one scroll bar, the terminal's:
-  a program's surface, such as omp's transcript, takes rows among the
-  output, and a long one is whole and its end in reach. Scrollback is
-  kept in lines at any width, as its setting says (it held a fraction
-  of them in wide panes), up to 50,000; a transcript longer than the
-  scrollback loses its start, as output does, never its end.
-- The terminal's scroll bar is the one everything else in the window
-  has: 10 DIPs wide, the same under the pointer and dragged, shown while
-  the pointer is over the pane or the view is scrolled up; a click on
-  its track scrolls a page. Surfaces and omp's composer leave it clear
-  at the pane's edge.
-- Scroll bar width, Scroll handle length (at least; 48 DIPs built in, so
-  a long scrollback's handle is no sliver), and Always show scroll bars,
-  in Settings, Defaults: Appearance, for the terminal and everything
-  else that scrolls.
-- `gorex doctor [user@host]`: which ssh GoRex runs among those on the
-  PATH, whether ssh's agent holds keys, and, for a host, a connection
-  made as GoRex makes it, with why it fails in words (a host that wants
-  a password, keys it refuses). `gorex help` lists the commands. On
-  Windows they come from gorex.com, a console program beside GoRex.exe
-  in the installed app's bin, which a shell runs for `gorex`: the shell
-  waits for it and gets its exit status, and it starts GoRex.exe for
-  everything else.
-- ssh asks in the window what it would ask in a terminal: a password,
-  a key's passphrase, a one-time code, whether to trust a host's key it
-  has not seen (it failed instead). The answers last one connect: a
-  reconnect asks again. A login cancelled, a password ssh stopped asking
-  for, a host key not trusted or changed stop the connecting, with
-  Retry, rather than trying again by themselves.
+- A pane now scrolls as one document, with one scroll bar: the
+  terminal's. A program's surface, such as omp's transcript, takes up
+  rows in the output like any other text. A long surface is shown whole,
+  and you can scroll to its end.
+- The scrollback setting now counts lines at any pane width, up to
+  50,000. Before, wide panes kept only part of the lines.
+- A transcript longer than the scrollback loses its start, as output
+  does, never its end.
+- The terminal's scroll bar is now the same as everywhere else in the
+  window. It is 10 DIPs wide, and the same when hovered and dragged.
+- It shows while the pointer is over the pane or the view is scrolled
+  up. A click on its track scrolls one page.
+- Surfaces and omp's composer leave the scroll bar's strip clear at the
+  pane's edge.
+- New settings in Settings › Defaults › Appearance, for the terminal and
+  everything else that scrolls:
+  - Scroll bar width.
+  - Minimum scroll handle length, 48 DIPs by default, so that the handle
+    of a long scrollback is not a thin sliver.
+  - Always show scroll bars.
+- New command: `gorex doctor [user@host]`. It shows which ssh on the
+  PATH GoRex runs, and whether the ssh agent holds keys.
+- For a host, `gorex doctor` makes a connection the way GoRex does. If it
+  fails, it explains why in words, for example a host that wants a
+  password, or keys that the host refuses.
+- `gorex help` lists the commands.
+- On Windows, these commands come from gorex.com, a console program
+  next to GoRex.exe in the installed app's bin folder. When you type
+  `gorex` in a shell, the shell runs gorex.com, waits for it and gets its
+  exit status. For commands that open a window, gorex.com starts
+  GoRex.exe.
+- ssh now asks its questions in the window, as it would in a terminal:
+  a password, a key's passphrase, a one-time code, or whether to trust a
+  host key it has not seen. Before, connecting failed instead.
+- Answers last for one connection. A reconnect asks again.
+- Connecting stops and offers Retry when you cancel a login, when ssh
+  stops asking for a password, or when a host key is not trusted or has
+  changed. GoRex no longer tries again by itself.
 
 ## 0.1.1
 
 - Programs that speak the Tern Surface Protocol, such as the coding
-  agent omp, draw natively: their messages, tool calls, pickers,
-  settings, forms, pictures, math and composer as GoRex's own controls,
-  in their colors, among the terminal's output and kept in its
-  scrollback. Turn it on for a host in Settings, Programs: Tern Surface
-  Protocol (experimental); omp then starts natively by itself.
-- A new icon: a rex in cyan on a dark tile.
+  agent omp, now draw natively. Their messages, tool calls, pickers,
+  settings, forms, pictures, math and composer appear as GoRex controls,
+  in the program's colors. They sit among the terminal's output and are
+  kept in its scrollback.
+- To turn this on for a host, use Settings › Programs › Tern Surface
+  Protocol (experimental). omp then draws natively by itself.
+- A new icon: a cyan rex on a dark tile.
 
 ## 0.1.0
 
 The first release from gorex.goclaw.org.
 
-- Tabs and split panes over sessions that outlive the app, kept by a
-  session server; windows show each session through frames of the
-  server's terminal, so a resize or a reattach never garbles a screen.
-- Session servers on other hosts over ssh: GoRex copies its server there
-  and reconnects when the link drops.
-- An editor with a file tree, git changes, and a Markdown preview.
+- Tabs and split panes whose sessions keep running after you quit
+  GoRex. A separate session server keeps the sessions.
+- Each window draws a session from the server's copy of the terminal,
+  so a resize or a reattach never garbles the screen.
+- Session servers on other hosts over ssh. GoRex copies its server to the
+  host and reconnects when the link drops.
+- An editor with a file tree, git changes and a Markdown preview.
 - Settings for the app and for each host.
-- Images of the Kitty graphics protocol, pasting images into programs
-  such as coding agents, and their program status (OSC 7501).
-- A `gorex` command on the PATH from the Windows installer.
-- Updates itself from gorex.goclaw.org: Check for Updates… in the command
-  palette.
+- Images through the Kitty graphics protocol.
+- Pasting images into programs such as coding agents.
+- Program status (OSC 7501).
+- The Windows installer puts a `gorex` command on the PATH.
+- GoRex updates itself from gorex.goclaw.org. Use Check for Updates… in
+  the command palette.

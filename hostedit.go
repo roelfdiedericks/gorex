@@ -88,7 +88,7 @@ func (a *App) closeHostForm() {
 func (a *App) saveHost(f *hostForm, connect bool) {
 	spec := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(f.target), "ssh "))
 	if spec == "" {
-		f.err = "Name the host: user@host, or a Host of ~/.ssh/config."
+		f.err = "Enter a destination: user@host, or a Host from ~/.ssh/config."
 		return
 	}
 	r := f.orig
@@ -124,7 +124,7 @@ func (a *App) saveHost(f *hostForm, connect bool) {
 				return
 			}
 			if err != nil {
-				f.err = "ssh makes no host of " + spec + ": " + err.Error()
+				f.err = "ssh can't resolve " + spec + ": " + err.Error()
 				a.changed()
 				return
 			}
@@ -197,18 +197,18 @@ func (a *App) hostDialog(c *ui.Context, k *colors) {
 		})
 		switch f.kind {
 		case formServer:
-			help("GoRex copies its server to the host: sessions stay when the connection goes, and its files and git show in GoRex.")
+			help("GoRex copies its server to the host. Sessions keep running when the connection drops, and GoRex shows the host's files and git.")
 		case formPlain:
-			help("The host's tabs run ssh from this PC: nothing is copied there, and a tab's session ends with its connection.")
+			help("The host's tabs run ssh on this PC. Nothing is copied to the host, and a tab's session ends when its connection ends.")
 		case formSerial:
-			help("A serial port of this PC, as a switch's or a router's console: its one session stays open while GoRex is closed.")
+			help("A serial port on this PC, such as the console of a switch or router. Its single session stays open while GoRex is closed.")
 		}
 		if f.kind == formSerial {
 			a.serialFields(c, k, f, row, help)
 		} else {
 			f.stopPorts()
-			row("Name", func() { input(&f.label, "as the host names itself", false) })
-			row("Destination", func() { input(&f.target, "user@host, or a Host of ~/.ssh/config", f.old == "") })
+			row("Name", func() { input(&f.label, "the name the host reports", false) })
+			row("Destination", func() { input(&f.target, "user@host, or a Host from ~/.ssh/config", f.old == "") })
 			row("Identity file", func() { input(&f.identity, "ssh's default keys", false) })
 			// A PuTTY key, which ssh can't read: in the agent, or to
 			// convert, which makes the converted file the identity.
@@ -230,11 +230,11 @@ func (a *App) hostDialog(c *ui.Context, k *colors) {
 			switch f.kind {
 			case formServer:
 				row("Server folder", func() { input(&f.serverDir, "~/.cache/gorex", false) })
-				help("Where on the host GoRex keeps its server, which must run programs there (not mounted noexec). A folder GoRex makes is the user's alone.")
+				help("The folder on the host where GoRex keeps its server. Programs must be able to run there, so it can't be on a noexec mount. If GoRex creates the folder, only your user can use it.")
 			case formPlain:
 				row("Command", func() { input(&f.command, "the login shell", false) })
 				if f.orig.Note != "" {
-					help("Plain since: " + f.orig.Note)
+					help("Switched to plain ssh because: " + f.orig.Note)
 				}
 			}
 		}

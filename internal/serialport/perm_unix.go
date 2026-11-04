@@ -25,5 +25,5 @@ func permissionHint(path string) string {
 	if err != nil || g.Name == "root" {
 		return ""
 	}
-	return ": it is group " + g.Name + "'s. Join it with: sudo usermod -aG " + g.Name + " $USER, then log out and in again"
+	return ". It belongs to the group " + g.Name + ". To join the group, run sudo usermod -aG " + g.Name + " $USER, then log out and log in again"
 }

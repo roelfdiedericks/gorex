@@ -45,7 +45,7 @@ func (a *App) loginSession(win *mygo.Window, b binding, gen int64) *askpass.Sess
 	}
 	return a.askSrv.Session(func(ctx context.Context, p askpass.Prompt) (string, bool) {
 		lp := &loginPrompt{Prompt: p, host: b.label(), gen: gen, reply: make(chan loginReply, 1)}
-		a.logConn("ssh asks: " + firstLine(p.Text))
+		a.logConn("ssh is asking: " + firstLine(p.Text))
 		win.Update(func() {
 			if a.gen.Load() != gen {
 				lp.reply <- loginReply{}
@@ -105,7 +105,7 @@ func (a *App) loginDialog(c *ui.Context, k *colors) {
 	title := "Log in to " + lp.host
 	switch lp.Kind {
 	case askpass.HostKey:
-		title = "A host GoRex has not seen: " + lp.host
+		title = "New host: " + lp.host
 	case askpass.Confirm, askpass.Notice:
 		title = lp.host
 	}
@@ -116,7 +116,7 @@ func (a *App) loginDialog(c *ui.Context, k *colors) {
 		ui.Text(c, title).FontSize(14).FontWeight(700).TextColor(k.text)
 		ui.Text(c, strings.TrimSpace(lp.Text)).FontSize(12.5).TextColor(k.text).Selectable().LineHeight(1.45)
 		if lp.Again {
-			ui.Text(c, "That was not right: try again.").FontSize(12.5).TextColor(ui.Hex("#ef4444"))
+			ui.Text(c, "That didn't work. Try again.").FontSize(12.5).TextColor(ui.Hex("#ef4444"))
 		}
 		if lp.Kind == askpass.Secret {
 			in := ui.TextInput(c, &a.loginText).Password().FillWidth().FontSize(13).AutoFocus()
@@ -127,10 +127,10 @@ func (a *App) loginDialog(c *ui.Context, k *colors) {
 		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 			switch lp.Kind {
 			case askpass.HostKey:
-				if textButton(c, k, "Don't connect").Clicked() {
+				if textButton(c, k, "Don't Connect").Clicked() {
 					end("no", true)
 				}
-				if textButton(c, k, "Trust and connect").Clicked() {
+				if textButton(c, k, "Trust and Connect").Clicked() {
 					end("yes", true)
 				}
 			case askpass.Notice:

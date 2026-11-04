@@ -116,14 +116,14 @@ func Open(t Target, profile string, p Payload, prog Progress, login *askpass.Ses
 		if try > 0 {
 			// The bridge's script told the Connection Log why (host:
 			// lines); trying again would only copy it again.
-			return nil, &StopError{"The GoRex copied to " + t.Spec + " does not start: the Connection Log tells why", NoStart}
+			return nil, &StopError{"The GoRex server copied to " + t.Spec + " does not start. The Connection Log shows why.", NoStart}
 		}
 		s, err := p.forSystem(system)
 		if err != nil {
 			return nil, &StopError{err.Error(), NoServer}
 		}
 		prog.Status("Copying GoRex to " + t.Spec + "…")
-		prog.Log(fmt.Sprintf("%s is %s: copying the %s server (%s)", t.Spec, system, s.name, s.id))
+		prog.Log(fmt.Sprintf("%s runs %s; copying the %s server (%s)", t.Spec, system, s.name, s.id))
 		if err := upload(t, s, prog.Log, login); err != nil {
 			return nil, err
 		}
@@ -176,8 +176,8 @@ func bridge(t Target, profile string, p Payload, logf func(string), login *askpa
 			return nil, "", cmd.err()
 		case kind == "glibc":
 			has, needs, _ := strings.Cut(value, " ")
-			logf("host: glibc " + has + ", the server needs " + needs + " or later")
-			return nil, "", &StopError{"GoRex can't run on " + t.Spec + ": its glibc is " + has + ", and GoRex's server needs " + needs + " or later", OldGlibc}
+			logf("host: glibc is " + has + "; the server needs " + needs + " or later")
+			return nil, "", &StopError{"GoRex cannot run on " + t.Spec + ". The host has glibc " + has + ", and the GoRex server needs " + needs + " or later.", OldGlibc}
 		}
 		return nil, value, nil
 	}
@@ -211,12 +211,12 @@ func bridge(t Target, profile string, p Payload, logf func(string), login *askpa
 func upload(t Target, s server, logf func(string), login *askpass.Session) error {
 	dir := `"$c/` + s.id + `"`
 	script := `c=` + serverDir(t.Dir) + `; ` +
-		`if ! { ` + makeDir + ` && ` + mine + `; }; then echo "host: GoRex can't keep a server in $c: it can't be made, or is not this user's" >&2; echo ` + noDirMarker + `; exit 1; fi; ` +
+		`if ! { ` + makeDir + ` && ` + mine + `; }; then echo "host: GoRex cannot keep a server in $c, because the folder cannot be created or belongs to another user" >&2; echo ` + noDirMarker + `; exit 1; fi; ` +
 		`set -e; t=$(mktemp -d "$c/.upload.XXXXXX"); ` +
 		`trap 'rm -rf "$t"' EXIT; tar -xzf - -C "$t"; chmod 755 "$t/gorex"; ` +
-		`if [ -d ` + dir + ` ] && [ ! -x ` + dir + `/gorex ]; then rm -rf ` + dir + `; echo "host: replacing "` + dir + `", whose server can't be run" >&2; fi; ` +
+		`if [ -d ` + dir + ` ] && [ ! -x ` + dir + `/gorex ]; then rm -rf ` + dir + `; echo "host: replacing "` + dir + `", because its server cannot run" >&2; fi; ` +
 		`if [ ! -d ` + dir + ` ]; then mv "$t" ` + dir + `; echo "host: copied to "` + dir + ` >&2; ` +
-		`else echo "host: "` + dir + `" was there already: kept it" >&2; fi; ` +
+		`else echo "host: "` + dir + `" already exists; keeping it" >&2; fi; ` +
 		`ls -l ` + dir + ` 2>&1 | sed 's/^/host: /' >&2; echo GOREX-DEPLOYED`
 	cmd, err := sshCmd(t, script, logf, login)
 	if err != nil {
@@ -232,7 +232,7 @@ func upload(t Target, s server, logf func(string), login *askpass.Session) error
 		err = cmd.Wait()
 	}
 	if strings.Contains(out.String(), noDirMarker) {
-		return &StopError{"GoRex can't keep its server in " + t.dirName() + " on " + t.Spec + ": the Connection Log tells why", NoStart}
+		return &StopError{"GoRex cannot keep its server in " + t.dirName() + " on " + t.Spec + ". The Connection Log shows why.", NoStart}
 	}
 	if err != nil || !strings.Contains(out.String(), "GOREX-DEPLOYED") {
 		return cmd.err()
@@ -289,10 +289,10 @@ func FindDir(t Target, logf func(string), login *askpass.Session) (string, error
 // error output why each other one would not do.
 func findDirScript(cands []string) string {
 	return `for c in ` + strings.Join(cands, " ") + `; do ` +
-		`if ! { ` + makeDir + ` && ` + mine + `; }; then echo "host: $c: can't be made, or is not this user's" >&2; continue; fi; ` +
+		`if ! { ` + makeDir + ` && ` + mine + `; }; then echo "host: $c: the folder cannot be created or belongs to another user" >&2; continue; fi; ` +
 		`p="$c/.probe.$$"; ` +
 		`if printf '#!/bin/sh\nexit 0\n' > "$p" && chmod 755 "$p" && "$p"; then rm -f "$p"; echo "` + dirMarker + `$c"; exit 0; fi; ` +
-		`rm -f "$p"; rmdir "$c" 2>/dev/null; echo "host: $c: runs no programs" >&2; ` +
+		`rm -f "$p"; rmdir "$c" 2>/dev/null; echo "host: $c: programs cannot run in this folder" >&2; ` +
 		`done; echo "` + dirMarker + `"`
 }
 

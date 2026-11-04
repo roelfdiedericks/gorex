@@ -76,7 +76,7 @@ type Appearance struct {
 	// whenever what they scroll overflows, rather than only while the
 	// pointer is over it.
 	ScrollbarWidth     float32 `json:"scrollbarWidth,omitempty" kind:"pc" label:"Scroll bar width" group:"Scroll bars"`
-	ScrollbarMinLength float32 `json:"scrollbarMinLength,omitempty" kind:"pc" label:"Scroll handle length, at least" group:"Scroll bars"`
+	ScrollbarMinLength float32 `json:"scrollbarMinLength,omitempty" kind:"pc" label:"Minimum scroll handle length" group:"Scroll bars"`
 	ScrollbarsAlways   *bool   `json:"scrollbarsAlways,omitempty" kind:"pc" label:"Always show scroll bars" group:"Scroll bars"`
 }
 
@@ -137,8 +137,8 @@ type OMP struct {
 	CodeLigatures *bool   `json:"codeLigatures,omitempty" kind:"look" label:"Ligatures" group:"Code text"`
 	// DockWidth is the composer's width at most, in DIPs; MessageWidth the
 	// transcript's, -1 for none (unset is the builtin's, none).
-	DockWidth    float32 `json:"dockWidth,omitempty" kind:"look" label:"Composer width, at most" group:"Layout"`
-	MessageWidth float32 `json:"messageWidth,omitempty" kind:"look" label:"Message width, at most" group:"Layout"`
+	DockWidth    float32 `json:"dockWidth,omitempty" kind:"look" label:"Maximum composer width" group:"Layout"`
+	MessageWidth float32 `json:"messageWidth,omitempty" kind:"look" label:"Maximum message width" group:"Layout"`
 	// Spacing is "compact", "normal" or "roomy": the room between blocks
 	// and in cards.
 	Spacing string `json:"spacing,omitempty" kind:"look" label:"Spacing" group:"Layout"`

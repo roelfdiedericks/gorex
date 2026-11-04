@@ -87,7 +87,7 @@ func LoadPayload(resources string) (Payload, error) {
 		p.servers = append(p.servers, s)
 	}
 	if len(p.servers) == 0 {
-		return Payload{}, errors.New("this GoRex has no servers for other hosts: build them with go run ./tools/remotepayload")
+		return Payload{}, errors.New("this GoRex build has no servers for other hosts; build them with go run ./tools/remotepayload")
 	}
 	return p, nil
 }
@@ -153,8 +153,8 @@ func (p Payload) bridgeScript(profile, dir string) string {
 		`echo "` + glibcMarker + `$h $g"; exit 0; fi; fi; `)
 	b.WriteString(`if [ -n "$id" ] && [ -x "$d/gorex" ] && ` + mine + `; then export MYGO_GHOSTTY_VT="$d/$lib"; exec "$d/gorex" -bridge ` + shQuote(profile) + `; fi; `)
 	b.WriteString(`if [ -z "$id" ]; then echo "host: GoRex has no server for $(uname -s) $(uname -m)" >&2; ` +
-		`elif [ -e "$d/gorex" ] && ! ` + mine + `; then echo "host: $c is not this user's: GoRex runs no server from it" >&2; ` +
-		`elif [ -e "$d/gorex" ]; then echo "host: $d/gorex is there, but can't be run:" >&2; ls -ld "$d" "$d/gorex" "$d/$lib" 2>&1 | sed 's/^/host: /' >&2; ` +
+		`elif [ -e "$d/gorex" ] && ! ` + mine + `; then echo "host: $c belongs to another user, so GoRex does not run a server from it" >&2; ` +
+		`elif [ -e "$d/gorex" ]; then echo "host: $d/gorex exists but cannot run:" >&2; ls -ld "$d" "$d/gorex" "$d/$lib" 2>&1 | sed 's/^/host: /' >&2; ` +
 		`(findmnt -no TARGET,FSTYPE,OPTIONS -T "$d" 2>/dev/null || df -P "$d") 2>&1 | sed 's/^/host: mount: /' >&2; ` +
 		`else echo "host: no GoRex server in $d yet" >&2; fi; `)
 	b.WriteString(`echo "` + deployMarker + `$(uname -s) $(uname -m)"`)

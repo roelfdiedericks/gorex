@@ -103,7 +103,7 @@ func TestSerialTTY(t *testing.T) {
 	fromDevice(t, master, "\x1b[?1;2c")
 
 	tt.release()
-	r.until(t, slave+" released. Press Enter to connect again.")
+	r.until(t, slave+" was released. Press Enter to connect again.")
 	if _, state, _ := tt.status(); state != "released" {
 		t.Fatalf("released, state %q", state)
 	}
@@ -123,7 +123,7 @@ func TestSerialTTY(t *testing.T) {
 	fromDevice(t, master, "y\r\n")
 
 	master.Close()
-	r.until(t, slave+" is gone: waiting for it")
+	r.until(t, slave+" was disconnected. Waiting for it to come back.")
 }
 
 // Echo shows what is typed, and Backspace as BS goes as BS but shows as

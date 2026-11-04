@@ -178,7 +178,7 @@ func (c *Client) Restart(pid int) (*Client, error) {
 
 // ErrNoUpgrade is Upgrade's error when the server can't upgrade in place,
 // as on Windows, or as an older server can't: Restart replaces it then.
-var ErrNoUpgrade = errors.New("rex: the server can't upgrade in place")
+var ErrNoUpgrade = errors.New("rex: the server cannot upgrade in place")
 
 // Upgrade has the server h describes replace itself in place with exe,
 // keeping its sessions, and connects to the new server: one that started

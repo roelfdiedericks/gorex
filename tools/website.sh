@@ -38,13 +38,13 @@ newer() {
 }
 
 build() {
-	[ -f "$UPDATE_KEY" ] || die "no update key at $UPDATE_KEY (UPDATE_KEY)"
+	[ -f "$UPDATE_KEY" ] || die "no update key found at $UPDATE_KEY (set UPDATE_KEY)"
 	# The Mac builds the commit from the fork, and a release is of a
 	# commit anyway.
-	git diff --quiet HEAD || die "the tree has changes: commit them first"
+	git diff --quiet HEAD || die "the working tree has uncommitted changes. Commit them first."
 	git fetch -q fork
 	head=$(git rev-parse HEAD)
-	[ "$head" = "$(git rev-parse fork/master)" ] || die "HEAD is not fork/master: push it first"
+	[ "$head" = "$(git rev-parse fork/master)" ] || die "HEAD is not the same as fork/master. Push it first."
 
 	here="" mac=""
 	mkdir -p "$(dirname "$SITE_BUILD")"
@@ -55,10 +55,10 @@ build() {
 		if [ "$code" = 200 ]; then
 			v=$(sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' "$SITE_BUILD.json")
 			if [ "$v" = "$VERSION" ]; then
-				echo "website: $p: $VERSION is published already"
+				echo "website: $p: $VERSION is already published"
 				continue
 			fi
-			newer "$v" "$VERSION" || die "$p: $v is published; $VERSION must be newer"
+			newer "$v" "$VERSION" || die "$p: $v is already published, so $VERSION must be newer"
 		elif [ "$code" != 404 ]; then
 			die "$manifest: HTTP $code"
 		fi
@@ -72,7 +72,7 @@ build() {
 	done
 	rm -f "$SITE_BUILD.json"
 	here=${here#,} mac=${mac#,}
-	[ -n "$here$mac" ] || die "$VERSION is published for every platform: a release needs a new version"
+	[ -n "$here$mac" ] || die "$VERSION is already published for every platform. A release needs a new version."
 
 	rm -rf "$SITE_BUILD"
 	if [ -n "$here" ]; then
@@ -129,8 +129,8 @@ stage() {
 }
 
 sync() {
-	[ -n "$SITE_OWNER" ] || die "set SITE_OWNER to the ISPConfig site's user:group, e.g. web7:client1"
-	ls website/updates/update-*.json >/dev/null 2>&1 || die "nothing built: make website first"
+	[ -n "$SITE_OWNER" ] || die "set SITE_OWNER to the user:group of the ISPConfig site, for example web7:client1"
+	ls website/updates/update-*.json >/dev/null 2>&1 || die "nothing is built yet. Run make website first."
 	up() {
 		"$RSYNC" -rtpz --chown="$SITE_OWNER" --chmod=D755,F644 -e "$RSYNC_SSH" "$@"
 	}
@@ -147,7 +147,7 @@ cmd=${1:-}
 for a in "$@"; do
 	case $a in
 	[A-Z]*=*) export "$a" ;;
-	*) die "not a setting: $a" ;;
+	*) die "not a setting (expected NAME=value): $a" ;;
 	esac
 done
 case $cmd in

@@ -141,7 +141,7 @@ func (t *serialTTY) openFor(wait time.Duration) {
 		if oe != nil && oe.Missing {
 			if t.state != "waiting" {
 				t.state = "waiting"
-				t.note(t.path + " is not there: waiting for it")
+				t.note(t.path + " is not connected. Waiting for it to be plugged in.")
 			}
 			return
 		}
@@ -236,7 +236,7 @@ func (t *serialTTY) read(b []byte) (int, error) {
 				c.port.Close()
 				if !t.closed && !t.suspended {
 					t.state = "waiting"
-					t.note(t.path + " is gone: waiting for it")
+					t.note(t.path + " was disconnected. Waiting for it to come back.")
 				}
 			}
 			t.mu.Unlock()
@@ -307,7 +307,7 @@ func (t *serialTTY) release() {
 	port := t.port
 	if port != nil {
 		t.port, t.state = nil, "released"
-		t.note(t.path + " released. Press Enter to connect again.")
+		t.note(t.path + " was released. Press Enter to connect again.")
 	}
 	t.mu.Unlock()
 	if port != nil {
@@ -374,7 +374,7 @@ func (t *serialTTY) takeOver(u PortUse) {
 	if err := ReleasePort(u.Dir, u.SID); err != nil {
 		t.mu.Lock()
 		t.state = "failed"
-		t.note("Can't take " + u.Path + " from “" + u.Host + "”: " + err.Error() + ". Press Enter to try again.")
+		t.note("Cannot take over " + u.Path + " from “" + u.Host + "”: " + err.Error() + ". Press Enter to try again.")
 		t.mu.Unlock()
 		return
 	}

@@ -304,7 +304,7 @@ func hostBinding(spec, force string) (binding, error) {
 // when neither is given (remote.Target.Agent); force is "plain",
 // "server" or "" (hostBinding).
 func sshArgs(args []string) (agent, force, spec string, err error) {
-	const usage = "gorex ssh takes -A or -a, --plain or --server, then one destination, user@host"
+	const usage = "usage: gorex ssh [-A | -a] [--plain | --server] user@host"
 	for len(args) > 0 && strings.HasPrefix(args[0], "-") {
 		switch args[0] {
 		case "-A":
@@ -316,7 +316,7 @@ func sshArgs(args []string) (agent, force, spec string, err error) {
 		case "--server":
 			force = "server"
 		default:
-			return "", "", "", fmt.Errorf("unknown option %s: %s", args[0], usage)
+			return "", "", "", fmt.Errorf("unknown option %s; %s", args[0], usage)
 		}
 		args = args[1:]
 	}

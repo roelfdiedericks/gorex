@@ -23,7 +23,7 @@ import (
 
 // serialReason says why a serial host's window does not do what needs a
 // machine's server: its files, more panes.
-const serialReason = "Not on a serial port: its one session is the port's"
+const serialReason = "Not available on a serial port, because the port has only one session"
 
 // newSerialKey returns the key of a new serial host: of its own, as the
 // port it uses is a setting it may change.
@@ -115,7 +115,7 @@ func (a *App) applySerial(r savedRemote) {
 // Break and Release Port; nil, and a note why, elsewhere.
 func (a *App) serialPane() *Pane {
 	if a.bind.serial == "" {
-		a.toast(ui.Toast{ID: "serial", Title: "Not a serial port", Description: "Send Break and Release Port are for serial hosts' windows.", Timeout: 3 * time.Second})
+		a.toast(ui.Toast{ID: "serial", Title: "Not a serial port", Description: "Send Break and Release Port only work in a serial host's window.", Timeout: 3 * time.Second})
 		return nil
 	}
 	if t := a.tab(); t != nil && t.Focus != nil && t.Focus.SID != "" && a.client != nil {
@@ -146,6 +146,6 @@ func (a *App) onePane() bool {
 	if a.bind.serial == "" || len(a.tabs) == 0 {
 		return false
 	}
-	a.toast(ui.Toast{ID: "serial/pane", Title: "One session per serial port", Description: "A port opens once: its window has the one pane.", Timeout: 3 * time.Second})
+	a.toast(ui.Toast{ID: "serial/pane", Title: "One session per serial port", Description: "A port can only be opened once, so its window has only one pane.", Timeout: 3 * time.Second})
 	return true
 }

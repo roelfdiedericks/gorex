@@ -15,7 +15,7 @@ import (
 
 // plainReason says why a plain host's window can't do what needs GoRex's
 // server on the host.
-const plainReason = "Not on a plain ssh host: GoRex's server does not run there"
+const plainReason = "Not available on a plain ssh host, because GoRex's server doesn't run there"
 
 // noFilesReason says why the window does not reach its host's files: a
 // plain host's or a serial port's reason.
@@ -79,7 +79,7 @@ func exitCode(client *rex.Client, sid string) int {
 func (a *App) sshEnded(p *Pane, code int) {
 	p.ended = true
 	if p.term != nil {
-		p.term.Feed(fmt.Appendf(nil, "\r\n\x1b[0;2m[ssh ended, code %d] Press Enter to connect again.\x1b[0m\r\n", int32(code)))
+		p.term.Feed(fmt.Appendf(nil, "\r\n\x1b[0;2m[ssh ended with code %d] Press Enter to connect again.\x1b[0m\r\n", int32(code)))
 	}
 	a.changed()
 }

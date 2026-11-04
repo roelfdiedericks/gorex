@@ -62,7 +62,7 @@ func TestHostsFilterKeys(t *testing.T) {
 	if tt.HasText("unifi") || !tt.HasText("lab-cgnat") || !tt.HasText("home-cgnat") {
 		t.Fatal("cgnat: the list isn't filtered to the two cgnat hosts")
 	}
-	if !tt.HasText("↵ connect to ssh cgnat") {
+	if !tt.HasText("↵ connect with ssh to cgnat") {
 		t.Error("two left: Enter doesn't say it connects to the text")
 	}
 	tt.Key(0, ui.KeyDown)
@@ -72,7 +72,7 @@ func TestHostsFilterKeys(t *testing.T) {
 	}
 	tt.Key(0, ui.KeyUp)
 	tt.Frame()
-	if !tt.HasText("↵ connect to ssh cgnat") {
+	if !tt.HasText("↵ connect with ssh to cgnat") {
 		t.Error("Up from the first row doesn't leave the rows to the text")
 	}
 	tt.Key(0, ui.KeyEscape)

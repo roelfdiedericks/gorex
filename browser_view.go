@@ -32,14 +32,14 @@ func (a *App) browserHeader(c *ui.Context, k *colors, t *Tab, p *Pane, focused, 
 			}
 			more := iconButton(c, k, "ellipsis", "More", 26, 16).Tooltip("More")
 			more.Menu(func(m *ui.Menu) {
-				if m.Item("Hidden files").Checked(b.hidden).Chosen() {
+				if m.Item("Hidden Files").Checked(b.hidden).Chosen() {
 					b.hidden = !b.hidden
 					a.changed()
 				}
-				if m.Item("Change root…").Chosen() {
+				if m.Item("Change Root…").Chosen() {
 					b.changing, b.rootField = true, b.root
 				}
-				if m.Item("Root at home").Disabled(samePath(b.root, hostHome)).Chosen() {
+				if m.Item("Set Root to Home Folder").Disabled(samePath(b.root, hostHome)).Chosen() {
 					a.setRoot(p, hostHome)
 				}
 			})
@@ -118,7 +118,7 @@ func (a *App) browserBody(c *ui.Context, k *colors, t *Tab, p *Pane) {
 	ui.Column(c).Fill().MinHeight(0).Children(func() {
 		if b.changing {
 			ui.Row(c).Padding(4, 8, 8, 8).Gap(6).AlignItems(ui.Center).Children(func() {
-				in := ui.TextInput(c, &b.rootField).Grow(1).FontSize(12.5).Placeholder("a directory of " + a.hostName()).AutoFocus()
+				in := ui.TextInput(c, &b.rootField).Grow(1).FontSize(12.5).Placeholder("A directory on " + a.hostName()).AutoFocus()
 				if in.Submitted() {
 					a.setRoot(p, b.rootField)
 					b.changing = false
@@ -136,7 +136,7 @@ func (a *App) browserBody(c *ui.Context, k *colors, t *Tab, p *Pane) {
 			ui.Column(c).Grow(1).Padding(12).Gap(8).Children(func() {
 				ui.Text(c, "Can't read "+b.root).FontSize(12.5).FontWeight(600).TextColor(k.text)
 				ui.Text(c, b.rootErr).FontSize(12).TextColor(k.textMuted)
-				if textButton(c, k, "Change root…").Clicked() {
+				if textButton(c, k, "Change Root…").Clicked() {
 					b.changing, b.rootField = true, b.root
 				}
 			})

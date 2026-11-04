@@ -121,7 +121,7 @@ func (a *App) saveHostSettings() {
 	a.settingsDue = false
 	client := a.client
 	if client == nil {
-		a.settingsErr = "Not connected: the host's settings were not saved."
+		a.settingsErr = "Not connected, so the host's settings were not saved."
 		return
 	}
 	b := encodeHost(a.host)
@@ -136,7 +136,7 @@ func (a *App) saveHostSettings() {
 				return
 			}
 			if err != nil {
-				a.settingsErr = "Saving the host's settings failed: " + err.Error()
+				a.settingsErr = "Couldn't save the host's settings: " + err.Error()
 				log.Printf("saving settings: %v", err)
 			} else {
 				a.settingsErr = ""
@@ -239,7 +239,7 @@ func (a *App) confirmClose(panes []*Pane) bool {
 	}
 	res, err := mygo.Dialog.Message(mygo.MessageOptions{
 		Parent: a.win, Type: mygo.MessageWarning, Title: "Close the pane?",
-		Message: what + " in it. Closing the pane ends it.",
+		Message: what + " in it. Closing the pane stops what is running.",
 		Buttons: []string{"Close", "Cancel"}, DefaultButton: 0, CancelButton: 1,
 	})
 	return err != nil || res.Button == 0

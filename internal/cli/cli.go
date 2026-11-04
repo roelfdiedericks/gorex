@@ -24,8 +24,8 @@ var commands []command
 
 func init() {
 	commands = []command{
-		{"doctor", "[user@host]", "what this GoRex sees of its system, its ssh and ssh's agent; with a host, how a connection to it goes, made as GoRex makes it", doctor},
-		{"help", "", "these commands", help},
+		{"doctor", "[user@host]", "show the system, ssh and ssh agent that GoRex sees; with a host, test a connection to it the way GoRex connects", doctor},
+		{"help", "", "show these commands", help},
 	}
 }
 
@@ -54,10 +54,10 @@ func Run(w io.Writer, args []string, ver string) (ran bool, code int) {
 
 func help(w io.Writer, _ []string) int {
 	line := func(use, what string) { fmt.Fprintf(w, "  %-31s %s\n", strings.TrimSpace(use), what) }
-	fmt.Fprintf(w, "GoRex, a terminal of tabs, panes and sessions that stay\n\n")
-	line("gorex", "open a window on this machine's sessions")
-	line("gorex ssh [-A | -a] [--plain | --server] user@host", "open a window on the sessions of host, over ssh: of GoRex's server there, or of ssh alone, as the host's settings say, unless --server or --plain does; -A forwards your ssh agent there, -a doesn't, over the host's setting and ssh's config")
-	line("gorex serial <name>", "open a window on the serial host of that name, one added in GoRex's Add Host dialog")
+	fmt.Fprintf(w, "GoRex: a terminal with tabs, panes and sessions that keep running\n\n")
+	line("gorex", "open a window on the sessions on this computer")
+	line("gorex ssh [-A | -a] [--plain | --server] user@host", "open a window on the host's sessions over ssh. The host's settings choose GoRex's server on the host or plain ssh; --server or --plain overrides them. -A forwards your ssh agent to the host and -a does not; both override the host setting and your ssh config")
+	line("gorex serial <name>", "open a window on the serial host with that name (add serial hosts in the Add Host dialog)")
 	for _, c := range commands {
 		line("gorex "+c.name+" "+c.args, c.help)
 	}

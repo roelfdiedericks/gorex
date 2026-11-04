@@ -40,7 +40,7 @@ func loadConPTY() {
 		resize, err2 := dll.FindProc("ConptyResizePseudoConsole")
 		close, err3 := dll.FindProc("ConptyClosePseudoConsole")
 		if err1 != nil || err2 != nil || err3 != nil {
-			log.Printf("rex: %s lacks the ConPTY functions; using Windows' ConPTY", path)
+			log.Printf("rex: %s does not have the ConPTY functions; using the ConPTY built into Windows", path)
 			return
 		}
 		conpty.create, conpty.resize, conpty.close = create, resize, close

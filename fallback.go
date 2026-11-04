@@ -60,14 +60,14 @@ func cantRunNote(b binding, e *remote.StopError) string {
 	if dir == "" {
 		dir = "~/.cache/gorex"
 	}
-	return "GoRex's server does not run from " + dir + " there"
+	return "GoRex's server can't run from " + dir + " on the host"
 }
 
 // goPlain makes the host of b a plain host, why the note of it, and
 // connects the window to it so.
 func (a *App) goPlain(b binding, why string) {
 	editRemote(b.target.Key(), b.target.Spec, func(r *savedRemote) { r.Kind, r.Note = kindPlain, why })
-	a.logConn("connecting to " + b.label() + " with plain ssh, as from now on: the host's settings change it")
+	a.logConn("connecting to " + b.label() + " with plain ssh from now on; you can change this in Host Settings")
 	a.switchTo(binding{plain: true, target: b.target}, true)
 }
 
@@ -78,7 +78,7 @@ func (a *App) goPlain(b binding, why string) {
 func (a *App) findFolder(b binding, why string) {
 	win, gen := a.win, a.gen.Load()
 	a.status, a.connDown = "Looking for a folder on "+b.label()+" where GoRex's server can run…", false
-	a.logConn("looking for a folder on " + b.label() + " where programs run")
+	a.logConn("looking for a folder on " + b.label() + " where programs can run")
 	go func() {
 		login := a.loginSession(win, b, gen)
 		dir, err := remote.FindDir(b.target, a.logConn, login)
@@ -93,9 +93,9 @@ func (a *App) findFolder(b binding, why string) {
 			case err != nil:
 				a.status, a.connDown = "Can't look for a folder on "+b.label()+": "+err.Error(), true
 			case dir == "":
-				a.goPlain(b, why+"; no other folder there runs programs")
+				a.goPlain(b, why+"; no other folder on the host can run programs")
 			default:
-				a.logConn("GoRex's server can run in " + dir + ", which the host's settings keep")
+				a.logConn("GoRex's server can run in " + dir + "; this folder is now saved in Host Settings")
 				editRemote(b.target.Key(), b.target.Spec, func(r *savedRemote) { r.ServerDir = dir })
 				nb := b
 				nb.target.Dir = dir
@@ -136,18 +136,18 @@ func (a *App) cantRunDialog(c *ui.Context, k *colors) {
 		ui.Text(c, q.reason).FontSize(12.5).TextColor(k.text).Selectable().LineHeight(1.45)
 		var why strings.Builder
 		if q.folders {
-			why.WriteString("Another folder on the host may run programs: GoRex can try a few of yours there (in /run/user, /var/tmp, /dev/shm and /tmp). ")
+			why.WriteString("Another folder on the host may allow programs to run. GoRex can try a few of your folders there (in /run/user, /var/tmp, /dev/shm and /tmp). ")
 		}
-		why.WriteString("With plain ssh, the host's tabs run ssh from this PC: no files or git of the host in GoRex, and a tab's session ends with its connection. GoRex keeps your answer for this host; its settings change it.")
+		why.WriteString("With plain ssh, the host's tabs run ssh on this PC. GoRex doesn't show the host's files or git, and a tab's session ends when its connection ends. GoRex remembers your choice for this host. You can change it in Host Settings.")
 		ui.Text(c, why.String()).FontSize(12.5).TextColor(k.textMuted).LineHeight(1.45)
 		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 			if textButton(c, k, "Cancel").Clicked() {
 				end(nil)
 			}
-			if textButton(c, k, "Connect with plain ssh").Clicked() {
+			if textButton(c, k, "Connect with Plain ssh").Clicked() {
 				end(func() { a.goPlain(q.b, q.note) })
 			}
-			if q.folders && textButton(c, k, "Try other folders").Clicked() {
+			if q.folders && textButton(c, k, "Try Other Folders").Clicked() {
 				end(func() { a.findFolder(q.b, q.note) })
 			}
 		})

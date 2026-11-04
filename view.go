@@ -712,9 +712,9 @@ func (a *App) pasteStatus(p *Pane, status terminal.PasteStatus, sent, total int)
 	case terminal.PasteSent:
 		a.toast(ui.Toast{ID: id, Title: "Image pasted", Description: size(total) + " to " + host, Timeout: 2 * time.Second})
 	case terminal.PasteNotTaken:
-		a.toast(ui.Toast{ID: id, Title: "The program didn't take the image", Type: "error"})
+		a.toast(ui.Toast{ID: id, Title: "The program didn't accept the image", Type: "error"})
 	case terminal.PasteNoText:
-		a.toast(ui.Toast{ID: id, Title: "This program doesn't take images", Type: "error"})
+		a.toast(ui.Toast{ID: id, Title: "This program doesn't accept images", Type: "error"})
 	}
 }
 

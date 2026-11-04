@@ -298,11 +298,11 @@ func (a *App) settingsPage(c *ui.Context, k *colors) {
 					s.open = false
 				}
 			})
-			where := "Defaults · " + thisMachine() + " · hosts without a value of their own follow these"
+			where := "Defaults · " + thisMachine() + " · hosts that don't set a value use these"
 			if scope == scopeHost {
-				where = "This window · " + hostLabel + " · set here, applies to this host from any PC"
+				where = "This window · " + hostLabel + " · set here, these apply to this host from any PC"
 				if a.client == nil {
-					where = "This window · " + hostLabel + " · not connected: its settings can't be changed now"
+					where = "This window · " + hostLabel + " · not connected, so these settings can't be changed now"
 				}
 			}
 			ui.Text(c, where).FontSize(12).TextColor(k.textFaint).SingleLine().Ellipsis("…")
@@ -411,7 +411,7 @@ func (a *App) settingRow(c *ui.Context, k *colors, scope string, f field) {
 		a.settingControl(c, k, scope, f)
 		if scope == scopeHost && f.kind == "look" {
 			if f.isSet(&a.host) {
-				if textButton(c, k, "Reset").Tooltip("Back to the Defaults' value").Clicked() {
+				if textButton(c, k, "Reset").Tooltip("Go back to the value in Defaults").Clicked() {
 					f.clear(&a.host)
 					a.settingsChanged(true)
 				}
@@ -476,7 +476,7 @@ func (a *App) settingControl(c *ui.Context, k *colors, scope string, f field) {
 	case "terminal.identity":
 		ui.Column(c).Gap(4).AlignItems(ui.End).Children(func() {
 			choices(c, &target, effv, []string{"ghostty", "gorex"}, []string{"Ghostty", "GoRex"}, changed)
-			ui.Text(c, "As TERM_PROGRAM, in sessions started after a change").FontSize(11).TextColor(k.textFaint)
+			ui.Text(c, "Sent as TERM_PROGRAM. Applies to sessions started after a change.").FontSize(11).TextColor(k.textFaint)
 		})
 	case "shell.startIn":
 		choices(c, &target, effv, []string{"current", "home"}, []string{"The current pane's directory", "Home"}, changed)
@@ -497,7 +497,7 @@ func (a *App) settingControl(c *ui.Context, k *colors, scope string, f field) {
 				choices(c, &target, effv, []string{"", "sidebar", "under-window", "hud"}, []string{"None", "Sidebar", "Under window", "HUD"}, changed)
 			} else {
 				choices(c, &target, effv, []string{"", "mica", "acrylic", "tabbed"}, []string{"None", "Mica", "Acrylic", "Tabbed"}, changed)
-				ui.Text(c, "Shows when GoRex opens again (Windows 11 22H2 and later)").FontSize(11).TextColor(k.textFaint)
+				ui.Text(c, "Takes effect when GoRex restarts (Windows 11 22H2 and later).").FontSize(11).TextColor(k.textFaint)
 			}
 		})
 	case "terminal.font":
@@ -577,7 +577,7 @@ func (a *App) settingControl(c *ui.Context, k *colors, scope string, f field) {
 				target.Set(reflect.ValueOf(&val))
 				changed()
 			}
-			ui.Text(c, "In sessions started after a change").FontSize(11).TextColor(k.textFaint)
+			ui.Text(c, "Applies to sessions started after a change.").FontSize(11).TextColor(k.textFaint)
 		})
 	case "omp.font":
 		// The font in use: the system's UI font until set. A combobox
@@ -856,16 +856,16 @@ func agentStatus() (msg, used string, ok bool) {
 	case l := <-done:
 		switch {
 		case l.err != nil:
-			msg += name + " isn't running: ssh asks for a key's passphrase on each connect. "
+			msg += name + " isn't running, so ssh asks for your key's passphrase each time it connects. "
 		case l.n == 1:
-			msg += "Using " + name + ", which holds 1 key. "
+			msg += "Using " + name + ". It holds 1 key. "
 			ok = true
 		default:
-			msg += "Using " + name + ", which holds " + strconv.Itoa(l.n) + " keys. "
+			msg += "Using " + name + ". It holds " + strconv.Itoa(l.n) + " keys. "
 			ok = true
 		}
 	case <-time.After(5 * time.Second):
-		msg += "Using " + name + ", which doesn't answer. "
+		msg += "Using " + name + ", but it doesn't answer. "
 	}
 	return msg, used, ok
 }
@@ -933,7 +933,7 @@ func (a *App) hostsPage(c *ui.Context, k *colors) {
 				ui.Column(c).Radius(10).Background(k.hover).Clip().Children(func() {
 					a.settingRow(c, k, scopeDefaults, f)
 				})
-				ui.Text(c, s.agent+"Automatic uses Pageant (or KiTTY's Kageant) when it runs, so that the keys loaded in it log in to hosts and Forward ssh agent passes them on; else Windows' own ssh-agent. It applies from the next connection.").
+				ui.Text(c, s.agent+"Automatic uses Pageant (or Kageant from KiTTY) when it is running. Then the keys loaded in it log you in to hosts, and Forward ssh agent passes them on. Otherwise, Automatic uses the ssh-agent built into Windows. A change applies from the next connection.").
 					FontSize(11.5).TextColor(k.textFaint).LineHeight(1.35)
 			})
 		}
@@ -946,7 +946,7 @@ func (a *App) hostsPage(c *ui.Context, k *colors) {
 			})
 			ui.Column(c).Radius(10).Background(k.hover).Clip().Children(func() {
 				if len(a.remotes) == 0 {
-					ui.Text(c, "None yet: add one with Add Host…, or connect to one with ssh user@host in the palette, or GoRex ssh user@host.").
+					ui.Text(c, "No hosts yet. Add one with Add Host…, or connect to one: type ssh user@host in the palette, or run gorex ssh user@host.").
 						FontSize(12.5).TextColor(k.textFaint).Padding(12, 14)
 				}
 				for i, r := range a.remotes {
@@ -990,11 +990,11 @@ func (a *App) hostsPage(c *ui.Context, k *colors) {
 					})
 				}
 			})
-			ui.Text(c, "Forward ssh agent lets the host's sessions use the keys of this PC's ssh agent, while a window of this PC is connected; root on the host can use them meanwhile. It applies from the host's next connection (Reconnect in the palette), and also where ~/.ssh/config says ForwardAgent yes.").
+			ui.Text(c, "Forward ssh agent lets sessions on the host use the keys in this PC's ssh agent while a window on this PC is connected. During that time, root on the host can also use them. It applies from the host's next connection (Reconnect in the palette). It also applies when ~/.ssh/config sets ForwardAgent yes.").
 				FontSize(11.5).TextColor(k.textFaint).LineHeight(1.35)
 		})
 		ui.Column(c).Gap(8).Children(func() {
-			ui.Text(c, "Copy a look").FontSize(13).FontWeight(700).TextColor(k.text)
+			ui.Text(c, "Copy appearance settings").FontSize(13).FontWeight(700).TextColor(k.text)
 			ui.Column(c).Radius(10).Background(k.hover).Clip().Padding(10, 14).Gap(8).Children(func() {
 				sources := []string{"Defaults · " + thisMachine()}
 				for _, r := range a.remotes {
@@ -1017,7 +1017,7 @@ func (a *App) hostsPage(c *ui.Context, k *colors) {
 					ui.Text(c, s.copyMsg).FontSize(11.5).TextColor(k.textFaint)
 				}
 			})
-			ui.Text(c, "Copies the appearance and terminal rows into this window's host, as its own values. The source host must be reachable.").
+			ui.Text(c, "Copies the appearance and terminal settings into this window's host, as values set for that host. The source host must be reachable.").
 				FontSize(11.5).TextColor(k.textFaint).LineHeight(1.35)
 		})
 	})
@@ -1028,13 +1028,13 @@ func (a *App) hostsPage(c *ui.Context, k *colors) {
 func (a *App) copyLookFrom(source string) {
 	s := &a.settings
 	if a.client == nil {
-		s.copyMsg = "Not connected to this window's host."
+		s.copyMsg = "Not connected to the host of this window."
 		return
 	}
 	if strings.HasPrefix(source, "Defaults") {
 		copyLook(a.defaults, &a.host)
 		a.settingsChanged(true)
-		s.copyMsg = "Copied the Defaults' look."
+		s.copyMsg = "Copied the look from Defaults."
 		return
 	}
 	var from *savedRemote
@@ -1046,7 +1046,7 @@ func (a *App) copyLookFrom(source string) {
 	if from == nil {
 		return
 	}
-	s.copyMsg = "Reading " + from.title() + "'s settings…"
+	s.copyMsg = "Reading the settings of " + from.title() + "…"
 	win, target := a.win, from.Target
 	go func() {
 		src, err := readHostSettings(target)
@@ -1060,7 +1060,7 @@ func (a *App) copyLookFrom(source string) {
 			}
 			copyLook(src, &a.host)
 			a.settingsChanged(true)
-			s.copyMsg = "Copied " + target + "'s look."
+			s.copyMsg = "Copied the look from " + target + "."
 		})
 	}()
 }
@@ -1201,10 +1201,10 @@ func (a *App) themePicker(c *ui.Context, k *colors) {
 					own = a.host.Appearance.ThemeLight
 				}
 				if own != "" {
-					note = "previewing the Defaults' colors; this host keeps its own, " + own
+					note = "previewing the colors in Defaults; this host keeps its own setting, " + own
 				}
 			}
-			ui.Text(c, fmt.Sprintf("%d of %d · %s · ↑↓ or click, Enter keeps, Esc goes back", len(names), len(t.names), note)).
+			ui.Text(c, fmt.Sprintf("%d of %d · %s · Use ↑↓ or click to preview, Enter to keep, Esc to go back", len(names), len(t.names), note)).
 				FontSize(11.5).TextColor(k.textFaint).Grow(1).SingleLine().Ellipsis("…")
 			if textButton(c, k, "Back").Clicked() {
 				a.endThemePreview(false)

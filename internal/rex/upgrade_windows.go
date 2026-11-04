@@ -8,7 +8,7 @@ import (
 
 // errNoUpgrade: a Windows server has no exec to replace itself in place
 // with, nor a way to hand its pseudo consoles to another process.
-var errNoUpgrade = errors.New("rex: upgrading in place needs Linux or macOS")
+var errNoUpgrade = errors.New("rex: upgrading in place works only on Linux and macOS")
 
 type upgradeState struct{}
 

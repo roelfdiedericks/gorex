@@ -35,7 +35,7 @@ func Path() (string, error) {
 	if p := system(); p != "" {
 		return p, nil
 	}
-	return "", errors.New("GoRex needs OpenSSH's ssh: install the OpenSSH Client")
+	return "", errors.New("GoRex needs the OpenSSH ssh program; install the OpenSSH Client")
 }
 
 // Found returns every ssh on PATH, in PATH's order, then the system's

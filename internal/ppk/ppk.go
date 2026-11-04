@@ -35,9 +35,9 @@ import (
 
 var (
 	// ErrPublicOnly is the error of a file that holds a public key only.
-	ErrPublicOnly = errors.New("it holds only a public key, not the private key ssh needs")
+	ErrPublicOnly = errors.New("it holds only a public key, not the private key that ssh needs")
 	// ErrOpenSSH is the error of a file in a format ssh reads as it is.
-	ErrOpenSSH = errors.New("it is in ssh's own format already")
+	ErrOpenSSH = errors.New("it is already in the OpenSSH format")
 	// ErrWrongPassphrase is the error of a wrong passphrase.
 	ErrWrongPassphrase = errors.New("wrong passphrase")
 )
@@ -79,7 +79,7 @@ func Parse(b []byte) (*File, error) {
 		}
 		n, v, ok := strings.Cut(strings.TrimRight(sc.Text(), "\r"), ": ")
 		if !ok || n != name {
-			return "", fmt.Errorf("%s expected, not %q", name, sc.Text())
+			return "", fmt.Errorf("expected %s, found %q", name, sc.Text())
 		}
 		return v, nil
 	}
@@ -91,12 +91,12 @@ func Parse(b []byte) (*File, error) {
 		}
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 0 || n > 1<<14 {
-			return nil, fmt.Errorf("bad %s %q", name, v)
+			return nil, fmt.Errorf("invalid %s %q", name, v)
 		}
 		var s strings.Builder
 		for range n {
 			if !sc.Scan() {
-				return nil, fmt.Errorf("the file ends in %s", name)
+				return nil, fmt.Errorf("the file ends in the middle of %s", name)
 			}
 			s.WriteString(strings.TrimSpace(sc.Text()))
 		}
@@ -115,9 +115,9 @@ func Parse(b []byte) (*File, error) {
 	case "PuTTY-User-Key-File-3":
 		f.Version = 3
 	case "PuTTY-User-Key-File-1":
-		return nil, errors.New("it is in PuTTY's first key format: open it in PuTTYgen and save it again")
+		return nil, errors.New("it uses the first PuTTY key format; open it in PuTTYgen and save it again")
 	default:
-		return nil, errors.New("it is in a PuTTY key format newer than GoRex knows")
+		return nil, errors.New("it uses a PuTTY key format that is newer than this GoRex supports")
 	}
 	f.Algorithm = alg
 	var err error
@@ -125,7 +125,7 @@ func Parse(b []byte) (*File, error) {
 		return nil, err
 	}
 	if f.Encryption != "none" && f.Encryption != "aes256-cbc" {
-		return nil, fmt.Errorf("its encryption %q is unknown", f.Encryption)
+		return nil, fmt.Errorf("it uses an unknown encryption, %q", f.Encryption)
 	}
 	if f.Comment, err = header("Comment"); err != nil {
 		return nil, err
@@ -144,7 +144,7 @@ func Parse(b []byte) (*File, error) {
 			}
 			n, err := strconv.ParseUint(v, 10, 32)
 			if err != nil || n == 0 || n > max {
-				return 0, fmt.Errorf("bad %s %q", name, v)
+				return 0, fmt.Errorf("invalid %s %q", name, v)
 			}
 			return n, nil
 		}
@@ -166,7 +166,7 @@ func Parse(b []byte) (*File, error) {
 			return nil, err
 		}
 		if f.salt, err = hex.DecodeString(s); err != nil {
-			return nil, fmt.Errorf("bad Argon2-Salt %q", s)
+			return nil, fmt.Errorf("invalid Argon2-Salt %q", s)
 		}
 	}
 	if f.private, err = lines("Private-Lines"); err != nil {
@@ -177,7 +177,7 @@ func Parse(b []byte) (*File, error) {
 		return nil, err
 	}
 	if f.mac, err = hex.DecodeString(m); err != nil {
-		return nil, fmt.Errorf("bad Private-MAC %q", m)
+		return nil, fmt.Errorf("invalid Private-MAC %q", m)
 	}
 	return f, nil
 }
@@ -213,9 +213,9 @@ func (f *File) keys(passphrase []byte) (key, iv, macKey []byte, err error) {
 	case "Argon2i":
 		out = argon2.Key(passphrase, f.salt, f.passes, f.memory, f.parallelism, n)
 	case "Argon2d":
-		return nil, nil, nil, errors.New("its passphrase is hashed with Argon2d, which GoRex can't: save it again in PuTTYgen with Argon2id, PuTTYgen's default")
+		return nil, nil, nil, errors.New("its passphrase is hashed with Argon2d, which GoRex does not support; save it again in PuTTYgen with Argon2id (the PuTTYgen default)")
 	default:
-		return nil, nil, nil, fmt.Errorf("its key derivation %q is unknown", f.kdf)
+		return nil, nil, nil, fmt.Errorf("it uses an unknown key derivation, %q", f.kdf)
 	}
 	return out[:32], out[32 : 32+aes.BlockSize], out[32+aes.BlockSize:], nil
 }
@@ -255,7 +255,7 @@ func (f *File) Decrypt(passphrase []byte) (crypto.PrivateKey, error) {
 		if f.Encrypted() {
 			return nil, ErrWrongPassphrase
 		}
-		return nil, errors.New("it is damaged: its MAC doesn't match")
+		return nil, errors.New("it is damaged (its MAC does not match)")
 	}
 	k, err := privateKey(f.Algorithm, f.Public, priv)
 	if err != nil {
@@ -267,7 +267,7 @@ func (f *File) Decrypt(passphrase []byte) (crypto.PrivateKey, error) {
 		return nil, err
 	}
 	if !bytes.Equal(signer.PublicKey().Marshal(), f.Public) {
-		return nil, errors.New("its private key doesn't match its public key")
+		return nil, errors.New("its private key does not match its public key")
 	}
 	return k, nil
 }
@@ -311,9 +311,9 @@ func privateKey(alg string, public, private []byte) (crypto.PrivateKey, error) {
 		}
 		return ed25519.NewKeyFromSeed(seed), nil
 	case "ssh-dss":
-		return nil, errors.New("it is a DSA key, which ssh no longer takes: make a new key in PuTTYgen")
+		return nil, errors.New("it is a DSA key, which ssh no longer accepts; make a new key in PuTTYgen")
 	}
-	return nil, fmt.Errorf("its key type %s is one ssh's format can't hold", alg)
+	return nil, fmt.Errorf("the ssh key format cannot store its key type, %s", alg)
 }
 
 // OpenSSH returns the private key in OpenSSH's format, encrypted with

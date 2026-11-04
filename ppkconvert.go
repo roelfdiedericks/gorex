@@ -194,7 +194,7 @@ func (a *App) ppkPanel(c *ui.Context, k *colors, f *ppkForm, pad float32, use fu
 	ui.Column(c).Gap(6).Padding(0, 0, 0, pad).Children(func() {
 		switch {
 		case f.done != "":
-			text("Converted to "+f.done+" (and its .pub), which ssh uses.", k.textFaint)
+			text("Converted to "+f.done+" (plus its .pub file). ssh uses the converted key.", k.textFaint)
 			return
 		case f.info == nil:
 			text("Reading "+f.path+"…", k.textFaint)
@@ -202,12 +202,12 @@ func (a *App) ppkPanel(c *ui.Context, k *colors, f *ppkForm, pad float32, use fu
 		}
 		switch f.info.kind {
 		case ppkInAgent:
-			text("PuTTY key "+f.path+" is in "+f.info.agent+": ssh uses it from there, with nothing to convert.", k.textFaint)
+			text("PuTTY key "+f.path+" is already in "+f.info.agent+". ssh uses it from there, so there is nothing to convert.", k.textFaint)
 		case ppkPublicOnly:
-			text(f.path+" holds only a public key: ssh needs the private key, the .ppk file PuTTYgen saved.", k.attention)
+			text(f.path+" contains only a public key. ssh needs the private key, which is the .ppk file that PuTTYgen saved.", k.attention)
 		case ppkOpenSSH:
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				text(f.path+" is in ssh's own format already.", k.textFaint)
+				text(f.path+" is already in ssh's format.", k.textFaint)
 				if textButton(c, k, "Use It").Clicked() {
 					use(f.path)
 				}
@@ -215,7 +215,7 @@ func (a *App) ppkPanel(c *ui.Context, k *colors, f *ppkForm, pad float32, use fu
 		case ppkBad:
 			text("Can't use "+f.path+": "+f.info.err, k.attention)
 		case ppkConvert:
-			msg := "PuTTY key " + f.path + " isn't in ssh's format: GoRex converts it into your .ssh folder"
+			msg := "PuTTY key " + f.path + " isn't in ssh's format. GoRex can convert it and save it in your .ssh folder"
 			if f.info.encrypted {
 				msg += ", with the same passphrase."
 			} else {
@@ -249,7 +249,7 @@ func (a *App) ppkPanel(c *ui.Context, k *colors, f *ppkForm, pad float32, use fu
 			}
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				if f.info.encrypted {
-					in := ui.TextInput(c, &f.pass).Password().Width(220).FontSize(12.5).Placeholder("The key's passphrase")
+					in := ui.TextInput(c, &f.pass).Password().Width(220).FontSize(12.5).Placeholder("Key passphrase")
 					if in.Submitted() {
 						convert()
 					}
@@ -263,7 +263,7 @@ func (a *App) ppkPanel(c *ui.Context, k *colors, f *ppkForm, pad float32, use fu
 				}
 			})
 			if f.err != "" {
-				text("Can't convert it: "+f.err, ui.Hex("#ef4444"))
+				text("Can't convert the key: "+f.err, ui.Hex("#ef4444"))
 			}
 		}
 	})

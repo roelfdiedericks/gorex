@@ -109,7 +109,7 @@ func (e *events) watch(c *control, dir string) error {
 	}
 	if e.refs[dir] == 0 {
 		if len(e.refs) >= maxWatches {
-			return errors.New("too many directories watched")
+			return errors.New("too many directories are being watched")
 		}
 		if e.watcher == nil {
 			w, err := fsnotify.NewWatcher()

@@ -210,23 +210,23 @@ func (a *App) restartDialog(c *ui.Context, k *colors) {
 			}
 		}
 	}
-	sessions := fmt.Sprintf("Its %d sessions", n)
+	sessions := fmt.Sprintf("All %d sessions", n)
 	if n == 1 {
-		sessions = "Its session"
+		sessions = "The session"
 	}
 	// A server on Windows can't replace itself in place: a new one
 	// starts.
 	inPlace := a.hello.Host.GOOS != "" && a.hello.Host.GOOS != "windows"
-	what, action := sessions+" end: their programs are closed.", "End Sessions and Restart"
+	what, action := sessions+" will end, and the programs running there will close.", "End Sessions and Restart"
 	if inPlace {
-		what, action = sessions+" keep running: the server replaces itself in place.", "Restart"
+		what, action = sessions+" will keep running. The server replaces itself in place.", "Restart"
 	}
 	open := true
 	ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
 		backdrop.Background(k.backdrop)
 		panel.Width(440).Radius(16).Background(k.panel).Border(1, k.panelBorder).
 			Shadow(0, 24, 60, -8, ui.RGBA(0, 0, 0, 0.28)).Padding(18, 20).Gap(12).Clip()
-		ui.Text(c, "Restart the session server of "+a.hostName()+"?").FontSize(14).FontWeight(700).TextColor(k.text)
+		ui.Text(c, "Restart the session server on "+a.hostName()+"?").FontSize(14).FontWeight(700).TextColor(k.text)
 		ui.Text(c, what).FontSize(12.5).TextColor(k.text).LineHeight(1.45)
 		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 			if textButton(c, k, "Cancel").Clicked() {

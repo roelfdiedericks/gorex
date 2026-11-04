@@ -2126,7 +2126,7 @@ func (a *App) surfaceZoom(c *ui.Context, k *colors, t *Tab, p *Pane) {
 			}
 			ui.Text(c, caption).FontSize(a.tspText(12)).TextColor(ui.RGB(230, 230, 230))
 			if a.tspZoomPath != "" {
-				open = textButton(c, k, "Open file").Tooltip(a.tspZoomPath).Clicked()
+				open = textButton(c, k, "Open File").Tooltip(a.tspZoomPath).Clicked()
 			}
 		})
 	})
