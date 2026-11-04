@@ -135,7 +135,7 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 		settle.synced = true
 	}
 	cut := headless || most > 0 && p.tspNeed[sf.Image] > most || docked && settle.on
-	box := ui.Box(c.Key(fmt.Sprintf("tsp-%d", sf.Image))).Absolute().Left(pl.Rect.X).Top(pl.Rect.Y).Right(tspAside(p, sf, pl)).Background(k.bgBottom).Font(a.tspLook().font)
+	box := ui.Box(c.Key(fmt.Sprintf("tsp-%d", sf.Image))).Absolute().Left(pl.Rect.X).Top(pl.Rect.Y).Right(p.term.ScrollbarStrip()).Background(k.bgBottom).Font(a.tspLook().font)
 	// A live surface with a dock reaches the screen's last row, under its
 	// rows, where the cursor stays (rex.tspTracker.padding).
 	below := float32(0)
@@ -1640,6 +1640,10 @@ func (a *App) tspIcon(c *ui.Context, k *colors, name string) ui.Element {
 		"circle": "circle-dot", "eye": "eye", "pencil": "pencil", "globe": "globe", "database": "database",
 		"cpu": "cpu", "server": "server", "keyboard": "keyboard", "command": "command", "activity": "activity",
 		"open": "external-link", "link": "link",
+		// omp's settings pages.
+		"appearance": "palette", "interaction": "mouse-pointer-click", "context": "layers", "memory": "brain",
+		"files": "file", "shell": "terminal", "tools": "wrench", "tasks": "list-checks", "providers": "plug",
+		"plugins": "puzzle",
 	}[name]; ok {
 		return ui.Icon(c, icon(svg)).Size(13, 13).TextColor(k.textMuted).Shrink(0)
 	}

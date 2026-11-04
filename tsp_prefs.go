@@ -8,7 +8,6 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
 
 	"gorex/internal/rex"
@@ -23,16 +22,16 @@ import (
 // (change with a typed value, activate, select, action), which it
 // answers with new props. In the layer region (omp puts its /settings
 // there over a live session, as the hello's aside feature lets it) it is
-// a sheet docked at the pane's right edge, and the inline surface beside
-// it is narrowed to leave it room, where the pane has room for both
-// (tspAside); without the room the sheet lies over the transcript's
-// right part. Anywhere else it is a page in place.
+// a sheet in the middle of the window (tspPrefsSheet). Anywhere else it
+// is a page in place.
 
 const (
-	// tspPrefsSheetW is a sheet's width; tspPrefsRoom the least width
-	// the transcript keeps beside it, else the sheet lies over it.
-	tspPrefsSheetW = 440
-	tspPrefsRoom   = 360
+	// tspPrefsSheetW and tspPrefsSheetH are a sheet's size at most, and
+	// tspPrefsFullNav the least width at which it names its pages
+	// beside their icons, rather than a rail of icons.
+	tspPrefsSheetW  = 880
+	tspPrefsSheetH  = 760
+	tspPrefsFullNav = 700
 	// The roles of a prefs node's children: the status-line preview,
 	// after the status-line section, and an editor without a native
 	// control, in a card over the page.
@@ -90,32 +89,22 @@ func (a *App) tspPrefsQueued(sf *rex.Surface, n *rex.TSPNode) bool {
 	return true
 }
 
-// tspAside is how far an inline surface's right edge, placed at pl,
-// keeps from the pane's: the strip of the terminal's scroll bar, which
-// stays in sight and in reach beside every surface, and for a live one
-// the prefs sheet docked beside it, with its margins, where the
-// transcript keeps tspPrefsRoom beside it; else the sheet lies over the
-// transcript. The pane is as wide as the terminal's columns from the
-// view's left: the anchor's placement is one cell wide, which gives a
-// cell's width.
-func tspAside(p *Pane, sf *rex.Surface, pl terminal.AppPlacement) float32 {
-	strip := p.term.ScrollbarStrip()
-	cols, _ := p.term.Size()
-	cell := pl.Rect.W / float32(max(pl.Cols, 1))
-	width := pl.Rect.X + float32(cols-pl.Col)*cell
-	if sf.Closed || width < tspPrefsSheetW+16+tspPrefsRoom+strip {
-		return strip
-	}
-	layer := tspLayer(sf)
-	if layer == nil {
-		return strip
-	}
-	for _, n := range layer.Children {
-		if hidden, _ := n.Props["hidden"].(bool); n.Kind == "prefs" && !hidden {
-			return strip + tspPrefsSheetW + 16
+// tspPrefsOpen tells whether a live surface of the pane shows a prefs
+// sheet (tspPrefsSheet), which has the keys while it is open.
+func (p *Pane) tspPrefsOpen() bool {
+	for i := range p.surfaces {
+		sf := &p.surfaces[i]
+		layer := tspLayer(sf)
+		if sf.Closed || layer == nil {
+			continue
+		}
+		for _, n := range layer.Children {
+			if hidden, _ := n.Props["hidden"].(bool); n.Kind == "prefs" && !hidden {
+				return true
+			}
 		}
 	}
-	return strip
+	return false
 }
 
 // newPrefsView reads a prefs node's props and sorts its children by role.
@@ -195,42 +184,57 @@ func tspReveal(el ui.Element, now bool) {
 	*was = now
 }
 
-// tspPrefsSheet draws a prefs node of the layer region: a sheet docked at
-// the pane's right edge, from its top to the dock pinned at its bottom,
-// with the title and a close button, the search, the pages as a rail
-// and the document; pickers among its children draw as their sheets.
+// tspPrefsSheet draws a prefs node of the layer region: a sheet in the
+// middle of the window, over its panes, as wide as tspPrefsSheetW at most,
+// with the title and a close button, the search, the pages (with their
+// names where the sheet is wide, else as a rail of icons) and the
+// document; pickers among its children draw as their sheets over it.
+// Tern docks it beside the transcript instead; a narrow pane left it no
+// room. It takes no focus: the keys stay the program's.
 func (a *App) tspPrefsSheet(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, n *rex.TSPNode) {
 	v := a.newPrefsView(k, t, p, sf, n, true)
-	bottom := float32(8)
-	if sf.Mode != "screen" && tspDocked(sf) {
-		bottom += p.dockH[sf.Image] + 8
-	}
-	sheet := ui.Column(c.Key("tsp-prefs-"+n.ID)).Absolute().Top(8).Right(p.term.ScrollbarStrip()+8).Bottom(bottom).Width(tspPrefsSheetW).MaxWidthPercent(92).
-		Radius(cardR).Background(k.panel).Border(1, k.panelBorder).Padding(10, 12).Gap(8).Font(a.tspLook().font).Clip()
-	sheet.Children(func() {
-		head := ui.Row(c.Key("brand")).Gap(8).AlignItems(ui.Center).FillWidth()
-		head.Children(func() {
-			ui.Icon(c, icon("settings-2")).Size(14, 14).TextColor(k.textMuted)
-			v.title(c).Grow(1)
-			if iconButton(c, k, "x", "Close", 22, 13).Clicked() {
-				v.act("close", "")
+	win := c.Root().Bounds()
+	w := min(tspPrefsSheetW, win.W-48)
+	h := min(tspPrefsSheetH, win.H-titleH-32)
+	ui.Overlay(c, func() {
+		place := ui.Row(c.Key("tsp-prefs-place-"+n.ID)).Absolute().Left(0).Right(0).Top(titleH).Bottom(0).
+			Justify(ui.Center).AlignItems(ui.Center).PassThrough()
+		place.Children(func() {
+			sheet := ui.Column(c.Key("tsp-prefs-"+n.ID)).Width(w).Height(h).
+				Radius(cardR).Background(k.panel).Border(1, k.panelBorder).Shadow(0, 24, 60, -8, ui.RGBA(0, 0, 0, 0.28)).
+				Padding(10, 12).Gap(8).Font(a.tspLook().font).Clip()
+			var search ui.Element
+			sheet.Children(func() {
+				head := ui.Row(c.Key("brand")).Gap(8).AlignItems(ui.Center).FillWidth()
+				head.Children(func() {
+					ui.Icon(c, icon("settings-2")).Size(14, 14).TextColor(k.textMuted)
+					v.title(c).Grow(1)
+					if iconButton(c, k, "x", "Close", 22, 13).Clicked() {
+						v.act("close", "")
+					}
+				})
+				search = v.search(c).FillWidth()
+				body := ui.Row(c.Key("body")).Gap(8).FillWidth().Grow(1).MinHeight(0).AlignItems(ui.Stretch)
+				body.Children(func() {
+					v.rail(c, w < tspPrefsFullNav)
+					doc := ui.Scroll(c.Key("doc-" + v.page + "|" + v.query)).Grow(1).MinWidth(0)
+					doc.Children(func() { v.doc(c) })
+				})
+				v.editorCard(c)
+			})
+			// A press elsewhere in the sheet takes the caret from the
+			// clicked search field (search).
+			if sheet.Pressed() {
+				a.surfacePressed(t, p)
+				if !search.Pressed() && a.tspSearchArmed == v.searchKey() {
+					a.tspSearchArmed = ""
+				}
 			}
 		})
-		v.search(c).FillWidth()
-		body := ui.Row(c.Key("body")).Gap(8).FillWidth().Grow(1).MinHeight(0).AlignItems(ui.Stretch)
-		body.Children(func() {
-			v.rail(c, true)
-			doc := ui.Scroll(c.Key("doc-" + v.page + "|" + v.query)).Grow(1).MinWidth(0)
-			doc.Children(func() { v.doc(c) })
-		})
-		v.editorCard(c)
+		for _, pk := range v.picker {
+			a.tspPicker(c, k, t, p, sf, pk)
+		}
 	})
-	if sheet.Pressed() {
-		a.surfacePressed(t, p)
-	}
-	for _, pk := range v.picker {
-		a.tspPicker(c, k, t, p, sf, pk)
-	}
 }
 
 // tspPrefs draws a prefs node anywhere but the layer region: a page in
@@ -280,13 +284,24 @@ func (v *tspPrefsView) title(c *ui.Context) ui.Element {
 // search draws the program's search field: its text, with the caret
 // where the program has it while its field has the keys. The keys are
 // the program's: they reach it through the terminal, which a click on
-// the field gives them to.
+// the field gives them to. The program starts its search at the first
+// key typed, so until then a clicked field (tspSearchArmed) draws a
+// caret of its own, as a field with the keys does, until a click
+// elsewhere: on the sheet, in the transcript, or on a page or row, which
+// changes the program's page or focus.
 func (v *tspPrefsView) search(c *ui.Context) ui.Element {
 	k := v.k
 	q, _ := v.n.Props["query"].(string)
 	at, caret := v.n.Props["cursor"].(float64)
-	box := ui.Row(c.Key("search")).Gap(6).AlignItems(ui.Center).Padding(4, 8).Radius(6).Background(k.bgLow).Border(1, k.cardBorder).Unselectable()
-	if caret {
+	key := v.searchKey()
+	armed := v.a.tspSearchArmed == key
+	stale := !armed && strings.HasPrefix(v.a.tspSearchArmed, v.searchField())
+	if stale || armed && (caret || q != "" || v.t.Focus != v.p || v.p.termHeld) {
+		v.a.tspSearchArmed, armed = "", false
+	}
+	box := ui.Row(c.Key("search")).Gap(6).AlignItems(ui.Center).Padding(4, 8).Radius(6).Background(k.bgLow).Border(1, k.cardBorder).
+		Unselectable().Cursor(ui.CursorText)
+	if caret || armed {
 		box.Border(1, k.busy)
 	}
 	box.Children(func() {
@@ -294,17 +309,30 @@ func (v *tspPrefsView) search(c *ui.Context) ui.Element {
 		switch {
 		case caret:
 			pre, post := tspSplitAt(q, int(at))
-			v.caretText(c, pre, post, "Search settings", "")
+			v.caretText(c, pre, post, "Type to search", "")
+		case armed:
+			v.caretText(c, "", "", "Type to search", "")
 		case v.query != "":
 			ui.Text(c, v.query).FontSize(v.a.tspText(12)).TextColor(k.text).SingleLine()
 		default:
-			ui.Text(c, "Search settings").FontSize(v.a.tspText(12)).TextColor(k.textMuted).SingleLine()
+			ui.Text(c, "Type to search").FontSize(v.a.tspText(12)).TextColor(k.textMuted).SingleLine()
 		}
 	})
 	if box.Clicked() {
 		v.a.surfacePressed(v.t, v.p)
+		v.a.tspSearchArmed = key
 	}
 	return box
+}
+
+// searchField names the search field of the view's prefs node, and
+// searchKey it with the program's page and focus, for tspSearchArmed.
+func (v *tspPrefsView) searchField() string {
+	return fmt.Sprintf("%d/%s|", v.sf.Image, v.n.ID)
+}
+
+func (v *tspPrefsView) searchKey() string {
+	return v.searchField() + v.page + "|" + v.focus
 }
 
 // caretText draws a text with a caret between pre and post, the

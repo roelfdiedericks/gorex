@@ -326,9 +326,12 @@ type App struct {
 	// one are drawn bare, as sections of its frame.
 	tspFlat int
 	// tspReveal are the nodes the pane being drawn is to bring into
-	// view, by id, with where; tspFocus the field to focus.
-	tspReveal map[string]string
-	tspFocus  string
+	// view, by id, with where; tspFocus the field to focus;
+	// tspSearchArmed the prefs search field clicked, which draws a caret
+	// until the program's search takes it (tspPrefsView.search).
+	tspReveal      map[string]string
+	tspFocus       string
+	tspSearchArmed string
 	// tspImages are the programs' blobs decoded, by id; tspZoom is the
 	// one shown whole over tspZoomPane, named tspZoomAlt, from the file
 	// tspZoomPath when the program said so.

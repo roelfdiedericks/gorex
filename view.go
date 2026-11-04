@@ -382,7 +382,16 @@ func (a *App) paneCard(c *ui.Context, k *colors, t *Tab, p *Pane) ui.Element {
 				if p.termHeld && !tv.Focused() && a.focusReq != p {
 					p.termHeld = false
 				}
-				dock := p.tspDockLive() && p.composerAt+1 >= a.frame && !p.termHeld
+				// While the program's settings sheet is open, the keys are
+				// the program's (its search, arrows, Enter and Esc), not its
+				// composer's: the focus stays with the terminal, and leaves
+				// the composer if it had it.
+				prefs := p.tspPrefsOpen()
+				dock := p.tspDockLive() && p.composerAt+1 >= a.frame && !p.termHeld && !prefs
+				if prefs && p.composerFocused && t.Focus == p && a.tab() == t {
+					p.composerFocused = false
+					tv.Focus()
+				}
 				if a.focusReq == p && a.tab() == t {
 					if dock {
 						p.composerFocus = true
