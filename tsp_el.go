@@ -1346,7 +1346,11 @@ func (a *App) elAction(t *Tab, p *Pane, sf *rex.Surface, e *tspEls, n *rex.TSPNo
 func (a *App) elSend(t *Tab, p *Pane, sf *rex.Surface, e *tspEls, n *rex.TSPNode, el ui.Element, act string) {
 	ev := map[string]any{"sf": sf.ID, "id": n.ID}
 	switch act {
-	case "", "toggle", "copy", "open", "zoom":
+	case "", "toggle", "zoom":
+		return
+	case "copy", "open":
+		// The window's own, on the node's href, as Tern does.
+		a.tspLocal(n, act)
 		return
 	case "select", "activate":
 		ev["ev"], ev["item"] = act, n.ID

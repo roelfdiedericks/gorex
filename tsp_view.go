@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -875,13 +876,23 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 			el = ui.Box(key).Size(1, 14).Background(k.cardBorder).Margin(0, 2)
 			break
 		}
-		if spans, ok := n.Props["spans"]; ok {
+		truncate, _ := n.Props["truncate"].(string)
+		spans, isSpans := n.Props["spans"].([]any)
+		if isSpans && (truncate == "middle" || truncate == "start") {
+			// Cut where the program says: the ends a link needs stay
+			// in sight. Text drawn so can't be selected; its link's
+			// context menu copies it.
+			sp, hrefs := a.tspSpans(k, spans, 13, false)
+			el = a.tspCutText(c, sp, hrefs, truncate)
+			break
+		}
+		if isSpans {
 			el = a.tspRich(c, k, spans, 13, false)
 		} else {
 			el = ui.Text(c, text).FontSize(a.tspText(13)).TextColor(k.text)
 		}
 		// Kept on one line: whole, or cut with an ellipsis.
-		if truncate, _ := n.Props["truncate"].(string); truncate != "" {
+		if truncate != "" {
 			el.SingleLine().MinWidth(0)
 		} else if wrap, _ := n.Props["wrap"].(string); wrap == "none" {
 			el.SingleLine().Shrink(0)
@@ -1466,27 +1477,34 @@ func tspFlex(p *Pane, n *rex.TSPNode, el ui.Element) {
 
 // tspClick sends the program n's click action, where it has one and the
 // surface is live, when el is clicked: the program gets it, and the keys
-// after it. Each program's surfaces have ids of its own, so the kept
-// ones are keyed by their anchors.
+// after it. A copy or open action acts on n's href here first, as Tern
+// does (tspLocal), and n's menu actions make el's context menu. Each
+// program's surfaces have ids of its own, so the kept ones are keyed by
+// their anchors.
 func (a *App) tspClick(t *Tab, p *Pane, sf *rex.Surface, n *rex.TSPNode, el ui.Element) {
 	actions, ok := n.Props["actions"].(map[string]any)
 	if !ok || sf.Closed {
 		return
 	}
+	send := func(act string) {
+		a.surfacePressed(t, p)
+		stream := p.stream
+		ev := map[string]any{"ev": "action", "sf": sf.ID, "id": n.ID, "act": act}
+		go func() {
+			if err := stream.TSPEvent(ev); err != nil {
+				a.post(func() {
+					a.toast(ui.Toast{Title: "The program did not get the click", Description: err.Error(), Type: "error"})
+				})
+			}
+		}()
+	}
+	a.tspMenu(el, n, send)
 	act, ok := actions["click"].(string)
 	if !ok || act == "" || !el.Clicked() {
 		return
 	}
-	a.surfacePressed(t, p)
-	stream := p.stream
-	ev := map[string]any{"ev": "action", "sf": sf.ID, "id": n.ID, "act": act}
-	go func() {
-		if err := stream.TSPEvent(ev); err != nil {
-			a.post(func() {
-				a.toast(ui.Toast{Title: "The program did not get the click", Description: err.Error(), Type: "error"})
-			})
-		}
-	}()
+	a.tspLocal(n, act)
+	send(act)
 }
 
 // tspMeterFill is the color of a meter's fill: by its thresholds of what
@@ -1515,7 +1533,9 @@ func (a *App) tspChildren(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Sur
 
 // tspRich draws rich text of the protocol's: a string, or spans of
 // text with style tokens (muted, strong, em, code, accent, success,
-// warning, error, link, …).
+// warning, error, link, …). A span with a web address (href) is a link:
+// a click opens it in the browser, and its context menu opens or copies
+// it.
 func (a *App) tspRich(c *ui.Context, k *colors, v any, size float32, bold bool) ui.Element {
 	switch v := v.(type) {
 	case string:
@@ -1525,50 +1545,72 @@ func (a *App) tspRich(c *ui.Context, k *colors, v any, size float32, bold bool) 
 		}
 		return t
 	case []any:
-		spans := make([]ui.Span, 0, len(v))
-		for _, s := range v {
-			m, _ := s.(map[string]any)
-			text, _ := m["t"].(string)
-			style, _ := m["s"].(string)
-			sp := ui.Span{Text: text, Size: a.tspText(size), Color: k.text}
-			if bold {
-				sp.Weight = 600
-			}
-			for _, tok := range strings.Fields(style) {
-				// A token's color: semantic, or one of the program's
-				// palette by name (statusLineModel).
-				if col, ok := a.spanColor(k, tok); ok {
-					sp.Color = col
-				}
-				switch tok {
-				case "strong":
-					sp.Weight = 600
-				case "em":
-					sp.Italic = true
-				case "icon":
-					// Glyphs of the Nerd Fonts, which GoRex bundles.
-					sp.Font = symbolsFont
-				case "code", "mono", "path", "key", "num":
-					sp.Font = a.tspLook().mono
-				case "del":
-					sp.Strikethrough = true
-				case "ins":
-					sp.Background = k.hover
-				case "mark":
-					sp.Background = k.hover
-					if col, ok := a.tspPal["selectedBg"]; ok {
-						sp.Background = tint(k.hover, col)
-					}
-				}
-			}
-			if href, _ := m["href"].(string); href != "" {
-				sp.Underline, sp.Color = true, k.busy
-			}
-			spans = append(spans, sp)
+		spans, hrefs := a.tspSpans(k, v, size, bold)
+		if !slices.ContainsFunc(hrefs, webURL) {
+			return ui.RichText(c, spans...)
 		}
-		return ui.RichText(c, spans...)
+		return ui.RichText(c).Children(func() {
+			for i, sp := range spans {
+				if !webURL(hrefs[i]) {
+					ui.RichText(c.Key(i), sp)
+					continue
+				}
+				l := ui.Link(c.Key(i), "", hrefs[i]).Children(func() { ui.RichText(c, sp) })
+				a.tspLinkMenu(l, hrefs[i])
+			}
+		})
 	}
 	return ui.Text(c, "").FontSize(a.tspText(size))
+}
+
+// tspSpans makes the spans of the protocol's rich text, with each one's
+// href ("" for none).
+func (a *App) tspSpans(k *colors, v []any, size float32, bold bool) ([]ui.Span, []string) {
+	spans := make([]ui.Span, 0, len(v))
+	hrefs := make([]string, 0, len(v))
+	for _, s := range v {
+		m, _ := s.(map[string]any)
+		text, _ := m["t"].(string)
+		style, _ := m["s"].(string)
+		sp := ui.Span{Text: text, Size: a.tspText(size), Color: k.text}
+		if bold {
+			sp.Weight = 600
+		}
+		for _, tok := range strings.Fields(style) {
+			// A token's color: semantic, or one of the program's
+			// palette by name (statusLineModel).
+			if col, ok := a.spanColor(k, tok); ok {
+				sp.Color = col
+			}
+			switch tok {
+			case "strong":
+				sp.Weight = 600
+			case "em":
+				sp.Italic = true
+			case "icon":
+				// Glyphs of the Nerd Fonts, which GoRex bundles.
+				sp.Font = symbolsFont
+			case "code", "mono", "path", "key", "num":
+				sp.Font = a.tspLook().mono
+			case "del":
+				sp.Strikethrough = true
+			case "ins":
+				sp.Background = k.hover
+			case "mark":
+				sp.Background = k.hover
+				if col, ok := a.tspPal["selectedBg"]; ok {
+					sp.Background = tint(k.hover, col)
+				}
+			}
+		}
+		href, _ := m["href"].(string)
+		if href != "" {
+			sp.Underline, sp.Color = true, k.busy
+		}
+		spans = append(spans, sp)
+		hrefs = append(hrefs, href)
+	}
+	return spans, hrefs
 }
 
 // tspKeys draws key caps, as a hint of what a key does.
@@ -1597,6 +1639,7 @@ func (a *App) tspIcon(c *ui.Context, k *colors, name string) ui.Element {
 		"minus": "minus", "arrow-left": "arrow-left", "chev": "chevron-down", "chev-down": "chevron-down",
 		"circle": "circle-dot", "eye": "eye", "pencil": "pencil", "globe": "globe", "database": "database",
 		"cpu": "cpu", "server": "server", "keyboard": "keyboard", "command": "command", "activity": "activity",
+		"open": "external-link", "link": "link",
 	}[name]; ok {
 		return ui.Icon(c, icon(svg)).Size(13, 13).TextColor(k.textMuted).Shrink(0)
 	}
