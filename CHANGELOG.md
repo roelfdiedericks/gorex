@@ -4,6 +4,22 @@ Each release's version is its heading in this file. The `version` in
 `mygo.json` must match the top heading. Otherwise `make website` refuses
 to build. It also refuses to build a version that is already published.
 
+## 0.1.14
+
+- Copy on select is now on by default on Windows and Linux, as in PuTTY:
+  selecting text in a terminal pane copies it. On macOS it stays off. If
+  you changed the setting yourself, your choice stays.
+- The text in GoRex is easier to read: notes, hints, errors, dialogs,
+  `gorex help` and `gorex doctor` now use plain English.
+- Buttons and menu items now use the same capitalization as the command
+  palette, for example Try Other Folders and Trust and Connect.
+- Some names are clearer:
+  - Set Root to Home Folder, in the file browser's menu.
+  - Copy appearance settings, in Settings › Hosts.
+  - Minimum scroll handle length, Maximum composer width and Maximum
+    message width, in Settings.
+  - The dialog for a host key that ssh has not seen is titled "New host".
+
 ## 0.1.13
 
 - New setting on Windows: *ssh agent*, in Settings › Hosts. It chooses
