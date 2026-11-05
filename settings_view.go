@@ -1106,6 +1106,7 @@ type themesUI struct {
 	open    bool
 	scope   string
 	light   bool // which slot is being chosen: light or dark windows
+	all     bool // every theme, not only those that suit the slot
 	query   string
 	grid    ui.GridState
 	sel     int
@@ -1133,14 +1134,19 @@ func (a *App) startThemePreview(scope string, light bool) {
 	if t.cache == nil {
 		t.cache = map[string]*terminal.Theme{}
 	}
+	t.selectPicked()
+	t.grid.Selected = &t.sel
+	a.applySettings()
+}
+
+// selectPicked selects the theme chosen in the list as it is shown.
+func (t *themesUI) selectPicked() {
 	t.sel = 0
-	for i, n := range t.names {
+	for i, n := range t.filtered() {
 		if strings.EqualFold(n, t.picked) {
 			t.sel = i
 		}
 	}
-	t.grid.Selected = &t.sel
-	a.applySettings()
 }
 
 // previewTheme shows a theme in the window without saving it.
@@ -1189,6 +1195,11 @@ func (a *App) themePicker(c *ui.Context, k *colors) {
 		ui.Column(c).Padding(18, 22, 12, 22).Gap(8).Shrink(0).Children(func() {
 			ui.Row(c).AlignItems(ui.Center).Gap(10).Children(func() {
 				ui.Text(c, "Terminal colors").FontSize(16).FontWeight(700).TextColor(k.text).Grow(1)
+				// Every theme, or those that suit the slot alone.
+				ui.Text(c, "Show all themes").FontSize(12.5).TextColor(k.textMuted)
+				if ui.Switch(c, &t.all).Changed() {
+					t.selectPicked()
+				}
 				slot := 0
 				if t.light {
 					slot = 1
@@ -1251,50 +1262,90 @@ func (a *App) themePicker(c *ui.Context, k *colors) {
 	})
 }
 
-// filtered returns the theme names containing the search, those starting
-// with it first.
+// filtered returns the themes to show: those containing the search, those
+// starting with it first; of them, those that suit the slot (fits), and
+// the one chosen whatever it is, first; or with all, every one, those that
+// suit it first, each part by brightness, lightest first for light windows
+// and darkest first for dark ones, when there is no search.
 func (t *themesUI) filtered() []string {
 	q := strings.ToLower(strings.TrimSpace(t.query))
-	if q == "" {
-		return t.names
+	names := t.names
+	if q != "" {
+		var first, rest []string
+		for _, n := range t.names {
+			l := strings.ToLower(n)
+			if strings.HasPrefix(l, q) {
+				first = append(first, n)
+			} else if strings.Contains(l, q) {
+				rest = append(rest, n)
+			}
+		}
+		names = append(first, rest...)
 	}
-	var first, rest []string
-	for _, n := range t.names {
-		l := strings.ToLower(n)
-		if strings.HasPrefix(l, q) {
-			first = append(first, n)
-		} else if strings.Contains(l, q) {
-			rest = append(rest, n)
+	var fit, other []string
+	for _, n := range names {
+		switch {
+		case t.fits(n):
+			fit = append(fit, n)
+		case t.all || strings.EqualFold(n, t.picked):
+			other = append(other, n)
 		}
 	}
-	return append(first, rest...)
+	if !t.all {
+		// The one chosen, which does not suit the slot, leads.
+		return append(other, fit...)
+	}
+	if q == "" {
+		brighter := func(a, b string) int {
+			la, lb := luminance(t.theme(a).Background), luminance(t.theme(b).Background)
+			if !t.light {
+				la, lb = lb, la
+			}
+			switch {
+			case la > lb:
+				return -1
+			case la < lb:
+				return 1
+			}
+			return 0
+		}
+		slices.SortStableFunc(fit, brighter)
+		slices.SortStableFunc(other, brighter)
+	}
+	return append(fit, other...)
 }
 
-// theme returns a theme by name, the app's own for "GoRex".
+// theme returns a theme by name, the app's own for "GoRex", in the
+// slot's version, which is not cached: the slot changes.
 func (t *themesUI) theme(name string) *terminal.Theme {
+	if strings.EqualFold(name, "GoRex") {
+		if t.light {
+			return lightTerm
+		}
+		return darkTerm
+	}
 	if th, ok := t.cache[name]; ok {
 		return th
 	}
-	var th *terminal.Theme
-	if strings.EqualFold(name, "GoRex") {
-		if t.light {
-			th = lightTerm
-		} else {
-			th = darkTerm
-		}
-	} else if g, err := terminal.GhosttyTheme(name); err == nil {
+	th := darkTerm
+	if g, err := terminal.GhosttyTheme(name); err == nil {
 		th = g
-	} else {
-		th = darkTerm
 	}
 	t.cache[name] = th
 	return th
 }
 
+// fits reports whether a theme suits the slot: a light background for
+// light windows, a dark one for dark windows. The GoRex theme suits both.
+func (t *themesUI) fits(name string) bool {
+	return strings.EqualFold(name, "GoRex") || (luminance(t.theme(name).Background) > 0.5) == t.light
+}
+
 // themeCard draws a theme: a prompt line in its colors, its palette, and
-// its name.
+// its name, and says so when it does not suit the slot.
 func (a *App) themeCard(c *ui.Context, k *colors, name string, current bool) {
-	th := a.settings.themes.theme(name)
+	t := &a.settings.themes
+	th := t.theme(name)
 	card := ui.Column(c).Grow(1).Padding(8).Gap(4).Radius(8).Background(th.Background).Border(1, k.panelBorder).Clip()
 	if current {
 		card.Border(2, ui.Hex("#2e6fd0"))
@@ -1307,8 +1358,12 @@ func (a *App) themeCard(c *ui.Context, k *colors, name string, current bool) {
 			}
 		})
 		ui.Text(c, name).FontSize(11).TextColor(th.Foreground).SingleLine().Ellipsis("…")
-		if luminance(th.Background) > 0.5 {
-			ui.Text(c, "light").FontSize(9.5).TextColor(th.Foreground.Alpha(0.6))
+		if !t.fits(name) {
+			kind := "Dark theme"
+			if !t.light {
+				kind = "Light theme"
+			}
+			ui.Text(c, kind).FontSize(9.5).TextColor(th.Foreground.Alpha(0.6))
 		}
 	})
 }

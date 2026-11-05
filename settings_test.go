@@ -2,7 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"slices"
 	"testing"
+
+	"github.com/egoist/mygo/plugins/terminal"
 )
 
 // TestEffective checks how the layers combine by kind: look fields from
@@ -187,5 +190,37 @@ func TestTSPStyle(t *testing.T) {
 	s.OMP.MessageWidth = -1
 	if st := tspStyleOf(&s); st.msgW != 0 {
 		t.Errorf("no limit: %v", st.msgW)
+	}
+}
+
+// The theme picker shows the themes that suit the slot, light ones for
+// light windows and dark ones for dark, the GoRex theme in both, and the
+// one chosen whatever it is, first; with all, every one, those that suit
+// it first, each part lightest first for light windows.
+func TestThemePickerSlots(t *testing.T) {
+	light, dark := "iTerm2 Solarized Light", "Builtin Dark"
+	lighter := "Builtin Light"
+	for _, n := range []string{light, dark, lighter} {
+		if _, err := terminal.GhosttyTheme(n); err != nil {
+			t.Skipf("no theme %q: %v", n, err)
+		}
+	}
+	th := themesUI{names: []string{"GoRex", dark, light, lighter}, cache: map[string]*terminal.Theme{}}
+	th.light = true
+	if got := th.filtered(); !slices.Equal(got, []string{"GoRex", light, lighter}) {
+		t.Errorf("light windows: %v", got)
+	}
+	th.light = false
+	if got := th.filtered(); !slices.Equal(got, []string{"GoRex", dark}) {
+		t.Errorf("dark windows: %v", got)
+	}
+	th.light, th.picked = true, dark
+	if got := th.filtered(); len(got) == 0 || got[0] != dark || len(got) != 4 {
+		t.Errorf("light windows with a dark theme chosen: %v", got)
+	}
+	th.all, th.picked = true, ""
+	got := th.filtered()
+	if len(got) != 4 || got[len(got)-1] != dark || slices.Index(got, lighter) > slices.Index(got, light) {
+		t.Errorf("all, for light windows: %v", got)
 	}
 }
