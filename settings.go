@@ -126,10 +126,14 @@ type OMP struct {
 	// TSP.md.
 	TSP *bool `json:"tsp,omitempty" kind:"look" label:"Tern Surface Protocol (experimental)" group:"Protocol"`
 	// Font and Size are the surfaces' text, the system's UI font when the
-	// font is unset; the text's other sizes keep their ratios to Size.
-	Font       string  `json:"font,omitempty" kind:"look" label:"Font" group:"Text"`
-	Size       float32 `json:"size,omitempty" kind:"look" label:"Size" group:"Text"`
-	LineHeight float32 `json:"lineHeight,omitempty" kind:"look" label:"Line height" group:"Text"`
+	// font is unset; the interface's other sizes keep their ratios to
+	// Size. MessageSize is the messages' (Markdown, thinking among them)
+	// and the composer's, which follows Size when unset (tspMessageSize).
+	// LineHeight is the messages'.
+	Font        string  `json:"font,omitempty" kind:"look" label:"Font" group:"Text"`
+	MessageSize float32 `json:"messageSize,omitempty" kind:"look" label:"Message size" group:"Text" note:"Messages, thinking and the composer"`
+	Size        float32 `json:"size,omitempty" kind:"look" label:"Interface size" group:"Text" note:"Tool cards, labels, pickers and omp's /settings"`
+	LineHeight  float32 `json:"lineHeight,omitempty" kind:"look" label:"Line height" group:"Text" note:"Messages and thinking"`
 	// CodeFont, CodeSize and CodeLigatures are the code's (commands and
 	// their output, diffs, code blocks, paths): the terminal's when unset.
 	CodeFont      string  `json:"codeFont,omitempty" kind:"look" label:"Font" group:"Code text"`
@@ -226,7 +230,7 @@ var builtin = Settings{
 		Cursor: "block", Blink: on, Scrollback: 10000, Images: 320, CopyOnSelect: notOnMac, OptionAsAlt: off, Bell: "mark", Identity: "ghostty", StatusNotify: on,
 		CtrlCCopies: onWindows, CtrlVPastes: onWindows, InsertKeys: on, RightClickPastes: onWindows,
 	},
-	OMP: OMP{Size: 13, LineHeight: 1.5, DockWidth: 800, Spacing: "normal", Motion: on},
+	OMP: OMP{Size: 13, LineHeight: 1.5, DockWidth: 800, MessageWidth: 960, Spacing: "normal", Motion: on},
 	Editor: Editor{
 		LineHeight: 1.5, WrapGuides: "100", SoftWrap: off, DiffLayout: "split", DiffInline: "words",
 		HiddenFiles: on, MaxFile: 8 << 20, OpenOn: "click", PreviewOnOpen: on, Mermaid: on,
@@ -253,6 +257,7 @@ type field struct {
 	key           string // the JSON path, as appearance.mode
 	kind          string // look, host or pc
 	label, group  string // the row's label, and the card it is in
+	note          string // what the row is for, under its label
 	os            string // "" or the GOOS the field is for
 	index         []int  // into Settings, for reflect
 }
@@ -274,6 +279,7 @@ var fields = func() []field {
 			fs = append(fs, field{
 				section: sec.Name, name: f.Name, key: secKey + "." + key,
 				kind: f.Tag.Get("kind"), label: f.Tag.Get("label"), group: f.Tag.Get("group"), os: f.Tag.Get("os"),
+				note:  f.Tag.Get("note"),
 				index: []int{i, j},
 			})
 		}

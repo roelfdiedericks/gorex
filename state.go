@@ -143,6 +143,10 @@ type Pane struct {
 	// tspNeed is how many rows each inline surface's content took in the
 	// last frame (by anchor), more than it has when its head is cut.
 	tspNeed map[uint32]int
+	// tspTop is where each live docked surface's content started below
+	// its anchor in the last frame laid out at the view's end, which it
+	// keeps while the view is scrolled back (by anchor).
+	tspTop map[uint32]float32
 	// hudOpen tells which of the dock's HUD pills show their popover (a
 	// checklist's whole plan), by anchor and node id.
 	hudOpen map[string]*bool
@@ -332,6 +336,9 @@ type App struct {
 	tspReveal      map[string]string
 	tspFocus       string
 	tspSearchArmed string
+	// tspLogged is the layout tspLayoutLog logged last, by pane and
+	// surface.
+	tspLogged map[string]string
 	// tspImages are the programs' blobs decoded, by id; tspZoom is the
 	// one shown whole over tspZoomPane, named tspZoomAlt, from the file
 	// tspZoomPath when the program said so.

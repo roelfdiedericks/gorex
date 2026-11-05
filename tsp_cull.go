@@ -105,7 +105,7 @@ func (a *App) settling(p *Pane, sf *rex.Surface) *tspSettle {
 }
 
 // tspCulling is how the inline surface being drawn culls its lists: its
-// box's top in the last frame's layout (origin) and in this frame's
+// content's top in the last frame's layout (origin) and in this frame's
 // (originNow), the band of the window near the view, the pane's width,
 // and the nodes drawn whatever their place: those a hint waits for (a
 // reveal, a focus, an overlay's anchor) and the nodes over them. While
@@ -123,11 +123,13 @@ type tspCulling struct {
 	stale             int
 }
 
-// startCulling sets how the inline surface sf, whose box was last laid
-// out at box and is placed top below the view's top in this frame, culls
-// its lists. A pane shown again, as its tab is, has no layout of the
-// last frame: what was measured before stands, in the view it had.
-func (a *App) startCulling(p *Pane, sf *rex.Surface, s *tspSettle, box ui.Rect, top float32) {
+// startCulling sets how the inline surface sf culls its lists: origin is
+// where its content's top was in the last frame's layout, which the
+// offsets of the nodes measured are from, and now where it is placed in
+// this frame, given the view. A pane shown again, as its tab is, has no
+// layout of the last frame: what was measured before stands, in the view
+// it had.
+func (a *App) startCulling(p *Pane, sf *rex.Surface, s *tspSettle, origin float32, now func(view ui.Rect) float32) {
 	view := p.hostBounds
 	if view.H > 0 {
 		p.tspView = view
@@ -143,8 +145,8 @@ func (a *App) startCulling(p *Pane, sf *rex.Surface, s *tspSettle, box ui.Rect, 
 	}
 	a.tspCull = tspCulling{
 		on:        true,
-		origin:    box.Y,
-		originNow: view.Y + top,
+		origin:    origin,
+		originNow: now(view),
 		top:       view.Y - view.H,
 		bottom:    view.Y + 2*view.H,
 		w:         view.W,

@@ -96,11 +96,13 @@ func (a *App) screenSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 // differs from the rows the surface has; kept, it is cut to those rows.
 // Live with a dock, it reaches the pane's bottom, where the dock is
 // pinned, over the rows the server pads it with (tspTracker.padding):
-// no terminal shows between them. A surface takes no more rows than the
-// scrollback keeps (rex.Surface.Most): content taller shows its end, its
-// head cut, as a terminal's oldest lines go first; so does a surface
-// whose anchor the scrollback dropped (headless), placed up from its end
-// marker. Scrolled out of the viewport it draws nothing.
+// no terminal shows between them; its content is laid out up from its
+// end, above the dock, when it needs more rows than it has. A surface
+// takes no more rows than the scrollback keeps (rex.Surface.Most):
+// content taller shows its end, its head cut, as a terminal's oldest
+// lines go first; so does a surface whose anchor the scrollback dropped
+// (headless), placed up from its end marker. Scrolled out of the
+// viewport it draws nothing.
 func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, pl terminal.AppPlacement, headless bool) {
 	_, screenRows := p.term.Size()
 	docked := !sf.Closed && tspDocked(sf)
@@ -135,6 +137,24 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 		settle.synced = true
 	}
 	cut := headless || most > 0 && p.tspNeed[sf.Image] > most || docked && settle.on
+	// A live surface with a dock ends above its dock, as Tern's transcript
+	// ends above its composer: it is laid out up from its end. With the
+	// view at the terminal's end, that is the pane's bottom, whatever rows
+	// the server has given it yet: a line of output it has no row for
+	// (TSPSize) shows above the dock at once, the content's head cut at
+	// the anchor, and the rows the server then adds (padding, which
+	// scrolls the terminal, or fewer rows spare) show more of the head,
+	// the end staying where it is. Placed by those rows instead, it moved
+	// as they came, and again as the terminal scrolled, which the window
+	// gets apart from them. Scrolled back, it keeps the top it had at the
+	// view's end and is laid out down from it (held): output that comes
+	// goes under it, out of sight, and what is read stays where it is.
+	// Content that needs fewer rows than the screen has under its anchor
+	// starts at the anchor.
+	fromEnd := cut || docked
+	atEnd := docked && p.term.AtBottom()
+	top, held := p.tspTop[sf.Image]
+	held = held && docked && !atEnd
 	box := ui.Box(c.Key(fmt.Sprintf("tsp-%d", sf.Image))).Absolute().Left(pl.Rect.X).Top(pl.Rect.Y).Right(p.term.ScrollbarStrip()).Background(k.bgBottom).Font(a.tspLook().font)
 	// A live surface with a dock reaches the screen's last row, under its
 	// rows, where the cursor stays (rex.tspTracker.padding).
@@ -142,24 +162,45 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 	if docked {
 		below = cell
 	}
+	// The least height of the content laid out from the end: what starts
+	// it at the anchor when it fits, the anchor on the screen.
+	fill := float32(0)
+	// The box's height, but for one that reaches the pane's bottom.
+	boxH := float32(-1)
 	switch {
 	case sf.Closed:
-		box.Height(cell * float32(sf.Rows))
+		boxH = cell * float32(sf.Rows)
+		box.Height(boxH)
+	case atEnd:
+		box.Bottom(0)
+		if !cut && pl.Row >= 0 {
+			fill = max(cell*float32(screenRows-pl.Row)-8-below, 0)
+		}
+	case held:
+		box.Bottom(0)
 	case cut:
 		// Its rows, and its dock's, which reach the pane's bottom
 		// when it is scrolled to the end: a surface cut takes the
 		// screen.
-		box.Height(cell*float32(sf.Rows+sf.Dock+sf.Spare) + below)
+		boxH = cell*float32(sf.Rows+sf.Dock+sf.Spare) + below
+		box.Height(boxH)
 	case docked:
-		box.Bottom(0)
+		// Scrolled back: its rows, and its dock's, or as many as the
+		// screen has under its anchor, which the server pads it with
+		// while its content needs fewer (rex.Surface.under).
+		span := max(sf.Rows+sf.Dock+sf.Spare, screenRows-1-pl.Row)
+		boxH = cell*float32(span) + below
+		box.Height(boxH)
+		if pl.Row >= 0 {
+			fill = max(cell*float32(span-sf.Spare)-8, 0)
+		}
 	}
-	if cut || sf.Closed {
+	if fromEnd || sf.Closed {
 		box.Clip()
 	}
-	if !cut {
+	if !fromEnd {
 		// Under the rows the surface has spare above its content, with
-		// its anchor in the scrollback (rex.Surface.Spare): its content
-		// ends where its rows do, above its dock.
+		// its anchor in the scrollback (rex.Surface.Spare).
 		box.Padding(4+cell*float32(sf.Spare), 8, 4, 8)
 	}
 	// The wheel over the surface scrolls the terminal, as over its rows.
@@ -174,15 +215,52 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 	a.tspOverlays = a.tspOverlays[:0]
 	a.tspDock = nil
 	var content ui.Element
-	a.startCulling(p, sf, settle, box.Bounds(), pl.Rect.Y)
 	box.Children(func() {
-		if !cut {
+		if !fromEnd {
+			// The content hangs from the box's top, where its nodes
+			// are measured from.
+			a.startCulling(p, sf, settle, box.Bounds().Y, func(view ui.Rect) float32 { return view.Y + pl.Rect.Y })
 			content = a.surfaceContent(c, k, t, p, sf, !sf.Closed)
 			return
 		}
 		// Laid out from the box's bottom, the content's head goes out
-		// of the top, where the box cuts it.
-		end := ui.Box(c.Key("end")).Absolute().Left(8).Right(8).Bottom(4 + below)
+		// of the top, where the box cuts it; at least as tall as fill,
+		// content that fits starts at the top. Held, it hangs from the
+		// top it had at the view's end.
+		end := ui.Box(c.Key("end")).Absolute().Left(8).Right(8)
+		if held {
+			end.Top(top)
+		} else {
+			end.Bottom(4 + below)
+		}
+		if fill > 0 {
+			end.MinHeight(fill)
+		}
+		// Its nodes are measured from its top, which is where its
+		// bottom is less its height: the box's top moves with the
+		// anchor and the rows the server gives, which leave the
+		// content's end where it is, so offsets from the box's top go
+		// stale, and the nodes culled by them stayed culled, the view
+		// blank, as when a resumed session took its rows at once.
+		last := end.Bounds()
+		if atEnd {
+			if b := box.Bounds(); last.H > 0 && b.H > 0 {
+				if p.tspTop == nil {
+					p.tspTop = map[uint32]float32{}
+				}
+				p.tspTop[sf.Image] = last.Y - b.Y
+			}
+		}
+		a.startCulling(p, sf, settle, last.Y, func(view ui.Rect) float32 {
+			if held {
+				return view.Y + pl.Rect.Y + top
+			}
+			bottom := view.Y + view.H
+			if boxH >= 0 {
+				bottom = view.Y + pl.Rect.Y + boxH
+			}
+			return bottom - 4 - below - last.H
+		})
 		end.Children(func() { content = a.surfaceContent(c, k, t, p, sf, !sf.Closed) })
 	})
 	a.endCulling(p, settle)
@@ -225,6 +303,9 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 	if ch := content.Bounds().H; ch == 0 || docked && dockH == 0 {
 		return
 	}
+	if docked && tspLayoutLog != nil {
+		a.logSurfaceLayout(p, sf, pl, screenRows, cut, dockH, content.Bounds().H, box.Bounds())
+	}
 	if h := content.Bounds().H + 8 - dockH; h > 0 {
 		size := tspSize{int(math.Ceil(float64(h/cell - 0.01))), int(math.Ceil(float64(dockH/cell - 0.01)))}
 		if p.tspNeed == nil {
@@ -247,6 +328,9 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 			p.surfaceRows[sf.ID] = size
 			stream, id := p.stream, sf.ID
 			go stream.TSPSize(id, size.rows, size.dock)
+			if docked && tspLayoutLog != nil {
+				tspLayoutLog.Printf("f=%d %s sent TSPSize rows=%d dock=%d (had rows=%d dock=%d)", a.drawn, sf.ID, size.rows, size.dock, sf.Rows, sf.Dock)
+			}
 		}
 	}
 }
@@ -749,6 +833,12 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		}
 		el = col.Children(children)
 	case "row":
+		if role == "omp.recap" {
+			var ok bool
+			if el, ok = a.tspRecap(c, key, k, n); ok {
+				break
+			}
+		}
 		row := ui.Row(key).Gap(8).AlignItems(tspRowAlign(n))
 		if s := a.tspSheet; s != nil && s.row == n.ID {
 			// A sheet's row of panes fills it, each pane as tall.
@@ -907,10 +997,10 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 			markdown.View(c, text, &markdown.Options{
 				Theme: &markdown.Theme{
 					Text: k.text, Muted: k.textMuted, Link: k.busy,
-					// The surfaces' text and code, by the OMP settings: the
-					// body at 14 by default, code in ems of it.
-					Font: look.font, FontSize: a.tspText(14), LineHeight: look.lineHeight,
-					CodeFont: look.mono, CodeSize: a.tspCode(12) / a.tspText(14), BlockSpacing: 0.75 * look.gap,
+					// The surfaces' messages and code, by the OMP settings:
+					// the body at the message size, code in ems of it.
+					Font: look.font, FontSize: a.tspMsg(14), LineHeight: look.lineHeight,
+					CodeFont: look.mono, CodeSize: a.tspCode(12) / a.tspMsg(14), BlockSpacing: 0.75 * look.gap,
 				},
 				// Charts come as SVG: drawn in the theme's colors with
 				// their labels, once the block is whole.
@@ -1405,6 +1495,34 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 	return el
 }
 
+// tspRecap draws omp's recap (omp.recap), written while the user was
+// away, as Tern does: the history icon beside the text, in italics and
+// the muted color, at the labels' size, a little apart from what is
+// above it. Not ok for a recap without plain text, which draws as a row.
+func (a *App) tspRecap(c *ui.Context, key *ui.Context, k *colors, n *rex.TSPNode) (ui.Element, bool) {
+	var recap string
+	for _, ch := range n.Children {
+		if ch.Kind == "text" {
+			recap, _ = ch.Props["text"].(string)
+		}
+	}
+	if recap == "" {
+		return ui.Element{}, false
+	}
+	const lineHeight = 1.4
+	size := a.tspText(12)
+	row := ui.Row(key).FillWidth().Gap(8).AlignItems(ui.Start).Margin(a.tspGap(6), 0, 0, 0)
+	row.Children(func() {
+		// On the middle of the text's first line.
+		ui.Box(c.Key("icon")).Height(size * lineHeight).Center().Shrink(0).Children(func() {
+			ui.Icon(c, icon("history")).Size(size*0.9, size*0.9).TextColor(k.textMuted)
+		})
+		ui.Text(c.Key("text"), recap).FontSize(size).LineHeight(lineHeight).Italic().TextColor(k.textMuted).
+			Grow(1).MinWidth(0).Selectable()
+	})
+	return row, true
+}
+
 // tspFlexed reports whether a node sizes itself in its row (grow, shrink
 // or basis), which it then does rather than fill the row.
 func tspFlexed(n *rex.TSPNode) bool {
@@ -1639,7 +1757,7 @@ func (a *App) tspIcon(c *ui.Context, k *colors, name string) ui.Element {
 		"minus": "minus", "arrow-left": "arrow-left", "chev": "chevron-down", "chev-down": "chevron-down",
 		"circle": "circle-dot", "eye": "eye", "pencil": "pencil", "globe": "globe", "database": "database",
 		"cpu": "cpu", "server": "server", "keyboard": "keyboard", "command": "command", "activity": "activity",
-		"open": "external-link", "link": "link",
+		"open": "external-link", "link": "link", "history": "history",
 		// omp's settings pages.
 		"appearance": "palette", "interaction": "mouse-pointer-click", "context": "layers", "memory": "brain",
 		"files": "file", "shell": "terminal", "tools": "wrench", "tasks": "list-checks", "providers": "plug",

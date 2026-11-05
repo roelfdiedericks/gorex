@@ -113,7 +113,8 @@ func TestTSPDefaultsAndHost(t *testing.T) {
 
 // The surfaces' code follows the terminal's font, size and ligatures
 // until the OMP settings set them; sizes keep their ratios to the base
-// sizes; the message width is none unless set.
+// sizes; the messages' size follows the text's until set; the message
+// width is 960 unless set, none for "No limit".
 func TestTSPStyle(t *testing.T) {
 	s := builtin
 	s.Terminal.Font, s.Terminal.Size, s.Terminal.Ligatures = "Iosevka", 15, off
@@ -121,16 +122,16 @@ func TestTSPStyle(t *testing.T) {
 	if st.mono != termFamily("Iosevka") || st.monoSize != 15 || len(st.monoFeatures) == 0 {
 		t.Errorf("following the terminal: %q %v %v", st.mono, st.monoSize, st.monoFeatures)
 	}
-	if st.font != "system-ui, "+symbolsFont || st.msgW != 0 || st.dockW != 800 || st.gap != 1 {
+	if st.font != "system-ui, "+symbolsFont || st.msgW != 960 || st.dockW != 800 || st.gap != 1 || st.msgSize != 14 {
 		t.Errorf("builtin: %+v", st)
 	}
 	s.OMP.CodeFont, s.OMP.CodeSize, s.OMP.CodeLigatures = "Fira Code", 11, on
-	s.OMP.Font, s.OMP.Size, s.OMP.MessageWidth, s.OMP.Spacing = "Segoe UI", 15.6, 960, "compact"
+	s.OMP.Font, s.OMP.Size, s.OMP.MessageWidth, s.OMP.Spacing = "Segoe UI", 15.6, 1120, "compact"
 	st = tspStyleOf(&s)
 	if st.mono != termFamily("Fira Code") || st.monoSize != 11 || len(st.monoFeatures) != 0 {
 		t.Errorf("overridden code: %q %v %v", st.mono, st.monoSize, st.monoFeatures)
 	}
-	if st.font != "Segoe UI, "+symbolsFont || st.msgW != 960 || st.gap != 0.6 {
+	if st.font != "Segoe UI, "+symbolsFont || st.msgW != 1120 || st.gap != 0.6 {
 		t.Errorf("overridden: %+v", st)
 	}
 	a := &App{tsp: st}
@@ -139,6 +140,15 @@ func TestTSPStyle(t *testing.T) {
 	}
 	if got := a.tspCode(12); got != 11 {
 		t.Errorf("code 12 at 11: %v, want 11", got)
+	}
+	// 15.6 in the ratio 14 to 13 is 16.8, to the half point 17.
+	if st.msgSize != 17 {
+		t.Errorf("message size following 15.6: %v, want 17", st.msgSize)
+	}
+	s.OMP.MessageSize = 16
+	a = &App{tsp: tspStyleOf(&s)}
+	if got, text := a.tspMsg(14), a.tspText(10); got != 16 || text != 12 {
+		t.Errorf("message 14 at 16: %v, want 16; text 10 at 15.6: %v, want 12", got, text)
 	}
 	// A host's "No limit" over a Defaults' width.
 	s.OMP.MessageWidth = -1

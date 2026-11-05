@@ -174,7 +174,12 @@ func (a *App) tspField(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pan
 	} else {
 		el = ui.TextInput(key, &f.text)
 	}
-	el.FillWidth().FontSize(a.tspText(13)).TextColor(k.text).Placeholder(placeholder).ReadOnly(readonly || sf.Closed)
+	// The composer's text is the messages' size; other fields' the text's.
+	size := a.tspText(13)
+	if a.tspFieldBare {
+		size = a.tspMsg(14)
+	}
+	el.FillWidth().FontSize(size).TextColor(k.text).Placeholder(placeholder).ReadOnly(readonly || sf.Closed)
 	padX, padY := float32(10), float32(6)
 	if a.tspFieldBare {
 		// The composer's card is the field's box; it starts at one line,
@@ -193,7 +198,7 @@ func (a *App) tspField(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pan
 			if f.text != "" {
 				return
 			}
-			l := ui.ShapeRichText(richPlaceholder, ui.Font{Family: a.tspLook().font, Size: a.tspText(13)}, max(r.W-2*padX, 1))
+			l := ui.ShapeRichText(richPlaceholder, ui.Font{Family: a.tspLook().font, Size: size}, max(r.W-2*padX, 1))
 			pt.Clip(r, 0, func() { pt.TextLayout(l, r.X+padX, r.Y+padY, k.textMuted) })
 		})
 	}

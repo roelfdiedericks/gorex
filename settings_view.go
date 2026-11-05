@@ -403,7 +403,14 @@ func (a *App) settingRow(c *ui.Context, k *colors, scope string, f field) {
 	}
 	disabled := scope == scopeHost && a.client == nil
 	row.Children(func() {
-		ui.Text(c, f.label).FontSize(13).TextColor(k.text).Grow(1).MinWidth(0)
+		if f.note == "" {
+			ui.Text(c, f.label).FontSize(13).TextColor(k.text).Grow(1).MinWidth(0)
+		} else {
+			ui.Column(c).Gap(2).Grow(1).MinWidth(0).Children(func() {
+				ui.Text(c, f.label).FontSize(13).TextColor(k.text)
+				ui.Text(c, f.note).FontSize(11.5).TextColor(k.textMuted)
+			})
+		}
 		if disabled {
 			ui.Text(c, a.rowValue(scope, f)).FontSize(12.5).TextColor(k.textFaint)
 			return
@@ -590,6 +597,15 @@ func (a *App) settingControl(c *ui.Context, k *colors, scope string, f field) {
 			target.SetString(v)
 			changed()
 		}
+	case "omp.messageSize":
+		// The interface size's, in its ratio, until set, said beside it.
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+			if effv.Float() == 0 {
+				ui.Text(c, "Follows interface size").FontSize(11.5).TextColor(k.textFaint)
+				effv = reflect.ValueOf(tspMessageSize(a.shown(scope).OMP.Size))
+			}
+			stepper(c, k, &target, effv, 9, 28, 0.5, changed)
+		})
 	case "omp.size":
 		stepper(c, k, &target, effv, 9, 24, 0.5, changed)
 	case "omp.lineHeight":
