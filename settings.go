@@ -78,6 +78,10 @@ type Appearance struct {
 	ScrollbarWidth     float32 `json:"scrollbarWidth,omitempty" kind:"pc" label:"Scroll bar width" group:"Scroll bars"`
 	ScrollbarMinLength float32 `json:"scrollbarMinLength,omitempty" kind:"pc" label:"Minimum scroll handle length" group:"Scroll bars"`
 	ScrollbarsAlways   *bool   `json:"scrollbarsAlways,omitempty" kind:"pc" label:"Always show scroll bars" group:"Scroll bars"`
+	// ScrollSpeed is how far the wheel and a touchpad scroll terminal
+	// panes, in per cent of the system's own speed (MyGo's
+	// terminal.Options.ScrollSpeed).
+	ScrollSpeed int `json:"scrollSpeed,omitempty" kind:"pc" label:"Scroll speed" group:"Scrolling" note:"How far the mouse wheel and touchpad scroll terminal panes, in per cent of the system's speed"`
 }
 
 type Terminal struct {
@@ -97,8 +101,12 @@ type Terminal struct {
 	// Images is the memory, in MB, for the images programs show with the
 	// Kitty graphics protocol, in the session's buffer on the server and
 	// in the window's; -1 for none, which refuses them.
-	Images       int   `json:"images,omitempty" kind:"host" label:"Image memory" group:"Buffer"`
-	CopyOnSelect *bool `json:"copyOnSelect,omitempty" kind:"pc" label:"Copy on select" group:"Input and bell"`
+	Images int `json:"images,omitempty" kind:"host" label:"Image memory" group:"Buffer"`
+	// CompressScrollback has this PC's windows compress their copy of
+	// the scrollback while idle; a host's server always compresses its
+	// own (MyGo's terminal.Options.NoCompression).
+	CompressScrollback *bool `json:"compressScrollback,omitempty" kind:"pc" label:"Compress scrollback" group:"Buffer" note:"Compresses this PC's copy of the scrollback while idle, to use less memory. Hosts always compress theirs."`
+	CopyOnSelect       *bool `json:"copyOnSelect,omitempty" kind:"pc" label:"Copy on select" group:"Input and bell"`
 	// The copy and paste keys beside Ctrl+Shift+C and +V (⌘C and ⌘V on
 	// macOS): Windows' habits, on by default there.
 	CtrlCCopies      *bool `json:"ctrlCCopies,omitempty" kind:"pc" label:"Ctrl+C copies the selection (interrupts when none)" os:"windows,linux" group:"Copy and paste"`
@@ -224,10 +232,10 @@ const defaultFontSize = 11.6
 // builtin are the values of fields set in neither layer.
 var builtin = Settings{
 	V:          settingsVersion,
-	Appearance: Appearance{Theme: "GoRex", ThemeLight: "GoRex", Tint: "gorex", Transparent: on, WindowTitle: "host", ScrollbarWidth: 10, ScrollbarMinLength: 48, ScrollbarsAlways: off},
+	Appearance: Appearance{Theme: "GoRex", ThemeLight: "GoRex", Tint: "gorex", Transparent: on, WindowTitle: "host", ScrollbarWidth: 10, ScrollbarMinLength: 48, ScrollbarsAlways: off, ScrollSpeed: 100},
 	Terminal: Terminal{
 		Font: "JetBrains Mono", Size: defaultFontSize, Weight: 400, LineHeight: 1, Ligatures: on, Thicken: off,
-		Cursor: "block", Blink: on, Scrollback: 10000, Images: 320, CopyOnSelect: notOnMac, OptionAsAlt: off, Bell: "mark", Identity: "ghostty", StatusNotify: on,
+		Cursor: "block", Blink: on, Scrollback: 10000, Images: 320, CompressScrollback: on, CopyOnSelect: notOnMac, OptionAsAlt: off, Bell: "mark", Identity: "ghostty", StatusNotify: on,
 		CtrlCCopies: onWindows, CtrlVPastes: onWindows, InsertKeys: on, RightClickPastes: onWindows,
 	},
 	OMP: OMP{Size: 13, LineHeight: 1.5, DockWidth: 800, MessageWidth: 960, Spacing: "normal", Motion: on},
@@ -430,6 +438,15 @@ func copyOnSelectOf(s *Settings) terminal.CopyOnSelect {
 		return terminal.CopyOnSelectClipboard
 	}
 	return terminal.CopyOnSelectNone
+}
+
+// scrollSpeedOf is how far the wheel and a touchpad scroll terminal
+// panes, as a multiple of the system's speed: the setting's per cent.
+func scrollSpeedOf(s *Settings) float32 {
+	if s.Appearance.ScrollSpeed <= 0 {
+		return 1
+	}
+	return float32(s.Appearance.ScrollSpeed) / 100
 }
 
 // keybindsOf binds the copy and paste keys the settings turn on, over the

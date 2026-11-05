@@ -651,6 +651,8 @@ func (a *App) attach(p *Pane, cols, rows int) {
 		ScrollbackLines: windowScrollback(a.eff.Terminal.Scrollback),
 		OptionAsAlt:     is(a.eff.Terminal.OptionAsAlt),
 		CopyOnSelect:    copyOnSelectOf(&a.eff),
+		ScrollSpeed:     scrollSpeedOf(&a.eff),
+		NoCompression:   !is(a.eff.Terminal.CompressScrollback),
 		Keybinds:        keybindsOf(&a.eff),
 		RightClick:      rightClickOf(&a.eff),
 		// Images of the Kitty graphics protocol, in the memory the

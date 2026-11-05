@@ -545,6 +545,8 @@ func (a *App) settingControl(c *ui.Context, k *colors, scope string, f field) {
 		stepper(c, k, &target, effv, 1, 600, 1, changed)
 	case "general.reconnectAttempts":
 		stepper(c, k, &target, effv, 1, 10, 1, changed)
+	case "appearance.scrollSpeed":
+		stepper(c, k, &target, effv, 25, 400, 25, changed)
 	case "editor.font":
 		v := effv.String()
 		if ui.Combobox(c, &v, a.settings.fonts).Width(220).Placeholder(a.placeholder(f)).Changed() {

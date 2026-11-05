@@ -70,6 +70,8 @@ func (a *App) applySettings() {
 			}
 			p.term.SetFont(termFont)
 			p.term.SetTheme(light, dark)
+			p.term.SetScrollSpeed(scrollSpeedOf(&a.eff))
+			p.term.SetCompression(is(a.eff.Terminal.CompressScrollback))
 		}
 	}
 	a.services.Invalidate()
