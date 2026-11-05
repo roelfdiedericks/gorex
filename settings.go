@@ -43,8 +43,9 @@ type Settings struct {
 
 // settingsVersion is the document's version: for migrating a field whose
 // meaning changed, on read. 2 moved the Tern Surface Protocol switch from
-// terminal.tsp, the host's only, to omp.tsp.
-const settingsVersion = 2
+// terminal.tsp, the host's only, to omp.tsp; 3 made the transparent
+// terminal background switch an opacity, appearance.backgroundOpacity.
+const settingsVersion = 3
 
 type Appearance struct {
 	// Mode is "light", "dark", or "" to follow the system.
@@ -66,8 +67,11 @@ type Appearance struct {
 	// a window is made with its material: a change shows at the next start.
 	WindowMaterial string `json:"windowMaterial,omitempty" kind:"pc" label:"Window material" group:"Window" os:"windows,darwin"`
 	// Name is shown for the host instead of its own name.
-	Name        string `json:"name,omitempty" kind:"look" label:"Host name" group:"Window"`
-	Transparent *bool  `json:"transparent,omitempty" kind:"look" label:"Transparent terminal background" group:"Window"`
+	Name string `json:"name,omitempty" kind:"look" label:"Host name" group:"Window"`
+	// BackgroundOpacity is how much of the terminal colors' background
+	// shows, in per cent, over the window's (MyGo's
+	// terminal.Options.BackgroundOpacity): nil for unset, as 0 is a value.
+	BackgroundOpacity *int `json:"backgroundOpacity,omitempty" kind:"look" label:"Terminal background opacity" group:"Window" note:"How much of the terminal colors' own background shows. Lower values let the window's Tint show through."`
 	// ScrollbarWidth is how wide scroll bars are, in DIPs, through MyGo's
 	// theme: the terminal's, and those of what scrolls in the window
 	// (surfaces, editors, settings, lists), one bar for all;
@@ -234,7 +238,7 @@ const defaultFontSize = 11.6
 // builtin are the values of fields set in neither layer.
 var builtin = Settings{
 	V:          settingsVersion,
-	Appearance: Appearance{Theme: "GoRex", ThemeLight: "GoRex", Tint: "gorex", Transparent: on, WindowTitle: "host", ScrollbarWidth: 10, ScrollbarMinLength: 48, ScrollbarsAlways: off, ScrollSpeed: 100, SmoothScroll: on},
+	Appearance: Appearance{Theme: "GoRex", ThemeLight: "GoRex", Tint: "gorex", BackgroundOpacity: new(90), WindowTitle: "host", ScrollbarWidth: 10, ScrollbarMinLength: 48, ScrollbarsAlways: off, ScrollSpeed: 100, SmoothScroll: on},
 	Terminal: Terminal{
 		Font: "JetBrains Mono", Size: defaultFontSize, Weight: 400, LineHeight: 1, Ligatures: on, Thicken: off,
 		Cursor: "block", Blink: on, Scrollback: 10000, Images: 320, CompressScrollback: on, CopyOnSelect: notOnMac, OptionAsAlt: off, Bell: "mark", Identity: "ghostty", StatusNotify: on,
@@ -330,21 +334,33 @@ func (f field) inherited(host *Settings) bool { return f.kind == "look" && !f.is
 
 // decodeSettings reads a document, leniently: unknown fields are ignored,
 // missing ones unset. A document before version 2 has the Tern Surface
-// Protocol switch under the terminal.
+// Protocol switch under the terminal; one before 3 a switch for a
+// transparent terminal background, which is an opacity of 0 on, 100 off.
 func decodeSettings(b []byte) (s Settings) {
 	if len(b) == 0 {
 		return s
 	}
 	json.Unmarshal(b, &s)
+	var old struct {
+		Appearance struct {
+			Transparent *bool `json:"transparent"`
+		} `json:"appearance"`
+		Terminal struct {
+			TSP *bool `json:"tsp"`
+		} `json:"terminal"`
+	}
+	if s.V >= 3 || json.Unmarshal(b, &old) != nil {
+		return s
+	}
 	if s.V < 2 && s.OMP.TSP == nil {
-		var old struct {
-			Terminal struct {
-				TSP *bool `json:"tsp"`
-			} `json:"terminal"`
+		s.OMP.TSP = old.Terminal.TSP
+	}
+	if t := old.Appearance.Transparent; t != nil && s.Appearance.BackgroundOpacity == nil {
+		opacity := 100
+		if *t {
+			opacity = 0
 		}
-		if json.Unmarshal(b, &old) == nil {
-			s.OMP.TSP = old.Terminal.TSP
-		}
+		s.Appearance.BackgroundOpacity = &opacity
 	}
 	return s
 }
@@ -440,6 +456,15 @@ func copyOnSelectOf(s *Settings) terminal.CopyOnSelect {
 		return terminal.CopyOnSelectClipboard
 	}
 	return terminal.CopyOnSelectNone
+}
+
+// backgroundOpacityOf is how much of the terminal colors' background
+// shows, from 0 to 1: the setting's per cent, all of it when unset.
+func backgroundOpacityOf(s *Settings) float32 {
+	if p := s.Appearance.BackgroundOpacity; p != nil {
+		return float32(max(0, min(*p, 100))) / 100
+	}
+	return 1
 }
 
 // scrollSpeedOf is how far the wheel and a touchpad scroll terminal

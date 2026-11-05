@@ -55,7 +55,7 @@ func (a *App) applySettings() {
 	a.tspGen++
 	light, dark := termThemes(&a.eff)
 	t := &a.eff.Terminal
-	opts := fmt.Sprint(is(a.eff.Appearance.Transparent), t.Cursor, is(t.Blink), t.Scrollback, t.Images, is(t.OptionAsAlt),
+	opts := fmt.Sprint(t.Cursor, is(t.Blink), t.Scrollback, t.Images, is(t.OptionAsAlt),
 		is(t.CopyOnSelect), is(t.CtrlCCopies), is(t.CtrlVPastes), is(t.InsertKeys), is(t.RightClickPastes))
 	remake := a.termOpts != "" && opts != a.termOpts
 	a.termOpts = opts
@@ -73,6 +73,7 @@ func (a *App) applySettings() {
 			p.term.SetScrollSpeed(scrollSpeedOf(&a.eff))
 			p.term.SetSmoothScroll(is(a.eff.Appearance.SmoothScroll))
 			p.term.SetCompression(is(a.eff.Terminal.CompressScrollback))
+			p.term.SetBackgroundOpacity(backgroundOpacityOf(&a.eff))
 		}
 	}
 	a.services.Invalidate()

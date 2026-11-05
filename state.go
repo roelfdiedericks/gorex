@@ -640,13 +640,14 @@ func (a *App) attach(p *Pane, cols, rows int) {
 		ResizeByConn: true,
 		// The anchors of programs' surfaces, which the server places and
 		// its Mirror carries here (tsp_view.go).
-		AppImages:   struct{ First, Last uint32 }{rex.TSPImageFirst, rex.TSPImageLast},
-		Font:        termFont,
-		Theme:       light,
-		DarkTheme:   dark,
-		Transparent: is(a.eff.Appearance.Transparent),
-		Cursor:      cursorOf(&a.eff),
-		NoBlink:     !is(a.eff.Terminal.Blink),
+		AppImages:         struct{ First, Last uint32 }{rex.TSPImageFirst, rex.TSPImageLast},
+		Font:              termFont,
+		Theme:             light,
+		DarkTheme:         dark,
+		Transparent:       backgroundOpacityOf(&a.eff) == 0,
+		BackgroundOpacity: backgroundOpacityOf(&a.eff),
+		Cursor:            cursorOf(&a.eff),
+		NoBlink:           !is(a.eff.Terminal.Blink),
 		// The server's lines and more: a terminal drops whole pages
 		// of its oldest lines, so this one keeps every line the
 		// server's does (windowScrollback).

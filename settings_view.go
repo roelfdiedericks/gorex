@@ -434,10 +434,12 @@ func (a *App) settingRow(c *ui.Context, k *colors, scope string, f field) {
 func (a *App) rowValue(scope string, f field) string {
 	v := f.value(a.shown(scope))
 	if v.Kind() == reflect.Pointer {
-		if v.IsNil() {
+		switch {
+		case v.IsNil():
 			return "off"
-		}
-		if v.Elem().Bool() {
+		case v.Elem().Kind() == reflect.Int:
+			return fmt.Sprint(v.Elem().Int())
+		case v.Elem().Bool():
 			return "on"
 		}
 		return "off"
@@ -547,6 +549,21 @@ func (a *App) settingControl(c *ui.Context, k *colors, scope string, f field) {
 		stepper(c, k, &target, effv, 1, 10, 1, changed)
 	case "appearance.scrollSpeed":
 		stepper(c, k, &target, effv, 25, 400, 25, changed)
+	case "appearance.backgroundOpacity":
+		// A slider in steps of 5 per cent, which the panes follow as it
+		// is dragged (SetBackgroundOpacity), with its value beside it.
+		v := 100.0
+		if p, _ := effv.Interface().(*int); p != nil {
+			v = float64(*p)
+		}
+		ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
+			if ui.Slider(c, &v, 0, 100).Step(5).Width(180).Changed() {
+				n := int(v/5+0.5) * 5
+				target.Set(reflect.ValueOf(&n))
+				changed()
+			}
+			ui.Text(c, fmt.Sprintf("%d%%", int(v+0.5))).FontSize(12.5).TextColor(k.textMuted).Width(40).TextAlign(ui.End)
+		})
 	case "editor.font":
 		v := effv.String()
 		if ui.Combobox(c, &v, a.settings.fonts).Width(220).Placeholder(a.placeholder(f)).Changed() {

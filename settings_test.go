@@ -88,11 +88,44 @@ func TestDecodeSettingsMovesTSP(t *testing.T) {
 			t.Errorf("%s: omp.tsp %v, want %v", c.doc, s.OMP.TSP, c.want)
 		}
 	}
-	// Saved again, it is version 2's.
+	// Saved again, it is the current version's.
 	var sent map[string]map[string]any
 	json.Unmarshal(encodeHost(decodeSettings([]byte(`{"v":1,"terminal":{"tsp":true}}`))), &sent)
 	if sent["omp"]["tsp"] != true || sent["terminal"]["tsp"] != nil {
 		t.Errorf("sent to the host: %v", sent)
+	}
+}
+
+// A document before version 3 has a switch for a transparent terminal
+// background: read, on is an opacity of 0 and off of 100; a document of
+// version 3 keeps its opacity. An opacity of 0 is a value of its own: it
+// survives being saved, and a host's wins over the Defaults'.
+func TestDecodeSettingsOpacity(t *testing.T) {
+	for _, c := range []struct {
+		doc  string
+		want *int
+	}{
+		{`{"v":2,"appearance":{"transparent":true}}`, new(0)},
+		{`{"v":2,"appearance":{"transparent":false}}`, new(100)},
+		{`{"v":2,"appearance":{"tint":"none"}}`, nil},
+		{`{"v":3,"appearance":{"transparent":true,"backgroundOpacity":40}}`, new(40)},
+	} {
+		s := decodeSettings([]byte(c.doc))
+		got := s.Appearance.BackgroundOpacity
+		if (got == nil) != (c.want == nil) || got != nil && *got != *c.want {
+			t.Errorf("%s: opacity %v, want %v", c.doc, got, c.want)
+		}
+	}
+	host := decodeSettings(encodeHost(decodeSettings([]byte(`{"v":2,"appearance":{"transparent":true}}`))))
+	if p := host.Appearance.BackgroundOpacity; p == nil || *p != 0 {
+		t.Fatalf("saved and read again: %v, want 0", p)
+	}
+	eff := effective(&Settings{Appearance: Appearance{BackgroundOpacity: new(60)}}, &host)
+	if got := backgroundOpacityOf(&eff); got != 0 {
+		t.Errorf("a host's 0 over the Defaults' 60: %v", got)
+	}
+	if got := backgroundOpacityOf(&builtin); got != 0.9 {
+		t.Errorf("builtin: %v, want 0.9", got)
 	}
 }
 
