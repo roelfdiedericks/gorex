@@ -426,10 +426,13 @@ func (a *App) tspComposer(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *
 		if meter != nil {
 			labels = a.tspEdgeLabels(c, k, meter)
 		}
-		// The panel's color is translucent: over the window's own, so
-		// that the output under the card does not show through.
-		ui.Column(c).FillWidth().Radius(16).Background(k.bgBottom).Shadow(0, 10, 28, -8, ui.RGBA(0, 0, 0, 0.22)).Children(func() {
-			ui.Column(c).Gap(8).FillWidth().Radius(16).Background(k.panel).Border(1, k.panelBorder).Padding(12, 14, 10, 14).Children(func() {
+		// Raised as Tern's: a touch toward the text's color from the
+		// output's, opaque, so that the output under the card does not
+		// show through, with a border a touch further (lighter in a dark
+		// theme, darker in a light one).
+		raised := k.bgBottom.Mix(k.text, 0.06)
+		ui.Column(c).FillWidth().Radius(tspComposerR).Background(raised).Shadow(0, 10, 28, -8, ui.RGBA(0, 0, 0, 0.22)).Children(func() {
+			ui.Column(c).Gap(10).FillWidth().Radius(tspComposerR).Border(1, k.bgBottom.Mix(k.text, 0.1)).Padding(16, 16, 14, 16).Children(func() {
 				a.tspFieldBare = true
 				for _, ch := range rest {
 					a.tspNode(c, k, t, p, sf, ch)
@@ -441,7 +444,7 @@ func (a *App) tspComposer(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *
 			// Over the card's top border, inside its corners; omp's tone
 			// pending says a turn runs.
 			tone, _ := n.Props["tone"].(string)
-			line := a.tspEdgeLine(c, k, meter, tone == "pending").Absolute().Top(tspEdgeLabelsH).Left(16).Right(16)
+			line := a.tspEdgeLine(c, k, meter, tone == "pending").Absolute().Top(tspEdgeLabelsH).Left(tspComposerR).Right(tspComposerR)
 			a.tspClick(t, p, sf, meter, labels)
 			a.tspClick(t, p, sf, meter, line)
 			if title, _ := meter.Props["title"].(string); title != "" {
@@ -453,8 +456,13 @@ func (a *App) tspComposer(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *
 	return col
 }
 
-// tspEdgeLabelsH is the height of the labels over a composer's edge meter.
-const tspEdgeLabelsH = 15
+// tspEdgeLabelsH is the height of the labels over a composer's edge meter,
+// and tspComposerR the radius of the composer's card, whose corners the
+// meter keeps inside.
+const (
+	tspEdgeLabelsH = 15
+	tspComposerR   = 22
+)
 
 // tspEdgeLabels draws the labels of a composer's edge meter, over the
 // card: the share used ending where the fill ends, and the total at the
@@ -464,7 +472,7 @@ func (a *App) tspEdgeLabels(c *ui.Context, k *colors, n *rex.TSPNode) ui.Element
 	value = max(0, min(1, value))
 	label, _ := n.Props["label"].(string)
 	total, _ := n.Props["total"].(string)
-	row := ui.Row(c.Key("edge-labels")).FillWidth().Height(tspEdgeLabelsH).Padding(0, 16).AlignItems(ui.End)
+	row := ui.Row(c.Key("edge-labels")).FillWidth().Height(tspEdgeLabelsH).Padding(0, tspComposerR).AlignItems(ui.End)
 	row.Children(func() {
 		ui.Row(c).Grow(float32(value)).Basis(0).MinWidth(0).Justify(ui.End).Children(func() {
 			if label != "" {
@@ -529,21 +537,25 @@ func (a *App) tspEdgeLine(c *ui.Context, k *colors, n *rex.TSPNode, running bool
 // tspSubmit draws omp's send and stop controls in the composer
 // (omp.composer.send, a keycap of Enter, and omp.composer.stop, the
 // word) as Tern does: a round button, a return arrow on it, or a square
-// while a turn runs. Muted (a draft held by dictation), it is faint.
-func (a *App) tspSubmit(c *ui.Context, key *ui.Context, k *colors, n *rex.TSPNode, stop bool) ui.Element {
-	bg := k.text
+// while a turn runs. Send is faint while there is nothing to send (idle:
+// the composer empty), as is a muted one (a draft held by dictation).
+func (a *App) tspSubmit(c *ui.Context, key *ui.Context, k *colors, n *rex.TSPNode, stop, idle bool) ui.Element {
+	bg, ink := k.text, k.bgBottom
 	if tone, _ := n.Props["tone"].(string); tone == "muted" {
 		bg = bg.Alpha(0.3)
 	}
-	b := ui.Box(key).Size(30, 30).Radius(15).Center().Background(bg).Shrink(0).Cursor(ui.CursorPointer).Role(ui.RoleButton)
+	if idle && !stop {
+		bg, ink = k.text.Alpha(0.14), k.textMuted
+	}
+	b := ui.Box(key).Size(34, 34).Radius(17).Center().Background(bg).Shrink(0).Cursor(ui.CursorPointer).Role(ui.RoleButton)
 	if b.Hovered() {
 		b.Background(bg.Alpha(0.8))
 	}
 	b.Children(func() {
 		if stop {
-			ui.Box(c).Size(10, 10).Radius(2.5).Background(k.bgBottom)
+			ui.Box(c).Size(11, 11).Radius(2.5).Background(ink)
 		} else {
-			ui.Icon(c, icon("corner-down-left")).Size(16, 16).TextColor(k.bgBottom)
+			ui.Icon(c, icon("corner-down-left")).Size(18, 18).TextColor(ink)
 		}
 	})
 	return b
@@ -849,7 +861,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 			row.FillWidth()
 		case role == "omp.composer.model":
 			// Tern's model chip: an outlined pill.
-			row.Gap(6).Padding(4, 10, 4, 8).Radius(14).Border(1, k.cardBorder).Shrink(0).Cursor(ui.CursorPointer)
+			row.Gap(6).Padding(5, 12, 5, 10).Radius(16).Border(1, k.bgBottom.Mix(k.text, 0.22)).Shrink(0).Cursor(ui.CursorPointer)
 			if row.Hovered() {
 				row.Background(k.hover)
 			}
@@ -958,7 +970,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		el = sec
 	case "text":
 		if a.tspPinned && role == "omp.composer.stop" {
-			el = a.tspSubmit(c, key, k, n, true)
+			el = a.tspSubmit(c, key, k, n, true, false)
 			break
 		}
 		if a.tspPinned && role == "omp.working.sep" {
@@ -980,6 +992,10 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 			el = a.tspRich(c, k, spans, 13, false)
 		} else {
 			el = ui.Text(c, text).FontSize(a.tspText(13)).TextColor(k.text)
+		}
+		if a.tspPinned && role == "omp.composer.usage" {
+			// The session's cost, quiet beside the send button, as Tern's.
+			el.TextColor(k.textMuted)
 		}
 		// Kept on one line: whole, or cut with an ellipsis.
 		if truncate != "" {
@@ -1301,7 +1317,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		el = ui.Box(key).Height(map[string]float32{"none": 0, "xs": 2, "sm": 4, "md": 8, "lg": 16}[size])
 	case "kbd":
 		if a.tspPinned && role == "omp.composer.send" {
-			el = a.tspSubmit(c, key, k, n, false)
+			el = a.tspSubmit(c, key, k, n, false, p.composerEmpty)
 			break
 		}
 		keys, _ := n.Props["keys"].([]any)

@@ -186,8 +186,10 @@ func (a *App) tspField(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pan
 		// as Lines asks, without a text area's least height.
 		el.Background(ui.Transparent).Border(0, ui.Transparent).FocusRing(false).Padding(0).MinHeight(0)
 		padX, padY = 0, 0
-		// The pane's terminal passes the focus to it (view.go).
+		// The pane's terminal passes the focus to it (view.go); the send
+		// button is faint while it holds nothing to send (tspSubmit).
 		p.composerAt, p.composerFocused = a.frame, el.Focused()
+		p.composerEmpty = strings.TrimSpace(f.text) == ""
 		if p.composerFocus {
 			el.Focus()
 			p.composerFocus = false

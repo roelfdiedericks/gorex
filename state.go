@@ -123,9 +123,11 @@ type Pane struct {
 	// composerFocus asks it to take it: the terminal of a pane with a
 	// live dock passes the focus to it, but while termHeld, which a press
 	// in the transcript sets, until the terminal loses the focus.
+	// composerEmpty tells that the field held nothing to send then.
 	composerAt      uint64
 	composerFocused bool
 	composerFocus   bool
+	composerEmpty   bool
 	termHeld        bool
 	// tspSized is what the last frames measured of the nodes of the
 	// surfaces' long lists, by surface and node, which those far from the
