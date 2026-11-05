@@ -652,6 +652,7 @@ func (a *App) attach(p *Pane, cols, rows int) {
 		OptionAsAlt:     is(a.eff.Terminal.OptionAsAlt),
 		CopyOnSelect:    copyOnSelectOf(&a.eff),
 		ScrollSpeed:     scrollSpeedOf(&a.eff),
+		SmoothScroll:    is(a.eff.Appearance.SmoothScroll),
 		NoCompression:   !is(a.eff.Terminal.CompressScrollback),
 		Keybinds:        keybindsOf(&a.eff),
 		RightClick:      rightClickOf(&a.eff),

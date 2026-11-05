@@ -80,8 +80,10 @@ type Appearance struct {
 	ScrollbarsAlways   *bool   `json:"scrollbarsAlways,omitempty" kind:"pc" label:"Always show scroll bars" group:"Scroll bars"`
 	// ScrollSpeed is how far the wheel and a touchpad scroll terminal
 	// panes, in per cent of the system's own speed (MyGo's
-	// terminal.Options.ScrollSpeed).
-	ScrollSpeed int `json:"scrollSpeed,omitempty" kind:"pc" label:"Scroll speed" group:"Scrolling" note:"How far the mouse wheel and touchpad scroll terminal panes, in per cent of the system's speed"`
+	// terminal.Options.ScrollSpeed); SmoothScroll glides a wheel's notch
+	// there rather than jumping (terminal.Options.SmoothScroll).
+	ScrollSpeed  int   `json:"scrollSpeed,omitempty" kind:"pc" label:"Scroll speed" group:"Scrolling" note:"How far the mouse wheel and touchpad scroll terminal panes, in per cent of the system's speed"`
+	SmoothScroll *bool `json:"smoothScroll,omitempty" kind:"pc" label:"Smooth scrolling" group:"Scrolling" note:"The mouse wheel glides terminal panes to where it scrolls them. Off, they jump by whole rows. Touchpads always follow the fingers, and it is off when the system asks for less motion."`
 }
 
 type Terminal struct {
@@ -232,7 +234,7 @@ const defaultFontSize = 11.6
 // builtin are the values of fields set in neither layer.
 var builtin = Settings{
 	V:          settingsVersion,
-	Appearance: Appearance{Theme: "GoRex", ThemeLight: "GoRex", Tint: "gorex", Transparent: on, WindowTitle: "host", ScrollbarWidth: 10, ScrollbarMinLength: 48, ScrollbarsAlways: off, ScrollSpeed: 100},
+	Appearance: Appearance{Theme: "GoRex", ThemeLight: "GoRex", Tint: "gorex", Transparent: on, WindowTitle: "host", ScrollbarWidth: 10, ScrollbarMinLength: 48, ScrollbarsAlways: off, ScrollSpeed: 100, SmoothScroll: on},
 	Terminal: Terminal{
 		Font: "JetBrains Mono", Size: defaultFontSize, Weight: 400, LineHeight: 1, Ligatures: on, Thicken: off,
 		Cursor: "block", Blink: on, Scrollback: 10000, Images: 320, CompressScrollback: on, CopyOnSelect: notOnMac, OptionAsAlt: off, Bell: "mark", Identity: "ghostty", StatusNotify: on,

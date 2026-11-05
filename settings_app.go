@@ -71,6 +71,7 @@ func (a *App) applySettings() {
 			p.term.SetFont(termFont)
 			p.term.SetTheme(light, dark)
 			p.term.SetScrollSpeed(scrollSpeedOf(&a.eff))
+			p.term.SetSmoothScroll(is(a.eff.Appearance.SmoothScroll))
 			p.term.SetCompression(is(a.eff.Terminal.CompressScrollback))
 		}
 	}
