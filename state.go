@@ -146,8 +146,8 @@ type Pane struct {
 	// last frame (by anchor), more than it has when its head is cut.
 	tspNeed map[uint32]int
 	// tspTop is where each live docked surface's content started below
-	// its anchor in the last frame laid out at the view's end, which it
-	// keeps while the view is scrolled back (by anchor).
+	// its anchor in the last frame laid out, where a frame scrolled back
+	// puts it when none of its nodes is in view (by anchor).
 	tspTop map[uint32]float32
 	// hudOpen tells which of the dock's HUD pills show their popover (a
 	// checklist's whole plan), by anchor and node id.
@@ -410,6 +410,9 @@ type App struct {
 	// tspCull is how the inline surface being drawn leaves out the nodes
 	// far from the view (tsp_cull.go); off between surfaces.
 	tspCull tspCulling
+	// tspHeld finds the node a scrolled-back surface's content is placed
+	// by, as the content is built (tspHolding); off between surfaces.
+	tspHeld tspHolding
 	// tspSheet is how the overlay being drawn lays out its panes, nil for
 	// one that scrolls whole; tspScrolled the scrollers of overlays and
 	// panes drawn this frame, whose scroll stays (surfaceOverlays).

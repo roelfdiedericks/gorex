@@ -246,17 +246,25 @@ func (a *App) tspCulledChildren(c *ui.Context, k *colors, t *Tab, p *Pane, sf *r
 			cu.pick[s.ch] = true
 		}
 	}
+	// space draws a node far from the view as a box of its height, and
+	// measures the node from where that box was in the last frame, as a
+	// node drawn is: what changes height above it moves it.
+	space := func(e *tspSizedNode, ch *rex.TSPNode) {
+		if b := ui.Box(c.Key("cull-" + ch.ID)).Height(e.h).FillWidth().Bounds(); b.H > 0 {
+			e.off = b.Y - cu.origin
+		}
+	}
 	for _, ch := range n.Children {
 		e := entry(ch)
 		e.seen = a.drawn
 		if measured(e, ch) && cu.far(e) > 0 {
 			switch {
 			case fresh(e):
-				ui.Box(c.Key("cull-" + ch.ID)).Height(e.h).FillWidth()
+				space(e, ch)
 				continue
 			case cu.settle && !cu.pick[ch]:
 				cu.stale++
-				ui.Box(c.Key("cull-" + ch.ID)).Height(e.h).FillWidth()
+				space(e, ch)
 				continue
 			}
 		}

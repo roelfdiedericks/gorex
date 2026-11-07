@@ -146,9 +146,11 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 	// scrolls the terminal, or fewer rows spare) show more of the head,
 	// the end staying where it is. Placed by those rows instead, it moved
 	// as they came, and again as the terminal scrolled, which the window
-	// gets apart from them. Scrolled back, it keeps the top it had at the
-	// view's end and is laid out down from it (held): output that comes
-	// goes under it, out of sight, and what is read stays where it is.
+	// gets apart from them. Scrolled back (held), the node at the top of
+	// the view keeps its place, and moves only as the terminal scrolls:
+	// what changes above it, as a section omp folds when it is done,
+	// grows or shrinks upward, out of sight, and output that comes goes
+	// under it (tspHolding).
 	// Content that needs fewer rows than the screen has under its anchor
 	// starts at the anchor.
 	fromEnd := cut || docked
@@ -225,12 +227,11 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 		}
 		// Laid out from the box's bottom, the content's head goes out
 		// of the top, where the box cuts it; at least as tall as fill,
-		// content that fits starts at the top. Held, it hangs from the
-		// top it had at the view's end.
+		// content that fits starts at the top. Held, it is placed by
+		// the node at the top of the view, or without one in view, at
+		// the top it had in the last frame.
 		end := ui.Box(c.Key("end")).Absolute().Left(8).Right(8)
-		if held {
-			end.Top(top)
-		} else {
+		if !held {
 			end.Bottom(4 + below)
 		}
 		if fill > 0 {
@@ -243,12 +244,14 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 		// stale, and the nodes culled by them stayed culled, the view
 		// blank, as when a resumed session took its rows at once.
 		last := end.Bounds()
-		if atEnd {
-			if b := box.Bounds(); last.H > 0 && b.H > 0 {
-				if p.tspTop == nil {
-					p.tspTop = map[uint32]float32{}
-				}
-				p.tspTop[sf.Image] = last.Y - b.Y
+		if b := box.Bounds(); docked && last.H > 0 && b.H > 0 {
+			top = last.Y - b.Y
+			if p.tspTop == nil {
+				p.tspTop = map[uint32]float32{}
+			}
+			p.tspTop[sf.Image] = top
+			if held {
+				a.tspHeld = tspHolding{on: true, line: max(p.hostBounds.Y, b.Y), box: b.Y}
 			}
 		}
 		a.startCulling(p, sf, settle, last.Y, func(view ui.Rect) float32 {
@@ -262,6 +265,13 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 			return bottom - 4 - below - last.H
 		})
 		end.Children(func() { content = a.surfaceContent(c, k, t, p, sf, !sf.Closed) })
+		if held {
+			end.Top(top)
+			if a.tspHeld.found {
+				end.AnchorTop(a.tspHeld.at)
+			}
+		}
+		a.tspHeld = tspHolding{}
 	})
 	a.endCulling(p, settle)
 	if box.Pressed() {
@@ -332,6 +342,34 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 				tspLayoutLog.Printf("f=%d %s sent TSPSize rows=%d dock=%d (had rows=%d dock=%d)", a.drawn, sf.ID, size.rows, size.dock, sf.Rows, sf.Dock)
 			}
 		}
+	}
+}
+
+// tspHolding finds, as a held surface's content is built, the node it is
+// placed by: the node at the top of the view in the last frame's layout,
+// the first one drawn whose box then reached below line (the view's top,
+// or the box's where the surface starts lower), inner nodes before the
+// node around them, as each is drawn after what is inside it. The content
+// goes where that node is at below the box's top (ui.Element.AnchorTop),
+// as it was in the last frame: as the terminal scrolls, the box and the
+// node move with it, and what changes above the node moves what is above.
+type tspHolding struct {
+	on, found bool
+	line, box float32
+	at        float32
+}
+
+// tspHold takes el, the element of a node just drawn, as the node the
+// held content is placed by, when none is yet and its box in the last
+// frame reached below the line.
+func (a *App) tspHold(el ui.Element) {
+	h := &a.tspHeld
+	if !h.on || h.found || a.tspPinned {
+		return
+	}
+	if b := el.Bounds(); b.H > 0 && b.Y+b.H > h.line {
+		h.found, h.at = true, b.Y-h.box
+		el.ScrollAnchor()
 	}
 }
 
@@ -1508,6 +1546,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		el.Tooltip(title)
 	}
 	a.tspClick(t, p, sf, n, el)
+	a.tspHold(el)
 	return el
 }
 
