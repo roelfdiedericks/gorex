@@ -599,6 +599,18 @@ func (a *App) tspSubmit(c *ui.Context, key *ui.Context, k *colors, n *rex.TSPNod
 	return b
 }
 
+// tspSent brings the terminal to its end when el, omp's send or stop
+// control, is clicked with something in the composer, which sends or
+// queues it: the message shows at the transcript's end, above the
+// composer, as what is typed in a terminal shows at its end. Scrolled
+// back, the transcript keeps what is read in place, and the message went
+// under the composer. A stop with the composer empty leaves the view.
+func (a *App) tspSent(p *Pane, el ui.Element) {
+	if el.Clicked() && !p.composerEmpty {
+		p.term.ScrollToBottom()
+	}
+}
+
 // tspStarburst are the frames of omp's working glyph (spinner style
 // starburst); text stars only, as ✳ and ✴ draw as emoji.
 var tspStarburst = []string{"✢", "✣", "✶", "✻", "✽", "✻", "✶", "✣"}
@@ -1009,6 +1021,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 	case "text":
 		if a.tspPinned && role == "omp.composer.stop" {
 			el = a.tspSubmit(c, key, k, n, true, false)
+			a.tspSent(p, el)
 			break
 		}
 		if a.tspPinned && role == "omp.working.sep" {
@@ -1356,6 +1369,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 	case "kbd":
 		if a.tspPinned && role == "omp.composer.send" {
 			el = a.tspSubmit(c, key, k, n, false, p.composerEmpty)
+			a.tspSent(p, el)
 			break
 		}
 		keys, _ := n.Props["keys"].([]any)

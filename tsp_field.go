@@ -254,6 +254,10 @@ func (a *App) tspField(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pan
 			// to have what was typed. An empty field, or a composer that
 			// is not omp's, sends the text, as an empty submit would stop
 			// omp's turn.
+			if composer && strings.TrimSpace(tk.Text()) != "" {
+				// What is sent shows at the transcript's end (tspSent).
+				term.ScrollToBottom()
+			}
 			pr := tspEnterPress(sf.Root, id)
 			if pr == nil || strings.TrimSpace(tk.Text()) == "" {
 				send(map[string]any{"ev": "send", "text": tk.Text()})
