@@ -1556,7 +1556,9 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		el.Grow(float32(grow))
 	}
 	tspFlex(p, n, el)
-	if title, _ := n.Props["title"].(string); title != "" {
+	// A tool's title is its verb, printed in its head (TspToolProps), not
+	// a tooltip.
+	if title, _ := n.Props["title"].(string); title != "" && n.Kind != "tool" {
 		el.Tooltip(title)
 	}
 	a.tspClick(t, p, sf, n, el)

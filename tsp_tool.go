@@ -32,9 +32,6 @@ func (a *App) tspTool(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pane
 		if collapsible, _ := n.Props["collapsible"].(bool); collapsible {
 			h.Unselectable()
 		}
-		if intent != "" && status != "running" {
-			h.Tooltip(intent)
-		}
 		h.Children(func() {
 			if collapsible, _ := n.Props["collapsible"].(bool); collapsible && flat {
 				glyph := "▾"
