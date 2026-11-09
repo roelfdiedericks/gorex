@@ -84,8 +84,8 @@ type Appearance struct {
 	ScrollbarsAlways   *bool   `json:"scrollbarsAlways,omitempty" kind:"pc" label:"Always show scroll bars" group:"Scroll bars"`
 	// ScrollSpeed is how far the wheel and a touchpad scroll terminal
 	// panes, in per cent of the system's own speed (MyGo's
-	// terminal.Options.ScrollSpeed); SmoothScroll glides a wheel's notch
-	// there rather than jumping (terminal.Options.SmoothScroll).
+	// terminal.Options.ScrollMultiplier); SmoothScroll glides a wheel's
+	// notch there rather than jumping (terminal.Options.SmoothScroll).
 	ScrollSpeed  int   `json:"scrollSpeed,omitempty" kind:"pc" label:"Scroll speed" group:"Scrolling" note:"How far the mouse wheel and touchpad scroll terminal panes, in per cent of the system's speed"`
 	SmoothScroll *bool `json:"smoothScroll,omitempty" kind:"pc" label:"Smooth scrolling" group:"Scrolling" note:"The mouse wheel glides terminal panes to where it scrolls them. Off, they jump by whole rows. Touchpads always follow the fingers, and it is off when the system asks for less motion."`
 }
@@ -467,13 +467,16 @@ func backgroundOpacityOf(s *Settings) float32 {
 	return 1
 }
 
-// scrollSpeedOf is how far the wheel and a touchpad scroll terminal
-// panes, as a multiple of the system's speed: the setting's per cent.
-func scrollSpeedOf(s *Settings) float32 {
-	if s.Appearance.ScrollSpeed <= 0 {
-		return 1
+// scrollMultiplierOf is how far the wheel and a touchpad scroll terminal
+// panes, the setting's per cent of the system's speed: a notch scrolls
+// that share of 3 rows (on Windows, of the system's "lines to scroll"),
+// and a touchpad that share of the fingers' distance.
+func scrollMultiplierOf(s *Settings) terminal.ScrollMultiplier {
+	f := float32(1)
+	if s.Appearance.ScrollSpeed > 0 {
+		f = float32(s.Appearance.ScrollSpeed) / 100
 	}
-	return float32(s.Appearance.ScrollSpeed) / 100
+	return terminal.ScrollMultiplier{Precision: f, Discrete: 3 * f}
 }
 
 // keybindsOf binds the copy and paste keys the settings turn on, over the

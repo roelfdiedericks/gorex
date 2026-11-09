@@ -24,10 +24,12 @@ const (
 func (a *App) view(c *ui.Context) {
 	a.services = c.Services()
 	a.runPosted()
-	// The scroll bars the settings ask for, in everything that scrolls.
+	// The scroll bars the settings ask for, in everything that scrolls;
+	// a thumb keeps its width while it is dragged.
 	a.uiTheme = *c.Theme()
 	ap := &a.eff.Appearance
 	a.uiTheme.ScrollbarWidth, a.uiTheme.ScrollbarMinLength, a.uiTheme.ScrollbarsAlways = ap.ScrollbarWidth, ap.ScrollbarMinLength, is(ap.ScrollbarsAlways)
+	a.uiTheme.ScrollbarKeepsWidth = true
 	c.SetTheme(&a.uiTheme)
 	a.postMu.Lock()
 	toasts := a.toastQueue

@@ -1,4 +1,4 @@
-; GoRex's own installer steps (mygo.json windows.installerScript): its
+; GoRex's own installer steps (mygo.json windows.installerInclude): its
 ; bin, which holds gorex.com (cmd/gorex, from resources), put on the
 ; user's PATH, and taken off as GoRex is uninstalled. A shell runs
 ; gorex.com for `gorex`, a console program, which runs GoRex's commands
@@ -14,7 +14,7 @@
   Pop $0
 !macroend
 
-!macro customUninstall
+!macro customUnInstall
   nsExec::Exec `powershell -NoProfile -NonInteractive -Command "$$d = '$INSTDIR\bin'; $$p = [Environment]::GetEnvironmentVariable('Path', 'User'); $$l = @($$p -split ';' | Where-Object { $$_ -and $$_ -ne $$d }); [Environment]::SetEnvironmentVariable('Path', ($$l -join ';'), 'User')"`
   Pop $0
 !macroend

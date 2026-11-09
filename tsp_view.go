@@ -268,7 +268,7 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 		if held {
 			end.Top(top)
 			if a.tspHeld.found {
-				end.AnchorTop(a.tspHeld.at)
+				end.HoldTop(a.tspHeld.at)
 			}
 		}
 		a.tspHeld = tspHolding{}
@@ -350,7 +350,7 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 // the first one drawn whose box then reached below line (the view's top,
 // or the box's where the surface starts lower), inner nodes before the
 // node around them, as each is drawn after what is inside it. The content
-// goes where that node is at below the box's top (ui.Element.AnchorTop),
+// goes where that node is at below the box's top (ui.Element.HoldTop),
 // as it was in the last frame: as the terminal scrolls, the box and the
 // node move with it, and what changes above the node moves what is above.
 type tspHolding struct {
@@ -369,7 +369,7 @@ func (a *App) tspHold(el ui.Element) {
 	}
 	if b := el.Bounds(); b.H > 0 && b.Y+b.H > h.line {
 		h.found, h.at = true, b.Y-h.box
-		el.ScrollAnchor()
+		el.HoldHere()
 	}
 }
 
