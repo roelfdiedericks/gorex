@@ -4,6 +4,59 @@ Each release's version is its heading in this file. The `version` in
 `mygo.json` must match the top heading. Otherwise `make website` refuses
 to build. It also refuses to build a version that is already published.
 
+## 0.1.15
+
+- Files that omp names open with a click. A file name in a tool card
+  (Write, Edit, Read) or in a message, such as `FOO.md`, is a link: a
+  click shows the file in a popup over the pane, and Ctrl+click (⌘ on
+  macOS) opens it in the editor tab. You can change both in Settings ›
+  OMP › Files. A file's menu has Open in Popup, Open in Editor Tab and
+  Copy Path.
+- The popup shows the file as the editor tab does, Markdown as a
+  preview. You can edit and save it there. Its buttons keep the file in
+  a split beside the pane or in the editor tab, make the popup fill the
+  window, or close it. Escape or a click outside closes it too, and asks
+  first about unsaved changes.
+- A file kept in a terminal tab stays there after a restart. Its new
+  button moves it to the editor tab.
+- Save, Show Preview, Show Changes and Soft Wrap now work for any file
+  that has the keys, in the popup and in terminal tabs too.
+- Open files now follow changes on disk in every tab and in the popup.
+  A file without edits reloads; one with edits says it changed on disk.
+  Pictures and PDFs show again when they change.
+- Mermaid diagrams in omp's messages are drawn as diagrams, with Source,
+  Copy and Open. A diagram that has an error shows its code and says
+  why it can't be drawn.
+- Pictures and diagrams open in a viewer you can zoom and move. The
+  mouse wheel or a pinch zooms, dragging or a touchpad moves the
+  picture, and a double-click switches between fitted and 100%. The
+  keys + - 0 1 and the arrows work too. Diagrams stay sharp when zoomed.
+- Cards that fold show a chevron that turns as they open and close.
+- omp's status line has its charts and hover cards, as in Tern. The
+  background jobs list, the agents list and omp's settings look like
+  Tern's.
+- When you scroll back in omp's messages, a button takes you back to the
+  end.
+- omp's sign-in Copy and Open buttons work. Links in omp's text open,
+  and their menu copies them.
+- omp's settings open in the middle of the window, and their search
+  takes your typing.
+- New settings: Scroll speed and Smooth scrolling (Settings ›
+  Appearance), Compress scrollback (Settings › Terminal), Message size
+  (Settings › OMP › Text).
+- Transparent terminal background is now Terminal background opacity, a
+  slider set to 90% by default, so that color schemes look like
+  themselves.
+- The terminal theme picker lists light themes for light windows and
+  dark themes for dark ones. Show all themes lists every theme.
+- The mouse wheel scrolls three lines per notch on Windows, as the
+  system does, instead of about seven.
+- omp's messages stay still while you read them during a turn, and
+  sending a message brings the view to the end.
+- Updating GoRex also updates the servers on your ssh hosts, and
+  removes old ones. The Connection Log says what happens in plain words,
+  its text can be selected, and it has a Copy button.
+
 ## 0.1.14
 
 - Copy on select is now on by default on Windows and Linux, as in PuTTY:
