@@ -27,7 +27,10 @@ func (a *App) tspPicker(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surfa
 		ev["sf"], ev["id"] = sf.ID, n.ID
 		a.tspSend(p, ev)
 	}
+	// Whatever was clicked (a tab, a scope, a chip), the keys stay the
+	// program's: the terminal takes the focus back from MyGo's control.
 	act := func(act, value string) {
+		a.surfacePressed(t, p)
 		ev := map[string]any{"ev": "action", "act": act}
 		if value != "" {
 			ev["value"] = value
@@ -44,64 +47,70 @@ func (a *App) tspPicker(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surfa
 	if width == 0 {
 		width = 82
 	}
+	// Drawn as Tern's sheets: the head over a hairline, the rows (and
+	// the scopes before them) in the middle with the preview in a pane
+	// of its own at the right, the actions under a hairline; MyGo's own
+	// controls for the tabs and the actions.
 	sheet := ui.Column(c.Key("tsp-picker-"+n.ID)).Absolute().LeftPercent((100-width)/2).WidthPercent(width).TopPercent(4).MaxHeightPercent(92).
-		Radius(cardR).Background(k.panel).Border(1, k.panelBorder).Padding(12, 14).Gap(8).Font(a.tspLook().font).Clip()
+		Radius(cardR).Background(k.panel).Border(1, k.panelBorder).Font(a.tspLook().font).Clip()
 	sheet.Children(func() {
 		a.tspPickerHead(c, k, t, p, sf, n)
-		if tabs, _ := pr["tabs"].([]any); len(tabs) > 0 {
-			active, _ := pr["tab"].(string)
-			row := ui.Row(c.Key("tabs")).Gap(4).FillWidth()
-			row.Children(func() {
-				for i, tb := range tabs {
-					tb, _ := tb.(map[string]any)
-					id, _ := tb["id"].(string)
-					chip := ui.Row(c.Key(fmt.Sprintf("tab%d", i))).Gap(4).AlignItems(ui.Center).Padding(3, 10).Radius(5).Unselectable()
-					if id == active {
-						chip.Background(k.hover)
-					}
-					chip.Children(func() {
-						a.tspRich(c, k, tb["label"], 12, id == active)
-						if count, ok := tb["count"].(float64); ok {
-							ui.Text(c, fmt.Sprint(int(count))).FontSize(a.tspText(11)).TextColor(k.textMuted)
-						}
-					})
-					if chip.Clicked() {
-						act("tab", id)
-					}
-				}
-			})
-		}
-		mid := ui.Row(c.Key("mid")).Gap(10).FillWidth().Grow(1).MinHeight(0).AlignItems(ui.Stretch)
+		mid := ui.Row(c.Key("mid")).FillWidth().Grow(1).MinHeight(0).AlignItems(ui.Stretch)
 		mid.Children(func() {
 			if scopes, _ := pr["scopes"].([]any); len(scopes) > 0 {
-				a.tspPickerScopes(c, k, pr, scopes, act)
+				a.tspPickerScopes(c, k, p, n, scopes, act)
 			}
-			main := ui.Column(c.Key("main")).Gap(6).Grow(1).MinHeight(0).MinWidth(0)
+			main := ui.Column(c.Key("main")).Gap(8).Grow(1).MinHeight(0).MinWidth(0).Padding(12, 14, 10, 14)
 			main.Children(func() {
+				if tabs, _ := pr["tabs"].([]any); len(tabs) > 0 {
+					active, _ := pr["tab"].(string)
+					ids := make([]string, len(tabs))
+					labels := make([]string, len(tabs))
+					chosen := 0
+					for i, tb := range tabs {
+						tb, _ := tb.(map[string]any)
+						ids[i], _ = tb["id"].(string)
+						labels[i] = tspPlain(tb["label"], "")
+						if s, ok := tb["label"].(string); ok {
+							labels[i] = s
+						}
+						if count, ok := tb["count"].(float64); ok {
+							labels[i] += fmt.Sprintf(" %d", int(count))
+						}
+						if ids[i] == active {
+							chosen = i
+						}
+					}
+					seg := ui.Segmented(c.Key("tabs"), &chosen, labels...).Label("View").AlignSelf(ui.Start)
+					if seg.Changed() {
+						act("tab", ids[chosen])
+					}
+				}
 				a.tspPickerList(c, k, t, p, sf, n, send, act)
 				if preview, _ := pr["preview"].(string); preview == "below" && len(n.Children) > 0 {
 					a.tspPickerPreview(c, k, t, p, sf, n)
 				}
 			})
 			if preview, _ := pr["preview"].(string); (preview == "side" || preview == "") && len(n.Children) > 0 {
-				side := ui.Scroll(c.Key("side")).WidthPercent(40).Padding(0, 0, 0, 10).Border(0, k.panelBorder)
+				side := ui.Scroll(c.Key("side")).WidthPercent(40).Shrink(0).BorderWidth(0, 0, 0, 1).BorderColor(k.panelBorder)
 				side.Children(func() {
-					for _, ch := range n.Children {
-						a.tspNode(c, k, t, p, sf, ch)
-					}
+					ui.Column(c).Gap(a.tspGap(8)).FillWidth().Padding(18, 20).Children(func() {
+						for _, ch := range n.Children {
+							a.tspNode(c, k, t, p, sf, ch)
+						}
+					})
 				})
 			}
 		})
 		if cf, ok := pr["confirm"].(map[string]any); ok {
-			strip := ui.Row(c.Key("confirm")).Gap(8).AlignItems(ui.Center).FillWidth().Padding(6, 10).Radius(6).Background(k.attention.Alpha(0.15))
+			strip := ui.Row(c.Key("confirm")).Gap(8).AlignItems(ui.Center).FillWidth().Padding(8, 18).Background(k.attention.Alpha(0.15))
 			strip.Children(func() {
 				a.tspRich(c, k, cf["text"], 12, false).Grow(1)
 				label, _ := cf["label"].(string)
 				if label == "" {
 					label = "Confirm"
 				}
-				btn := ui.Text(c, label).FontSize(a.tspText(12)).TextColor(k.text).Padding(2, 10).Radius(5).Background(k.attention.Alpha(0.3)).Unselectable()
-				if btn.Clicked() {
+				if ui.PrimaryButton(c.Key("confirm-btn"), label).Clicked() {
 					what, _ := cf["act"].(string)
 					act(what, "")
 				}
@@ -110,7 +119,7 @@ func (a *App) tspPicker(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surfa
 		if st, ok := pr["strip"].(map[string]any); ok {
 			items, _ := st["items"].([]any)
 			selected, _ := st["selected"].(string)
-			row := ui.Row(c.Key("strip")).Gap(6).AlignItems(ui.Center).FillWidth().Wrap()
+			row := ui.Row(c.Key("strip")).Gap(6).AlignItems(ui.Center).FillWidth().Wrap().Padding(8, 18).BorderWidth(1, 0, 0, 0).BorderColor(k.panelBorder)
 			row.Children(func() {
 				if l := st["label"]; l != nil {
 					a.tspRich(c, k, l, 12, false).TextColor(k.textMuted)
@@ -119,12 +128,10 @@ func (a *App) tspPicker(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surfa
 					it, _ := it.(map[string]any)
 					id, _ := it["id"].(string)
 					on, _ := it["on"].(bool)
-					chip := ui.Row(c.Key(fmt.Sprintf("strip%d", i))).Gap(4).Padding(2, 8).Radius(10).Unselectable()
-					chip.Background(k.hover)
+					chip := ui.Button(c.Key(fmt.Sprintf("strip%d", i)), tspPlain(it["label"], fmt.Sprint(it["label"]))).Shrink(0)
 					if on || id == selected {
-						chip.Border(1, k.busy)
+						chip.Selected(true)
 					}
-					chip.Children(func() { a.tspRich(c, k, it["label"], 12, on) })
 					if chip.Clicked() {
 						act("strip", fmt.Sprint(i))
 					}
@@ -132,15 +139,22 @@ func (a *App) tspPicker(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surfa
 			})
 		}
 		if actions, _ := pr["actions"].([]any); len(actions) > 0 {
-			var start, end []any
+			// Tern's order: the others at the start, then the end's,
+			// the primary action last.
+			var start, end, primary []any
 			for _, ac := range actions {
-				if m, _ := ac.(map[string]any); m["end"] == true {
+				m, _ := ac.(map[string]any)
+				switch {
+				case m["primary"] == true:
+					primary = append(primary, ac)
+				case m["end"] == true:
 					end = append(end, ac)
-				} else {
+				default:
 					start = append(start, ac)
 				}
 			}
-			bar := ui.Row(c.Key("bar")).Gap(6).AlignItems(ui.Center).FillWidth()
+			end = append(end, primary...)
+			bar := ui.Row(c.Key("bar")).Gap(6).AlignItems(ui.Center).FillWidth().Padding(10, 18).BorderWidth(1, 0, 0, 0).BorderColor(k.panelBorder)
 			bar.Children(func() {
 				a.tspActions(c.Key("start"), k, p, sf, n, start)
 				ui.Box(c).Grow(1)
@@ -151,19 +165,25 @@ func (a *App) tspPicker(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surfa
 	if sheet.Pressed() {
 		a.surfacePressed(t, p)
 	}
+	// Escape with the focus in the sheet (a control of it) is the
+	// program's, as with the focus in the terminal: it closes the sheet.
+	if sheet.Shortcut(0, ui.KeyEscape) {
+		a.surfacePressed(t, p)
+		p.term.Send([]byte{0x1b})
+	}
 }
 
 // tspPickerHead draws a picker's head: icon, title and subtitle, the
-// count of rows, and the search field.
+// count of rows, over a hairline; and the search field under it.
 func (a *App) tspPickerHead(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, n *rex.TSPNode) {
 	pr := n.Props
-	head := ui.Row(c.Key("head")).Gap(8).AlignItems(ui.Center).FillWidth()
+	head := ui.Row(c.Key("head")).Gap(10).AlignItems(ui.Center).FillWidth().Shrink(0).Padding(14, 18).BorderWidth(0, 0, 1, 0).BorderColor(k.panelBorder)
 	head.Children(func() {
 		if icon, _ := pr["icon"].(string); icon != "" {
-			a.tspIcon(c, k, icon)
+			a.tspIcon(c, k, icon).TextColor(k.text)
 		}
 		if title, _ := pr["title"].(string); title != "" {
-			ui.Text(c, title).FontSize(a.tspText(14)).Bold().TextColor(k.text)
+			ui.Text(c, title).FontSize(a.tspText(15)).Bold().TextColor(k.text).Shrink(0)
 		}
 		if sub := pr["subtitle"]; sub != nil {
 			a.tspRich(c, k, sub, 12, false).TextColor(k.textMuted).SingleLine().Shrink(1)
@@ -193,7 +213,7 @@ func (a *App) tspPickerHead(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 			props["placeholder"] = ph
 		}
 		field := &rex.TSPNode{ID: n.ID + "#query", Kind: "input", Props: props}
-		row := ui.Row(c.Key("query")).Gap(6).AlignItems(ui.Center).FillWidth()
+		row := ui.Row(c.Key("query")).Gap(6).AlignItems(ui.Center).FillWidth().Shrink(0).Padding(8, 18).BorderWidth(0, 0, 1, 0).BorderColor(k.panelBorder)
 		row.Children(func() {
 			ui.Icon(c, icon("search")).Size(13, 13).TextColor(k.textMuted)
 			a.tspField(c, c.Key("query-field"), k, t, p, sf, field, false).AutoFocus()
@@ -391,12 +411,22 @@ func (a *App) tspPickerRow(c *ui.Context, k *colors, it map[string]any, layout s
 						ch, _ := ch.(map[string]any)
 						t, _ := ch["text"].(string)
 						on, _ := ch["on"].(bool)
-						chip := ui.Text(c.Key(fmt.Sprintf("rc%d", i)), t).FontSize(a.tspText(11)).Padding(1, 6).Radius(8).Background(k.hover)
-						if on {
-							chip.TextColor(k.busy)
-						} else {
-							chip.TextColor(k.textMuted)
-						}
+						// An outlined pill, its dot in the chip's tone, on
+						// one line, as Tern's.
+						chip := ui.Row(c.Key(fmt.Sprintf("rc%d", i))).Gap(4).AlignItems(ui.Center).Padding(1, 7).Radius(10).Border(1, k.panelBorder).Shrink(0)
+						chip.Children(func() {
+							if dot, _ := ch["dot"].(string); dot != "" {
+								col := k.textMuted
+								if dc, ok := a.spanColor(k, dot); ok {
+									col = dc
+								}
+								ui.Box(c).Size(5, 5).Radius(3).Background(col).Shrink(0)
+							}
+							label := ui.Text(c, t).FontSize(a.tspText(11)).SingleLine().TextColor(k.textMuted)
+							if on {
+								label.TextColor(k.busy)
+							}
+						})
 					}
 				}
 			})
@@ -503,41 +533,51 @@ func (a *App) tspPickerLabel(c *ui.Context, k *colors, v any, mono bool, hits []
 	return ui.RichText(c, spans...)
 }
 
-// tspPickerScopes draws a picker's scope column: entries under their
-// group heads, the active one highlighted; a click sends scope.
-func (a *App) tspPickerScopes(c *ui.Context, k *colors, pr map[string]any, scopes []any, act func(string, string)) {
-	active, _ := pr["scope"].(string)
-	col := ui.Scroll(c.Key("scopes")).Width(180).Shrink(0)
-	col.Children(func() {
-		inner := ui.Column(c).Gap(1)
-		inner.Children(func() {
-			group := ""
-			for i, sc := range scopes {
-				sc, _ := sc.(map[string]any)
-				id, _ := sc["id"].(string)
-				if g, _ := sc["group"].(string); g != "" && g != group {
-					group = g
-					ui.Text(c.Key(fmt.Sprintf("sg%d", i)), g).FontSize(a.tspText(11)).Bold().TextColor(k.textMuted).Padding(6, 6, 2, 6)
-				}
-				row := ui.Row(c.Key(fmt.Sprintf("sc%d", i))).Gap(6).AlignItems(ui.Center).Padding(3, 6).Radius(5).Unselectable()
-				if id == active {
-					row.Background(k.hover)
-				}
-				row.Children(func() {
-					if name, _ := sc["icon"].(string); name != "" {
-						a.tspIcon(c, k, name)
-					}
-					a.tspRich(c, k, sc["label"], 12, id == active).Grow(1).SingleLine()
-					if count, ok := sc["count"].(float64); ok {
-						ui.Text(c, fmt.Sprint(int(count))).FontSize(a.tspText(11)).TextColor(k.textMuted)
-					}
-				})
-				if row.Clicked() {
-					act("scope", id)
-				}
+// tspPickerScopes draws a picker's scope column as MyGo's sidebar: the
+// entries under their group heads, each with its icon and count, the
+// active one chosen; choosing one sends scope.
+func (a *App) tspPickerScopes(c *ui.Context, k *colors, p *Pane, n *rex.TSPNode, scopes []any, act func(string, string)) {
+	active, _ := n.Props["scope"].(string)
+	chosen := active
+	item := func(sc map[string]any) {
+		id, _ := sc["id"].(string)
+		name, _ := sc["icon"].(string)
+		it := ui.SidebarItem(c.Key("sc-"+id), id, tspIconSVG(name), tspPlain(sc["label"], fmt.Sprint(sc["label"])))
+		if count, ok := sc["count"].(float64); ok {
+			it.Children(func() { ui.Badge(c, fmt.Sprint(int(count))) })
+		}
+	}
+	bar := ui.Sidebar(c.Key("scopes"), &chosen, func() {
+		for i := 0; i < len(scopes); {
+			sc, _ := scopes[i].(map[string]any)
+			group, _ := sc["group"].(string)
+			if group == "" {
+				item(sc)
+				i++
+				continue
 			}
-		})
-	})
+			// A group's entries, in a section that keeps open or shut.
+			j := i
+			for j < len(scopes) {
+				m, _ := scopes[j].(map[string]any)
+				if g, _ := m["group"].(string); g != group {
+					break
+				}
+				j++
+			}
+			open, members := p.tspScopeOpen(n.ID+"/"+group), scopes[i:j]
+			ui.SidebarSection(c.Key("sg-"+group), group, open, func() {
+				for _, m := range members {
+					m, _ := m.(map[string]any)
+					item(m)
+				}
+			})
+			i = j
+		}
+	}).Width(200).BorderWidth(0, 1, 0, 0).BorderColor(k.panelBorder)
+	if bar.Changed() && chosen != active {
+		act("scope", chosen)
+	}
 }
 
 // tspPickerPreview draws the selected row's preview under the list.

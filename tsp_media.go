@@ -127,12 +127,12 @@ func (a *App) tspMedia(c *ui.Context, key *ui.Context, k *colors, p *Pane, n *re
 		if !ownClick {
 			img.Cursor(ui.CursorPointer)
 			if img.Clicked() {
-				a.tspZoom, a.tspZoomAlt, a.tspZoomPane = bm, baseName(file)+at, p
 				// The viewer opens the disk file; one at a rev it would not.
-				a.tspZoomPath = ""
+				path := ""
 				if rev == "" {
-					a.tspZoomPath = file
+					path = file
 				}
+				a.zoomPicture(p, bm, 1, baseName(file)+at, path, nil)
 			}
 		}
 		return img

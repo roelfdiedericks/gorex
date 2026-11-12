@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -157,20 +158,20 @@ func (e *upgradeLoopError) Error() string {
 
 // dialBinding connects to the server of b, telling prog how it goes, and
 // asking the user through login what ssh asks; with none, ssh asks
-// nothing. The link is nil for this machine's server. restart has the
-// server replaced by this build's, as a development build does by itself
-// with a server of another build, unless guard says this window does so
-// in a loop; a nil guard leaves the server as it is.
-func dialBinding(b binding, prog remote.Progress, login *askpass.Session, restart bool, guard *upgradeGuard) (*rex.Client, *remote.Link, rex.Hello, error) {
-	var client *rex.Client
-	var link *remote.Link
-	var err error
+// nothing. The link is nil for this machine's server. A server another
+// build of GoRex started is replaced by this build's, keeping its
+// sessions, unless guard says this window does so in a loop; a nil guard
+// leaves the server as it is. restart has it replaced even where that
+// ends its sessions. old tells that the server is another build's, which
+// was kept: where a release can't replace it without ending its
+// sessions, the window asks first (attachBinding).
+func dialBinding(b binding, prog remote.Progress, login *askpass.Session, restart bool, guard *upgradeGuard) (client *rex.Client, link *remote.Link, h rex.Hello, old bool, err error) {
 	if !b.remote {
 		client, err = rex.Connect(rex.LocalDialer(b.dir()))
 	} else {
 		var p remote.Payload
 		if p, err = loadPayload(); err != nil {
-			return nil, nil, rex.Hello{}, err
+			return nil, nil, rex.Hello{}, false, err
 		}
 		// gorex ssh -A or -a decides for the window; else the host's
 		// switch forwards the agent, or ssh's configuration decides.
@@ -179,32 +180,38 @@ func dialBinding(b binding, prog remote.Progress, login *askpass.Session, restar
 			t.Agent = "yes"
 		}
 		if link, err = remote.Open(t, filepath.Base(rex.Dir()), p, prog, login); err != nil {
-			return nil, nil, rex.Hello{}, err
+			return nil, nil, rex.Hello{}, false, err
 		}
 		if client, err = rex.Connect(link.Dial); err != nil {
 			link.Close()
-			return nil, nil, rex.Hello{}, err
+			return nil, nil, rex.Hello{}, false, err
 		}
 	}
 	if err != nil {
-		return nil, nil, rex.Hello{}, err
+		return nil, nil, rex.Hello{}, false, err
 	}
-	fail := func(err error) (*rex.Client, *remote.Link, rex.Hello, error) {
+	fail := func(err error) (*rex.Client, *remote.Link, rex.Hello, bool, error) {
 		client.Close()
 		if link != nil {
 			link.Close()
 		}
-		return nil, nil, rex.Hello{}, err
+		return nil, nil, rex.Hello{}, false, err
 	}
-	h, err := client.Hello()
-	if err != nil {
+	if h, err = client.Hello(); err != nil {
 		return fail(err)
 	}
-	stale := mygo.IsDev() && (!b.remote && staleServer(h) || b.remote && h.Exe != link.Exe())
+	stale := !b.remote && staleServer(h) || b.remote && h.Exe != link.Exe()
+	if stale && !b.remote && runtime.GOOS == "windows" && !mygo.IsDev() {
+		// This machine's server can't be replaced in place on Windows,
+		// and a new one ends the sessions: a release keeps the one
+		// running, and asks only for another protocol (attachBinding).
+		stale = false
+	}
 	if guard != nil && (restart || stale) {
-		// A server a build before this one started runs that build's
-		// code: it becomes one of this build's in place, keeping its
-		// sessions, or, where it can't, a new one starts, ending them.
+		// A server another build started runs that build's code: it
+		// becomes one of this build's in place, keeping its sessions,
+		// or, where it can't, a new one starts, ending them, which a
+		// release does only when asked.
 		if !restart && !guard.allow() {
 			return fail(&upgradeLoopError{host: b.label(), other: h.Exe})
 		}
@@ -213,10 +220,15 @@ func dialBinding(b binding, prog remote.Progress, login *askpass.Session, restar
 			exe = link.Exe()
 		}
 		prog.Status("Upgrading the session server on " + b.label() + "…")
-		prog.Log(fmt.Sprintf("upgrading the server (%s, protocol %d, pid %d) to %s", h.Exe, h.Version, h.PID, exe))
+		prog.Log(fmt.Sprintf("the server running on %s (pid %d) is from another version of GoRex; replacing it with this version's server and keeping its sessions", b.label(), h.PID))
+		prog.Log(fmt.Sprintf("from %s to %s", h.Exe, exe))
 		nc, err := client.Upgrade(h, exe)
 		if errors.Is(err, rex.ErrNoUpgrade) {
-			prog.Log(fmt.Sprintf("%v: restarting the server, which ends its sessions", err))
+			if !restart && !mygo.IsDev() {
+				prog.Log("the server cannot be replaced while it runs; keeping it, because replacing it ends its sessions")
+				return client, link, h, true, nil
+			}
+			prog.Log("the server cannot be replaced while it runs, so it is restarting; this ends its sessions")
 			nc, err = client.Restart(h.PID)
 		}
 		if err != nil {
@@ -227,7 +239,7 @@ func dialBinding(b binding, prog remote.Progress, login *askpass.Session, restar
 			return fail(err)
 		}
 	}
-	return client, link, h, nil
+	return client, link, h, false, nil
 }
 
 // retryDelays are the waits between attempts to connect, the last one
@@ -290,7 +302,7 @@ func (a *App) connectLoop(win *mygo.Window, b binding, gen int64, attempts int, 
 		if b.remote {
 			login = a.loginSession(win, b, gen)
 		}
-		client, link, h, err := dialBinding(b, prog, login, restart && try == 1, &a.upgrades)
+		client, link, h, old, err := dialBinding(b, prog, login, restart && try == 1, &a.upgrades)
 		if login != nil {
 			login.Close()
 		}
@@ -310,7 +322,7 @@ func (a *App) connectLoop(win *mygo.Window, b binding, gen int64, attempts int, 
 				prog.Log("reading the host's settings: " + serr.Error())
 			}
 			prog.Log("connected to " + b.label())
-			win.Update(func() { a.attachBinding(win, b, gen, client, link, h, sb) })
+			win.Update(func() { a.attachBinding(win, b, gen, client, link, h, old, sb) })
 			return
 		}
 		prog.Log("failed: " + err.Error())
@@ -389,8 +401,10 @@ func (a *App) connLogText() []string {
 	return slices.Clone(a.connLog)
 }
 
-// attachBinding shows the sessions of the server the window connected to.
-func (a *App) attachBinding(win *mygo.Window, b binding, gen int64, client *rex.Client, link *remote.Link, h rex.Hello, settings []byte) {
+// attachBinding shows the sessions of the server the window connected to;
+// old tells that it is another build's, which could not be replaced
+// without ending its sessions.
+func (a *App) attachBinding(win *mygo.Window, b binding, gen int64, client *rex.Client, link *remote.Link, h rex.Hello, old bool, settings []byte) {
 	if a.gen.Load() != gen || a.win != win {
 		client.Close()
 		if link != nil {
@@ -406,6 +420,10 @@ func (a *App) attachBinding(win *mygo.Window, b binding, gen int64, client *rex.
 	a.status, a.connDown = "", false
 	if a.logAuto {
 		a.logOpen, a.logAuto = false, false
+	}
+	if old {
+		a.err = fmt.Sprintf("The session server on %s is from another version of GoRex. It cannot be replaced while it runs, and replacing it ends its sessions.", b.label())
+		a.errAction, a.errRun = "Replace server", a.restartServer
 	}
 	if h.Version != rex.ProtocolVersion {
 		a.err = fmt.Sprintf("The session server on %s uses protocol %d, but this GoRex uses protocol %d. Replacing it with this GoRex's server keeps its sessions on Linux and macOS, but ends them on Windows.",

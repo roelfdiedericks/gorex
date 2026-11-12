@@ -95,7 +95,7 @@ func TestEditorTab(t *testing.T) {
 	}
 
 	// Saving writes the edit to disk and clears the mark.
-	a.saveFile(ed)
+	a.saveFile(ed.edit)
 	waitFor(t, tt, "the save", func() bool { return !ed.edit.modified() })
 	if b, _ := os.ReadFile(filepath.Join(root, "src", "main.go")); !strings.HasPrefix(string(b), "// edited\n") {
 		t.Errorf("saved %q", b)
@@ -226,7 +226,7 @@ func TestBrowserFollowsChanges(t *testing.T) {
 	}()
 	tab := a.newEditorTab(root)
 	waitFor(t, tt, "the root's entries", func() bool { return tt.HasText("first.txt") })
-	waitFor(t, tt, "the watch", func() bool { return tab.Browser.files.watched[root] })
+	waitFor(t, tt, "the watch", func() bool { return a.watched[root] })
 	time.Sleep(200 * time.Millisecond) // the server's watch is in place
 	os.WriteFile(filepath.Join(root, "second.txt"), []byte("2\n"), 0o644)
 	waitFor(t, tt, "the new file in the tree", func() bool { return tt.HasText("second.txt") })
@@ -264,6 +264,45 @@ func TestBrowserFollowsChanges(t *testing.T) {
 	if !tt.HasText("M") || !tt.HasText("U") {
 		t.Errorf("the tree shows no status letters: %q", tt.Texts())
 	}
+}
+
+// TestKeptFileFollowsChanges: a file no browser shows the folder of, in
+// the popup and then kept in a terminal tab, has its folder watched and
+// reloads when it changes on disk; closed, its folder is watched no more.
+func TestKeptFileFollowsChanges(t *testing.T) {
+	a, tt := newTestApp(t)
+	a.eff = builtin
+	root := testDir(t)
+	defer os.RemoveAll(root)
+	file := filepath.Join(root, "notes.txt")
+	os.WriteFile(file, []byte("1\n"), 0o644)
+	go func() {
+		for ev := range a.client.Events {
+			if ev.Event == "changed" {
+				path := ev.Path
+				a.post(func() { a.dirChanged(path) })
+			}
+		}
+	}()
+	tab := a.tab()
+	a.openPeek(tab.Focus, file)
+	waitFor(t, tt, "the popup's file", func() bool { return a.peek != nil && a.peek.view.buf != nil })
+	waitFor(t, tt, "the popup's watch", func() bool { return a.watched[root] })
+	a.keepPeek(false)
+	var ed *Pane
+	for _, p := range tab.panes() {
+		if p.Kind == paneEditor {
+			ed = p
+		}
+	}
+	if a.peek != nil || ed == nil || ed.edit.path != file {
+		t.Fatalf("kept: popup %v, pane %v", a.peek != nil, ed != nil)
+	}
+	time.Sleep(1100 * time.Millisecond) // a second later, so the mtime moves
+	os.WriteFile(file, []byte("1\nagain\n"), 0o644)
+	waitFor(t, tt, "the reload", func() bool { return strings.Contains(ed.edit.buf.String(), "again") })
+	a.closePane(ed)
+	waitFor(t, tt, "the unwatch", func() bool { return !a.watched[root] })
 }
 
 // TestBrowserRevealsFocusedFile: a file opened other than from the tree,

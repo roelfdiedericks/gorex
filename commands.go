@@ -24,8 +24,9 @@ type command struct {
 	Run   func(a *App)
 	// Hidden keeps it out of the palette.
 	Hidden bool
-	// Editor marks a command of editor tabs: its shortcut applies only
-	// while one is active, and the palette lists it only then.
+	// Editor marks a command of files and editor tabs: its shortcut
+	// applies only while an editor tab is active or a file view has the
+	// keys, and the palette lists it only then.
 	Editor bool
 	// Serial marks a command of serial hosts' windows, which the palette
 	// lists only there.
@@ -71,9 +72,9 @@ var (
 	cmdEndAll      = command{Title: "Quit and End All Sessions", Accel: "CmdOrCtrl+Alt+Q", Keys: "⌥⌘Q", Run: func(a *App) { a.quitAndEnd() }}
 	cmdNewEditorTab  = command{Title: "New Editor Tab", Accel: "CmdOrCtrl+Shift+O", Keys: "⇧⌘O", Other: ctrlShift(ui.KeyO), Run: func(a *App) { a.newEditorTab("") }}
 	cmdSave          = command{Title: "Save", Accel: "CmdOrCtrl+S", Keys: "⌘S", Other: shortcut{ui.Ctrl, ui.KeyS}, Run: func(a *App) { a.saveFocused() }, Editor: true}
-	cmdToggleChanges = command{Title: "Show Changes", Accel: "CmdOrCtrl+Shift+M", Keys: "⇧⌘M", Other: ctrlShift(ui.KeyM), Run: func(a *App) { a.toggleChanges(a.focusedEditor()) }, Editor: true}
-	cmdSoftWrap      = command{Title: "Soft Wrap", Run: func(a *App) { a.toggleWrap(a.focusedEditor()) }, Editor: true}
-	cmdTogglePreview = command{Title: "Show Preview", Accel: "CmdOrCtrl+Shift+V", Keys: "⇧⌘V", Other: ctrlShift(ui.KeyV), Run: func(a *App) { a.togglePreview(a.focusedEditor()) }, Editor: true}
+	cmdToggleChanges = command{Title: "Show Changes", Accel: "CmdOrCtrl+Shift+M", Keys: "⇧⌘M", Other: ctrlShift(ui.KeyM), Run: func(a *App) { a.toggleChanges(a.focusedFile()) }, Editor: true}
+	cmdSoftWrap      = command{Title: "Soft Wrap", Run: func(a *App) { a.toggleWrap(a.focusedFile()) }, Editor: true}
+	cmdTogglePreview = command{Title: "Show Preview", Accel: "CmdOrCtrl+Shift+V", Keys: "⇧⌘V", Other: ctrlShift(ui.KeyV), Run: func(a *App) { a.togglePreview(a.focusedFile()) }, Editor: true}
 	cmdReloadFile    = command{Title: "Reload File", Run: func(a *App) { a.reloadFocused() }, Editor: true}
 	cmdRefreshFiles  = command{Title: "Refresh Files", Run: func(a *App) { a.refreshFocusedBrowser() }, Editor: true}
 	cmdChangeRoot    = command{Title: "Change Root…", Run: func(a *App) { a.changeRootFocused() }, Editor: true}
@@ -277,6 +278,11 @@ func (a *App) run(cmd *command) {
 }
 
 func (a *App) closeFocused() {
+	// The file popup, while it shows, as the pane in front.
+	if a.peek != nil {
+		a.closePeek()
+		return
+	}
 	if t := a.tab(); t != nil && t.Focus != nil && a.confirmClose([]*Pane{t.Focus}) {
 		a.closePane(t.Focus)
 	}
@@ -397,7 +403,7 @@ func (a *App) shortcuts(c *ui.Context) {
 	if runtime.GOOS != "windows" {
 		return
 	}
-	editorTab := a.tab() != nil && a.tab().Kind == paneEditor
+	editorTab := a.tab() != nil && a.tab().Kind == paneEditor || a.focusedFile() != nil
 	for _, cmd := range commands {
 		if cmd.Editor && !editorTab || cmd.Serial && a.bind.serial == "" {
 			continue
@@ -478,7 +484,7 @@ func (a *App) paletteItems() []paletteItem {
 		items = append(items, paletteItem{title: "Forget " + r.title(), detail: r.Target + r.Port, glyph: "x",
 			run: func() { forgetRemote(r.Key); a.remotes = loadRemotes() }})
 	}
-	editorTab := a.tab() != nil && a.tab().Kind == paneEditor
+	editorTab := a.tab() != nil && a.tab().Kind == paneEditor || a.focusedFile() != nil
 	for _, cmd := range paletteCommands {
 		if cmd.Hidden || !match(cmd.Title) || cmd.Editor && !editorTab || cmd.Serial && a.bind.serial == "" || cmd.Shown != nil && !cmd.Shown(a) {
 			continue

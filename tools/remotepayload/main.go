@@ -92,10 +92,11 @@ func main() {
 // buildTarget builds the server for goos/goarch in out/<goos>-<goarch>,
 // with the library beside it: name, of SHA-256 sum, which src gives. go
 // build relinks the server only when it changed, and the library is
-// copied only when it differs.
+// copied only when it differs. The tag gorexserver leaves out what only
+// the app draws, as Mermaid diagrams.
 func buildTarget(out, goos, goarch, name, sum string, src func() (string, error)) error {
 	dir := filepath.Join(out, goos+"-"+goarch)
-	build := exec.Command("go", "build", "-trimpath", "-ldflags=-s -w", "-o", filepath.Join(dir, "gorex"), ".")
+	build := exec.Command("go", "build", "-trimpath", "-tags=gorexserver", "-ldflags=-s -w", "-o", filepath.Join(dir, "gorex"), ".")
 	build.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS="+goos, "GOARCH="+goarch)
 	build.Stdout, build.Stderr = os.Stdout, os.Stderr
 	if err := build.Run(); err != nil {

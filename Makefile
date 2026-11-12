@@ -111,6 +111,17 @@ endef
 
 total = @echo "[make] $@: total $$(( $$($(now)) - $(START) )) ms since make started"
 
+# On Windows a running program's file can't be written, but it can be
+# moved: a target in use moves to $(DEV)/old before it is built, and the
+# files earlier builds moved there go once nothing runs them. Only a file
+# in use moves, as go build relinks one that is not there. A file opens
+# for writing only when nothing runs it; rm would remove it even then.
+ifeq ($(GOOS),windows)
+define aside
+@mkdir -p $(DEV)/old; for f in $(DEV)/old/*; do [ -f "$$f" ] && ( : >> "$$f" ) 2>/dev/null && rm -f "$$f"; done; if [ -f $@ ] && ! ( : >> $@ ) 2>/dev/null; then mv $@ $(DEV)/old/$(notdir $(basename $@))-$$(date +%s)$(suffix $@) && echo "[make] $@: in use, moved to $(DEV)/old"; fi
+endef
+endif
+
 $(info [make] goals: $(or $(MAKECMDGOALS),dev) (make $(MAKE_VERSION), $(PLATFORM)))
 $(info [make] app: $(NAME) $(VERSION) ($(IDENT)) -> $(EXE))
 
@@ -123,12 +134,14 @@ run: dev
 	$(call run,./$(EXE))
 
 $(EXE): FORCE $(ICON_SYSO)
+	$(aside)
 	$(call run,go build -o $@ -ldflags "$(LDFLAGS)" .)
 
 $(ICON_SYSO): resources/icon.png tools/devicon/main.go
 	$(call run,go run ./tools/devicon -out $@ -arch $(GOARCH))
 
 $(DEV_COM) $(CLI_COM): FORCE
+	$(aside)
 	$(call run,go build -o $@ -ldflags "-X 'main.version=$(VERSION)'" ./cmd/gorex)
 
 $(DEV)/remote: FORCE
@@ -139,8 +152,10 @@ $(CONPTY) &: tools/conpty/main.go
 
 # Copied beside the dev executable when newer.
 $(DEV)/%: resources/$(PLATFORM)/%
+	$(aside)
 	$(call run,mkdir -p $(@D) && cp -p $< $@)
 $(DEV)/%: resources/%
+	$(aside)
 	$(call run,mkdir -p $(@D) && cp -p $< $@)
 
 release: version $(CONPTY) $(CLI_COM)

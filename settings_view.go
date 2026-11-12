@@ -680,6 +680,8 @@ func (a *App) settingControl(c *ui.Context, k *colors, scope string, f field) {
 		}
 	case "omp.spacing":
 		choices(c, &target, effv, []string{"compact", "normal", "roomy"}, []string{"Compact", "Normal", "Roomy"}, changed)
+	case "omp.fileClick", "omp.fileCtrlClick":
+		choices(c, &target, effv, []string{"popup", "tab", "none"}, []string{"Popup", "Editor tab", "Nothing"}, changed)
 	case "shell.env":
 		v := target.String()
 		if ui.TextArea(c, &v).Width(300).Height(64).Placeholder("KEY=value, one per line").Changed() {

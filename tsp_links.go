@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -117,10 +118,32 @@ func (a *App) tspLinkMenu(el ui.Element, href string) {
 // tspCutText draws spans on one line cut as truncate says, "middle"
 // keeping both ends and "start" the end, with "…" for what is cut; a
 // click on it opens its link, when one of its spans has one, and its
-// context menu opens or copies the link.
+// context menu opens or copies the link. A file's link opens as a click
+// on a file does, underlined while hovered.
 func (a *App) tspCutText(c *ui.Context, spans []ui.Span, hrefs []string, truncate string) ui.Element {
 	w, h := c.MeasureText(0, spans...)
 	box := ui.Box(c).Width(w).Height(h).Shrink(1).MinWidth(0)
+	link := ""
+	if i := slices.IndexFunc(hrefs, a.tspOpenable); i >= 0 {
+		link = hrefs[i]
+	}
+	if file := a.tspFileLink(link); file != "" {
+		if box.Hovered() {
+			spans = slices.Clone(spans)
+			for i := range spans {
+				spans[i].Underline = spans[i].Underline || hrefs[i] == link
+			}
+		}
+		if a.fileLink(box, a.tspPane, file) {
+			a.tspLinkClicked = true
+		}
+	} else if link != "" {
+		box.Cursor(ui.CursorPointer)
+		if box.Clicked() {
+			mygo.Shell.OpenExternal(link)
+		}
+		a.tspLinkMenu(box, link)
+	}
 	box.Draw(func(p *ui.Painter, r ui.Rect) {
 		key := fmt.Sprintf("%s|%.0f|%v", truncate, r.W, spans)
 		cut, ok := cuts[key]
@@ -133,17 +156,6 @@ func (a *App) tspCutText(c *ui.Context, spans []ui.Span, hrefs []string, truncat
 		}
 		p.RichText(r.X, r.Y+(r.H-h)/2, 0, cut...)
 	})
-	for _, href := range hrefs {
-		if href == "" || !webURL(href) {
-			continue
-		}
-		box.Cursor(ui.CursorPointer)
-		if box.Clicked() {
-			mygo.Shell.OpenExternal(href)
-		}
-		a.tspLinkMenu(box, href)
-		break
-	}
 	return box
 }
 

@@ -10,22 +10,113 @@ import (
 	"github.com/egoist/mygo/ui/editor"
 )
 
-// editorHeader draws an editor pane's header: the file, a dot when it
-// has unsaved changes, its directory, the language, and the buttons of a
-// terminal pane's with one for the Changes mode before them.
-func (a *App) editorHeader(c *ui.Context, k *colors, t *Tab, p *Pane, focused, hovered bool) {
-	e := p.edit
+// fileHost is the place a file view is drawn in: an editor pane of a
+// tab, or the file popup. It says whether the view has the keys or the
+// pointer, and what the header's buttons, the view's links to other
+// files and Escape in its page do there. A button whose action is nil
+// is left out.
+type fileHost struct {
+	focused, hovered bool
+	// took tells the place the view took the keys, or was pressed.
+	took func()
+	// The buttons after the view's own: split right and down, move to
+	// the editor tab, zoom (zoomed while it is) and close.
+	splitRight, splitDown, toTab, zoom, close fileAction
+	zoomed                                    bool
+	// escape is Escape in the view's page with nothing to go back to.
+	escape func()
+	// open opens a Markdown or text file a link of the preview names,
+	// reveal a folder.
+	open   func(path, fragment string)
+	reveal func(dir string)
+}
+
+// fileAction is a button of the place: its tooltip, the command whose
+// keys the tooltip shows (nil for none), and what it does.
+type fileAction struct {
+	tip string
+	cmd *command
+	run func()
+}
+
+func (h *fileHost) take() {
+	if h.took != nil {
+		h.took()
+	}
+}
+
+// paneHost is the place of an editor pane in a tab: the tab's focus,
+// splits, zoom and close. A pane of a terminal tab moves to the editor
+// tab, and opens the files its preview links to as a click on a file
+// does; one of an editor tab opens them in the tab, and folders in its
+// browser.
+func (a *App) paneHost(t *Tab, p *Pane, focused, hovered bool) *fileHost {
+	h := &fileHost{focused: focused, hovered: hovered, zoomed: t.Zoom == p}
+	h.took = func() {
+		if t.Focus != p {
+			t.setFocus(p)
+			a.changed()
+		}
+	}
+	h.splitRight = fileAction{"Split Right", &cmdSplitRight, func() { t.setFocus(p); a.split(false) }}
+	h.splitDown = fileAction{"Split Down", &cmdSplitDown, func() { t.setFocus(p); a.split(true) }}
+	zoom := "Zoom"
+	if h.zoomed {
+		zoom = "Unzoom"
+	}
+	h.zoom = fileAction{zoom, &cmdZoom, func() { t.setFocus(p); a.toggleZoom() }}
+	h.close = fileAction{"Close Pane", &cmdClosePane, func() {
+		if a.confirmUnsaved([]*Pane{p}) {
+			a.closePane(p)
+		}
+	}}
+	if t.Kind != paneEditor {
+		h.toTab = fileAction{"Move to Editor Tab", nil, func() { a.moveToEditorTab(p) }}
+		h.open = func(path, _ string) { a.openFileBy(p, path, false) }
+		return h
+	}
+	h.open = func(path, fragment string) {
+		a.openFile(t, path, false)
+		if np := t.treeFocus(); np != nil && np.edit.path == path && isMarkdown(path) {
+			a.previewWhenLoaded(np.edit, fragment)
+		}
+	}
+	h.reveal = func(dir string) {
+		// The tree opens and chooses it.
+		if b := t.Browser; b != nil {
+			b.files.isDir[dir] = true
+			b.files.tree.Open.Add(dir)
+			b.files.reveal = dir
+			a.changed()
+		}
+	}
+	return h
+}
+
+// fileViewUI draws a file view: its header (the file, its modes, the
+// place's buttons), the file, and its status line.
+func (a *App) fileViewUI(c *ui.Context, k *colors, e *fileView, h *fileHost) {
+	e.host = h
+	a.fileHeader(c, k, e, h)
+	ui.Box(c).Grow(1).MinHeight(0).Padding(0, 5, 6, 5).Children(func() {
+		a.fileBody(c, k, e, h)
+	})
+}
+
+// fileHeader draws a file view's header: the file, a dot when it has
+// unsaved changes, its directory, the language, the buttons of its
+// modes, and the place's.
+func (a *App) fileHeader(c *ui.Context, k *colors, e *fileView, h *fileHost) {
 	name, detail := e.label()
-	h := ui.Row(c).Height(headerH).Padding(0, 8, 0, 12).Gap(7).AlignItems(ui.Center).MinWidth(0)
-	if h.DoubleClicked() {
-		t.setFocus(p)
-		a.toggleZoom()
+	row := ui.Row(c).Height(headerH).Padding(0, 8, 0, 12).Gap(7).AlignItems(ui.Center).MinWidth(0)
+	if row.DoubleClicked() && h.zoom.run != nil {
+		a.later(c, h.zoom.run)
 	}
-	if h.Clicked() {
-		t.setFocus(p)
-		a.focusReq = p
+	if row.Clicked() {
+		h.take()
+		e.keys = true
 	}
-	h.Children(func() {
+	row.Children(func() {
 		glyph := "file"
 		if e.path != "" && editor.LanguageFor(e.path) != nil {
 			glyph = "file-code"
@@ -46,7 +137,7 @@ func (a *App) editorHeader(c *ui.Context, k *colors, t *Tab, p *Pane, focused, h
 				ui.Text(c, e.onDisk).FontSize(11.5).TextColor(k.attention).SingleLine().Shrink(0).Tooltip("The file on the host is different from this copy. Reload File discards your changes. Save overwrites the file.")
 			}
 		})
-		show := focused || hovered
+		show := h.focused || h.hovered
 		ui.Row(c).Gap(1).AlignItems(ui.Center).Opacity(map[bool]float32{true: 1, false: 0}[show]).Children(func() {
 			if !show {
 				return
@@ -57,8 +148,8 @@ func (a *App) editorHeader(c *ui.Context, k *colors, t *Tab, p *Pane, focused, h
 			if pv := e.preview; pv != nil && pv.showing != "" && e.mode == modePreview {
 				// A file a link opened in the page: back to the document.
 				if iconButton(c, k, "arrow-left", "Back to "+baseName(e.path), 26, 15).Tooltip("Back to the document (Esc)").Clicked() {
-					t.setFocus(p)
-					a.previewBack(p)
+					h.take()
+					a.previewBack(e)
 				}
 			}
 			if e.buf != nil {
@@ -71,8 +162,8 @@ func (a *App) editorHeader(c *ui.Context, k *colors, t *Tab, p *Pane, focused, h
 					diff.Background(k.pressed)
 				}
 				if diff.Clicked() {
-					t.setFocus(p)
-					a.toggleChanges(p)
+					h.take()
+					a.toggleChanges(e)
 				}
 				if isMarkdown(e.path) {
 					previewing := e.mode == modePreview || e.mode == modeNative
@@ -84,8 +175,8 @@ func (a *App) editorHeader(c *ui.Context, k *colors, t *Tab, p *Pane, focused, h
 							label, tooltip = "MyGo", "Shown by MyGo's renderer. Click to use the web view."
 						}
 						if textButton(c, k, label).Tooltip(tooltip).Clicked() {
-							t.setFocus(p)
-							a.switchRenderer(p)
+							h.take()
+							a.switchRenderer(e)
 						}
 					}
 					label := "Show Preview"
@@ -100,39 +191,42 @@ func (a *App) editorHeader(c *ui.Context, k *colors, t *Tab, p *Pane, focused, h
 						eye.Background(k.pressed)
 					}
 					if eye.Clicked() {
-						t.setFocus(p)
-						a.togglePreview(p)
+						h.take()
+						a.togglePreview(e)
 					}
 				}
 			}
-			if iconButton(c, k, "columns-2", "Split Right", 26, 16).Tooltip(tip("Split Right", &cmdSplitRight)).Clicked() {
-				t.setFocus(p)
-				a.split(false)
+			zoom := "maximize-2"
+			if h.zoomed {
+				zoom = "minimize-2"
 			}
-			if iconButton(c, k, "rows-2", "Split Down", 26, 16).Tooltip(tip("Split Down", &cmdSplitDown)).Clicked() {
-				t.setFocus(p)
-				a.split(true)
-			}
-			zoom, label := "maximize-2", "Zoom"
-			if t.Zoom == p {
-				zoom, label = "minimize-2", "Unzoom"
-			}
-			if iconButton(c, k, zoom, "Zoom", 26, 16).Tooltip(tip(label, &cmdZoom)).Clicked() {
-				t.setFocus(p)
-				a.toggleZoom()
-			}
-			if iconButton(c, k, "x", "Close Pane", 26, 17).Tooltip(tip("Close Pane", &cmdClosePane)).Clicked() {
-				a.later(c, func() {
-					if a.confirmUnsaved([]*Pane{p}) {
-						a.closePane(p)
-					}
-				})
+			for _, b := range []struct {
+				act      fileAction
+				glyph    string
+				iconSize float32
+			}{
+				{h.splitRight, "columns-2", 16},
+				{h.splitDown, "rows-2", 16},
+				{h.toTab, "square-arrow-out-up-right", 15},
+				{h.zoom, zoom, 16},
+				{h.close, "x", 17},
+			} {
+				if b.act.run == nil {
+					continue
+				}
+				label := b.act.tip
+				if b.act.cmd != nil {
+					label = tip(label, b.act.cmd)
+				}
+				if iconButton(c.Key(b.glyph), k, b.glyph, b.act.tip, 26, b.iconSize).Tooltip(label).Clicked() {
+					a.later(c, b.act.run)
+				}
 			}
 		})
 	})
 }
 
-func langName(e *editorState) string {
+func langName(e *fileView) string {
 	if e.buf == nil {
 		return ""
 	}
@@ -142,14 +236,14 @@ func langName(e *editorState) string {
 	return "Plain Text"
 }
 
-// editorBody draws the editor, or the Changes view, of a pane, with its
-// status line; or why the file is not shown.
-func (a *App) editorBody(c *ui.Context, k *colors, t *Tab, p *Pane) {
-	e := p.edit
+// fileBody draws the file of a view: the editor, the Changes view, a
+// preview or the engine's view, with its status line; or why the file
+// is not shown.
+func (a *App) fileBody(c *ui.Context, k *colors, e *fileView, h *fileHost) {
 	col := ui.Column(c).Fill().MinHeight(0)
 	col.Children(func() {
 		if e.mode == modeView {
-			a.viewBody(c, k, t, p)
+			a.viewBody(c, k, e, h)
 			return
 		}
 		switch {
@@ -162,19 +256,19 @@ func (a *App) editorBody(c *ui.Context, k *colors, t *Tab, p *Pane) {
 				ui.Text(c, e.err).FontSize(12.5).TextColor(k.textMuted).MaxWidth(520)
 				ui.Row(c).Gap(8).Children(func() {
 					if e.tooLarge && textButton(c, k, "Open Anyway").Clicked() {
-						a.loadFile(p, -1)
+						a.loadFile(e, -1)
 					}
 					if textButton(c, k, "Reload").Clicked() {
-						a.reloadFile(p)
+						a.reloadFile(e)
 					}
 				})
 			})
 		}
 		if e.buf == nil || e.loading || e.err != "" {
-			// Without an editor, the pane itself takes the focus, so that
-			// it stays the focused pane and its keys apply.
+			// Without an editor, the view itself takes the focus, so that
+			// its place keeps it and its keys apply.
 			col.Focusable()
-			a.editorFocus(col, t, p)
+			a.fileFocus(col, e, h)
 			return
 		}
 		font := a.editorFont()
@@ -183,32 +277,25 @@ func (a *App) editorBody(c *ui.Context, k *colors, t *Tab, p *Pane) {
 			wrap = *e.wrap
 		}
 		if e.mode == modeNative {
-			a.nativeBody(c, k, t, p)
+			a.nativeBody(c, k, e, h)
 		} else if e.mode == modePreview {
 			pv := e.preview
 			if pv == nil || pv.web == nil || pv.web.IsDestroyed() {
-				a.ensurePreview(p)
+				a.ensurePreview(e)
 				pv = e.preview
 			}
 			if pv != nil && pv.web != nil && !pv.loaded {
 				a.editorNote(c, k, "Preview", pv.phase)
 				col.Focusable()
-				a.editorFocus(col, t, p)
+				a.fileFocus(col, e, h)
 				return
 			}
 			if pv != nil && pv.web != nil {
 				if pv.version != e.buf.Version() {
-					a.renderPreview(p)
+					a.renderPreview(e)
 				}
 				v := ui.WebView(c.Key("preview"), pv.web).Grow(1).FillWidth().MinHeight(0)
-				if a.focusReq == p && a.tab() == t {
-					pv.web.Focus()
-					a.focusReq = nil
-				}
-				if v.Pressed() && t.Focus != p {
-					t.setFocus(p)
-					a.changed()
-				}
+				a.webFocus(v, pv, e, h)
 			} else {
 				a.editorNote(c, k, "No preview", "The web view could not be created.")
 			}
@@ -231,7 +318,7 @@ func (a *App) editorBody(c *ui.Context, k *colors, t *Tab, p *Pane) {
 				a.editorNote(c, k, "No changes", "Edit "+baseName(e.path)+" to see its changes here.")
 			} else {
 				v := editor.DiffView(c.Key("diff"), d).Grow(1).FillWidth().MinHeight(0)
-				a.editorFocus(v, t, p)
+				a.fileFocus(v, e, h)
 			}
 		} else {
 			st := e.state
@@ -239,22 +326,33 @@ func (a *App) editorBody(c *ui.Context, k *colors, t *Tab, p *Pane) {
 			st.LineHeight = a.eff.Editor.LineHeight
 			st.WrapGuides = wrapGuides(a.eff.Editor.WrapGuides)
 			v := editor.View(c.Key("editor"), st).Grow(1).FillWidth().MinHeight(0)
-			a.editorFocus(v, t, p)
+			a.fileFocus(v, e, h)
 		}
 		a.editorStatus(c, k, e)
 	})
 }
 
-// editorFocus gives an editor view the focus the tab asks, and follows
-// the focus it takes.
-func (a *App) editorFocus(v ui.Element, t *Tab, p *Pane) {
-	if a.focusReq == p && a.tab() == t {
+// fileFocus gives an element of a view the keys the view was asked for,
+// and tells the place when the view takes them.
+func (a *App) fileFocus(v ui.Element, e *fileView, h *fileHost) {
+	if e.keys {
 		v.Focus()
-		a.focusReq = nil
+		e.keys = false
 	}
-	if v.Focused() && t.Focus != p {
-		t.setFocus(p)
-		a.changed()
+	if v.Focused() && !h.focused {
+		h.take()
+	}
+}
+
+// webFocus is fileFocus for a view's web view, whose focus is the
+// engine's: a press in it tells the place.
+func (a *App) webFocus(v ui.Element, pv *previewState, e *fileView, h *fileHost) {
+	if e.keys {
+		pv.web.Focus()
+		e.keys = false
+	}
+	if v.Pressed() && !h.focused {
+		h.take()
 	}
 }
 
@@ -265,28 +363,24 @@ func (a *App) editorNote(c *ui.Context, k *colors, title, text string) {
 	})
 }
 
-// viewBody shows a file the engine shows, in the pane's web view, with
+// viewBody shows a file the engine shows, in the view's web view, with
 // what the page says of it in the status line.
-func (a *App) viewBody(c *ui.Context, k *colors, t *Tab, p *Pane) {
-	e := p.edit
+func (a *App) viewBody(c *ui.Context, k *colors, e *fileView, h *fileHost) {
 	pv := e.preview
 	if pv == nil || pv.web == nil || pv.web.IsDestroyed() || pv.showing != e.path {
-		a.showFile(p, e.path)
+		a.showFile(e, e.path)
 		pv = e.preview
+		if e.modTime.IsZero() {
+			// Its time, for the folder's changes to compare with.
+			a.checkFile(e)
+		}
 	}
 	if pv == nil || pv.web == nil {
 		a.editorNote(c, k, "Can't show "+baseName(e.path), "The web view could not be created.")
 		return
 	}
 	v := ui.WebView(c.Key("view"), pv.web).Grow(1).FillWidth().MinHeight(0)
-	if a.focusReq == p && a.tab() == t {
-		pv.web.Focus()
-		a.focusReq = nil
-	}
-	if v.Pressed() && t.Focus != p {
-		t.setFocus(p)
-		a.changed()
-	}
+	a.webFocus(v, pv, e, h)
 	status := pv.title
 	if status == "" {
 		status = strings.ToUpper(strings.TrimPrefix(path.Ext(e.path), "."))
@@ -303,7 +397,7 @@ func (a *App) viewBody(c *ui.Context, k *colors, t *Tab, p *Pane) {
 
 // editorStatus is the row under an editor: the caret, the changes, the
 // lines and the language.
-func (a *App) editorStatus(c *ui.Context, k *colors, e *editorState) {
+func (a *App) editorStatus(c *ui.Context, k *colors, e *fileView) {
 	st := e.state
 	pos := st.CursorPos()
 	status := fmt.Sprintf("Ln %d, Col %d", pos.Line+1, pos.Col+1)
@@ -352,30 +446,30 @@ func wrapGuides(s string) []int {
 	return out
 }
 
-// toggleChanges switches an editor pane between the editor and its
+// toggleChanges switches a file view between the editor and its
 // changes.
-func (a *App) toggleChanges(p *Pane) {
-	if p == nil || p.Kind != paneEditor || p.edit.buf == nil {
+func (a *App) toggleChanges(e *fileView) {
+	if e == nil || e.buf == nil {
 		return
 	}
-	if p.edit.mode == modeChanges {
-		p.edit.mode = modeEditor
+	if e.mode == modeChanges {
+		e.mode = modeEditor
 	} else {
-		p.edit.mode = modeChanges
+		e.mode = modeChanges
 	}
-	a.focusReq = p
+	e.keys = true
 	a.changed()
 }
 
-// toggleWrap switches an editor pane's soft wrap.
-func (a *App) toggleWrap(p *Pane) {
-	if p == nil || p.Kind != paneEditor {
+// toggleWrap switches a file view's soft wrap.
+func (a *App) toggleWrap(e *fileView) {
+	if e == nil {
 		return
 	}
 	wrap := is(a.eff.Editor.SoftWrap)
-	if p.edit.wrap != nil {
-		wrap = *p.edit.wrap
+	if e.wrap != nil {
+		wrap = *e.wrap
 	}
 	wrap = !wrap
-	p.edit.wrap = &wrap
+	e.wrap = &wrap
 }

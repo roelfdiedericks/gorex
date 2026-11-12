@@ -89,9 +89,12 @@ func (a *App) tspPrefsQueued(sf *rex.Surface, n *rex.TSPNode) bool {
 	return true
 }
 
-// tspPrefsOpen tells whether a live surface of the pane shows a prefs
-// sheet (tspPrefsSheet), which has the keys while it is open.
-func (p *Pane) tspPrefsOpen() bool {
+// tspSheetOpen tells whether a live surface of the pane shows a sheet
+// that has the keys while it is open: a prefs sheet (tspPrefsSheet), a
+// picker (its list's keys, its Escape), or an overlay not anchored at a
+// field's caret, as omp's Background jobs. One at the caret, as the
+// slash commands' menu, leaves them with the field typed in.
+func (p *Pane) tspSheetOpen() bool {
 	for i := range p.surfaces {
 		sf := &p.surfaces[i]
 		layer := tspLayer(sf)
@@ -99,7 +102,11 @@ func (p *Pane) tspPrefsOpen() bool {
 			continue
 		}
 		for _, n := range layer.Children {
-			if hidden, _ := n.Props["hidden"].(bool); n.Kind == "prefs" && !hidden {
+			if hidden, _ := n.Props["hidden"].(bool); hidden {
+				continue
+			}
+			at, _ := n.Props["anchor"].(map[string]any)
+			if n.Kind == "prefs" || n.Kind == "picker" || n.Kind == "overlay" && at["caret"] == nil {
 				return true
 			}
 		}
@@ -200,25 +207,32 @@ func (a *App) tspPrefsSheet(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 		place := ui.Row(c.Key("tsp-prefs-place-"+n.ID)).Absolute().Left(0).Right(0).Top(titleH).Bottom(0).
 			Justify(ui.Center).AlignItems(ui.Center).PassThrough()
 		place.Children(func() {
+			// Drawn as Tern's sheets: the head and the search over
+			// hairlines, the pages' nav a pane of its own beside the
+			// document, each scrolling, with room around them.
 			sheet := ui.Column(c.Key("tsp-prefs-"+n.ID)).Width(w).Height(h).
 				Radius(cardR).Background(k.panel).Border(1, k.panelBorder).Shadow(0, 24, 60, -8, ui.RGBA(0, 0, 0, 0.28)).
-				Padding(10, 12).Gap(8).Font(a.tspLook().font).Clip()
+				Font(a.tspLook().font).Clip()
 			var search ui.Element
 			sheet.Children(func() {
-				head := ui.Row(c.Key("brand")).Gap(8).AlignItems(ui.Center).FillWidth()
+				head := ui.Row(c.Key("brand")).Gap(10).AlignItems(ui.Center).FillWidth().Shrink(0).Padding(14, 18).BorderWidth(0, 0, 1, 0).BorderColor(k.panelBorder)
 				head.Children(func() {
-					ui.Icon(c, icon("settings-2")).Size(14, 14).TextColor(k.textMuted)
+					ui.Icon(c, icon("settings-2")).Size(15, 15).TextColor(k.text)
 					v.title(c).Grow(1)
 					if iconButton(c, k, "x", "Close", 22, 13).Clicked() {
 						v.act("close", "")
 					}
 				})
-				search = v.search(c).FillWidth()
-				body := ui.Row(c.Key("body")).Gap(8).FillWidth().Grow(1).MinHeight(0).AlignItems(ui.Stretch)
+				ui.Row(c.Key("find")).FillWidth().Shrink(0).Padding(10, 18).BorderWidth(0, 0, 1, 0).BorderColor(k.panelBorder).Children(func() {
+					search = v.search(c).FillWidth()
+				})
+				body := ui.Row(c.Key("body")).FillWidth().Grow(1).MinHeight(0).AlignItems(ui.Stretch)
 				body.Children(func() {
 					v.rail(c, w < tspPrefsFullNav)
 					doc := ui.Scroll(c.Key("doc-" + v.page + "|" + v.query)).Grow(1).MinWidth(0)
-					doc.Children(func() { v.doc(c) })
+					doc.Children(func() {
+						ui.Column(c).FillWidth().Padding(18, 24, 18, 22).Children(func() { v.doc(c) })
+					})
 				})
 				v.editorCard(c)
 			})
@@ -366,18 +380,22 @@ func (v *tspPrefsView) caretText(c *ui.Context, pre, post, placeholder, font str
 // clicks. A compact rail shows each page's icon over its short label.
 func (v *tspPrefsView) rail(c *ui.Context, compact bool) {
 	k := v.k
-	width := float32(190)
+	width := float32(210)
 	if compact {
-		width = 64
+		width = 68
 	}
 	var nav ui.Element
 	if v.sheet {
-		nav = ui.Scroll(c.Key("nav")).Width(width).Shrink(0)
+		// A pane of its own, apart from the document by a hairline.
+		nav = ui.Scroll(c.Key("nav")).Width(width).Shrink(0).BorderWidth(0, 1, 0, 0).BorderColor(k.panelBorder)
 	} else {
 		nav = ui.Column(c.Key("nav")).Width(width).Shrink(0)
 	}
 	nav.Children(func() {
-		inner := ui.Column(c).Gap(1).FillWidth()
+		inner := ui.Column(c).Gap(2).FillWidth()
+		if v.sheet {
+			inner.Padding(12, 10)
+		}
 		inner.Children(func() {
 			group := ""
 			for i, pg := range v.pages {
@@ -391,7 +409,7 @@ func (v *tspPrefsView) rail(c *ui.Context, compact bool) {
 					if compact {
 						ui.Box(c.Key(fmt.Sprintf("gs%d", i))).Height(1).FillWidth().Background(k.panelBorder).Margin(4, 6)
 					} else if g != "" {
-						ui.Text(c.Key(fmt.Sprintf("g%d", i)), g).FontSize(v.a.tspText(11)).Bold().TextColor(k.textMuted).Padding(8, 8, 2, 8)
+						ui.Text(c.Key(fmt.Sprintf("g%d", i)), g).FontSize(v.a.tspText(11)).Bold().TextColor(k.textMuted).Padding(12, 10, 4, 10)
 					}
 				}
 				changed, _ := pg["changed"].(float64)
@@ -404,7 +422,7 @@ func (v *tspPrefsView) rail(c *ui.Context, compact bool) {
 				if compact {
 					row = ui.Column(c.Key("p-"+id)).Gap(2).AlignItems(ui.Center).Padding(5, 2).Radius(6).Unselectable()
 				} else {
-					row = ui.Row(c.Key("p-"+id)).Gap(7).AlignItems(ui.Center).Padding(4, 8).Radius(6).Unselectable()
+					row = ui.Row(c.Key("p-"+id)).Gap(8).AlignItems(ui.Center).Padding(6, 10).Radius(6).Unselectable()
 				}
 				if id == v.page {
 					row.Background(k.hover)
@@ -462,9 +480,9 @@ func (v *tspPrefsView) pageOf(id string) map[string]any {
 func (v *tspPrefsView) doc(c *ui.Context) {
 	k := v.k
 	sections, _ := v.n.Props["sections"].([]any)
-	col := ui.Column(c.Key("sections")).Gap(14).FillWidth().Padding(2, 4, 8, 2)
+	col := ui.Column(c.Key("sections")).Gap(24).FillWidth().Padding(2, 4, 8, 2)
 	col.Children(func() {
-		head := ui.Column(c.Key("head")).Gap(3).FillWidth()
+		head := ui.Column(c.Key("head")).Gap(5).FillWidth()
 		head.Children(func() {
 			if v.query != "" {
 				ui.Text(c, "Search").FontSize(v.a.tspText(11)).TextColor(k.textMuted)
@@ -502,10 +520,20 @@ func (v *tspPrefsView) doc(c *ui.Context) {
 			}
 			v.section(c.Key(fmt.Sprintf("s%d-%s", i, id)), sec, rows)
 			shown += len(rows)
-			if id == "status-line" {
-				for _, ch := range v.status {
-					v.a.tspNode(c, k, v.t, v.p, v.sf, ch)
-				}
+			if id == "status-line" && len(v.status) > 0 {
+				// omp's live preview of its status line, as these settings
+				// make it: under a caption, in a box of its own, so that it
+				// reads as an example and not as a row.
+				prev := ui.Column(c.Key("status-preview")).Gap(8).FillWidth()
+				prev.Children(func() {
+					ui.Text(c, "Preview").FontSize(v.a.tspText(11.5)).Bold().TextColor(k.textMuted).Padding(0, 4)
+					box := ui.Column(c.Key("box")).FillWidth().Padding(16, 18).Radius(10).Background(k.text.Alpha(0.03)).Border(1, k.panelBorder).Clip()
+					box.Children(func() {
+						for _, ch := range v.status {
+							v.a.tspNode(c, k, v.t, v.p, v.sf, ch)
+						}
+					})
+				})
 			}
 		}
 		if shown == 0 {
@@ -556,15 +584,15 @@ func (v *tspPrefsView) pageHead(c *ui.Context, id string) {
 func (v *tspPrefsView) section(c *ui.Context, sec map[string]any, rows []any) {
 	k := v.k
 	id, _ := sec["id"].(string)
-	col := ui.Column(c).Gap(5).FillWidth()
+	col := ui.Column(c).Gap(8).FillWidth()
 	col.Children(func() {
 		if title, _ := sec["title"].(string); title != "" {
-			ui.Text(c, title).FontSize(v.a.tspText(11.5)).Bold().TextColor(k.textMuted).Padding(0, 2)
+			ui.Text(c, title).FontSize(v.a.tspText(11.5)).Bold().TextColor(k.textMuted).Padding(0, 4)
 		}
 		if len(rows) == 0 {
 			return
 		}
-		card := ui.Column(c.Key("rows")).FillWidth().Radius(8).Background(k.card).Border(1, k.cardBorder)
+		card := ui.Column(c.Key("rows")).FillWidth().Radius(10).Background(k.card).Border(1, k.panelBorder)
 		if id != "" && id == v.focus {
 			card.Border(1, k.busy)
 		}
@@ -599,9 +627,9 @@ func (v *tspPrefsView) row(c *ui.Context, r map[string]any, rule bool) {
 	kind, _ := ctl["k"].(string)
 	stack := kind == "multi"
 	off := why != ""
-	row := ui.Column(c).Gap(6).FillWidth().Padding(8, 10).Unselectable()
+	row := ui.Column(c).Gap(6).FillWidth().Padding(12, 16).Unselectable()
 	if rule {
-		row.BorderWidth(1, 0, 0, 0).BorderColor(k.cardBorder)
+		row.BorderWidth(1, 0, 0, 0).BorderColor(k.panelBorder)
 	}
 	if id == v.focus || v.editing(id) {
 		row.Background(k.hover)
@@ -612,7 +640,7 @@ func (v *tspPrefsView) row(c *ui.Context, r map[string]any, rule bool) {
 	}
 	v.handled = false
 	row.Children(func() {
-		line := ui.Row(c.Key("line")).Gap(8).AlignItems(ui.Center).FillWidth()
+		line := ui.Row(c.Key("line")).Gap(12).AlignItems(ui.Center).FillWidth()
 		line.Children(func() {
 			dot := ui.Box(c.Key("dot")).Size(6, 6).Radius(3).Shrink(0)
 			if changed {
@@ -623,7 +651,7 @@ func (v *tspPrefsView) row(c *ui.Context, r map[string]any, rule bool) {
 				}
 				dot.Tooltip(tip)
 			}
-			text := ui.Column(c.Key("label")).Gap(2).Grow(1).MinWidth(0)
+			text := ui.Column(c.Key("label")).Gap(3).Grow(1).MinWidth(0)
 			text.Children(func() {
 				ui.Row(c).Gap(5).AlignItems(ui.Baseline).Children(func() {
 					if warning != "" {

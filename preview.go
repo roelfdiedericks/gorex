@@ -75,11 +75,13 @@ func viewable(name string) string {
 	return ""
 }
 
-// previewState is an editor pane's preview: its web view and page, made
-// as the pane first enters Preview and kept, hidden while the pane shows
-// the editor and across the Markdown files it shows, until the pane
+// previewState is a file view's preview: its web view and page, made as
+// the view first enters Preview and kept, hidden while the view shows the
+// editor and across the Markdown files its pane shows, until the view
 // closes or moves on to another kind of file; and the render in flight.
 type previewState struct {
+	// owner is the view the page is of: the pane's next one takes it.
+	owner   *fileView
 	web     *mygo.WebView
 	loaded  bool   // the page is loaded
 	version uint64 // the buffer version rendered last
@@ -189,24 +191,23 @@ func hostPathOf(u *url.URL) string {
 	return p
 }
 
-// showPreview switches an editor pane into Preview, or out of it, each
+// showPreview switches a file view into Preview, or out of it, each
 // view taking up where the other was: the page scrolls to the caret's
 // line, unless it is as it was left and the caret has not moved; the
 // editor scrolls to the line at the top of the page.
-func (a *App) showPreview(p *Pane, on bool) {
-	if p == nil || p.Kind != paneEditor || p.edit.buf == nil {
+func (a *App) showPreview(e *fileView, on bool) {
+	if e == nil || e.buf == nil {
 		return
 	}
-	e := p.edit
 	if on == (e.mode == modePreview) {
 		return
 	}
 	if on {
 		e.mode = modePreview
 		kept := e.preview != nil && e.preview.loaded && e.preview.showing == "" && e.preview.path == e.path
-		a.ensurePreview(p)
+		a.ensurePreview(e)
 		if e.state != nil && !(kept && e.state.CursorPos().Line == e.preview.caretLine) {
-			a.previewScrollToLine(p, e.state.CursorPos().Line)
+			a.previewScrollToLine(e, e.state.CursorPos().Line)
 		}
 	} else {
 		e.mode = modeEditor
@@ -215,18 +216,17 @@ func (a *App) showPreview(p *Pane, on bool) {
 			if e.state != nil {
 				pv.caretLine = e.state.CursorPos().Line
 			}
-			a.editorFollowsPreview(p)
+			a.editorFollowsPreview(e)
 		}
 	}
-	a.focusReq = p
+	e.keys = true
 	a.changed()
 }
 
 // editorFollowsPreview scrolls the editor to the line at the top of the
-// page, as the pane leaves Preview, and brings the caret along when it
+// page, as the view leaves Preview, and brings the caret along when it
 // would be far out of view, so that typing goes where the eye is.
-func (a *App) editorFollowsPreview(p *Pane) {
-	e := p.edit
+func (a *App) editorFollowsPreview(e *fileView) {
 	pv := e.preview
 	if pv == nil || pv.web == nil || !pv.loaded || pv.showing != "" || e.state == nil {
 		return
@@ -239,7 +239,7 @@ func (a *App) editorFollowsPreview(p *Pane) {
 			return
 		}
 		a.update(func() {
-			if p.edit != e || e.state == nil || e.buf == nil || e.mode != modeEditor {
+			if e.gone || e.state == nil || e.buf == nil || e.mode != modeEditor {
 				return
 			}
 			n := e.buf.LineCount()
@@ -254,48 +254,46 @@ func (a *App) editorFollowsPreview(p *Pane) {
 	}()
 }
 
-// togglePreview cycles the focused editor pane of a Markdown file through
-// the editor, the web view's preview and MyGo's.
-func (a *App) togglePreview(p *Pane) {
-	if p == nil || p.Kind != paneEditor || !isMarkdown(p.edit.path) {
+// togglePreview cycles a file view of a Markdown file through the
+// editor, the web view's preview and MyGo's.
+func (a *App) togglePreview(e *fileView) {
+	if e == nil || !isMarkdown(e.path) {
 		return
 	}
-	switch p.edit.mode {
+	switch e.mode {
 	case modePreview:
-		a.switchRenderer(p)
+		a.switchRenderer(e)
 	case modeNative:
-		p.edit.mode = modeEditor
-		a.focusReq = p
+		e.mode = modeEditor
+		e.keys = true
 		a.changed()
 	default:
-		a.showPreview(p, true)
+		a.showPreview(e, true)
 	}
 }
 
-// ensurePreview makes the pane's web view and loads the page, once; a
+// ensurePreview makes the view's web view and loads the page, once; a
 // page showing something else loads the document again.
-func (a *App) ensurePreview(p *Pane) {
-	e := p.edit
+func (a *App) ensurePreview(e *fileView) {
 	if pv := e.preview; pv != nil && pv.web != nil && !pv.web.IsDestroyed() {
 		if pv.showing != "" {
 			pv.showing = ""
 			a.loadPreviewPage(pv)
 			return
 		}
-		a.renderPreview(p)
+		a.renderPreview(e)
 		return
 	}
-	pv := a.makeWebView(p)
+	pv := a.makeWebView(e)
 	if pv == nil {
 		return
 	}
 	a.loadPreviewPage(pv)
 }
 
-// makeWebView makes the pane's web view and page, with the pane's
-// handlers; nil when it can't, with the pane back in the editor.
-func (a *App) makeWebView(p *Pane) *previewState {
-	e := p.edit
+// makeWebView makes the view's web view and page, with its handlers; nil
+// when it can't, with the view back in the editor.
+func (a *App) makeWebView(e *fileView) *previewState {
 	if a.win == nil {
 		return nil
 	}
@@ -307,10 +305,10 @@ func (a *App) makeWebView(p *Pane) *previewState {
 		e.mode = modeEditor
 		return nil
 	}
-	pv := &previewState{web: web, caretLine: -1}
+	pv := &previewState{owner: e, web: web, caretLine: -1}
 	e.preview = pv
-	// The pane's current preview: the state moves to the next file's.
-	current := func() bool { return p.edit != nil && p.edit.preview == pv }
+	// The page's view, now: the state moves to the pane's next view.
+	current := func() bool { return pv.owner.preview == pv && !pv.owner.gone }
 	page := web.Page()
 	pv.navOff = page.OnWillNavigate(func(ev *mygo.NavigateEvent) {
 		log.Printf("preview: navigating to %s (user %v)", ev.URL, ev.UserInitiated)
@@ -318,7 +316,7 @@ func (a *App) makeWebView(p *Pane) *previewState {
 			ev.PreventDefault()
 			a.update(func() {
 				if current() {
-					a.previewBack(p)
+					a.previewBack(pv.owner)
 				}
 			})
 			return
@@ -330,7 +328,7 @@ func (a *App) makeWebView(p *Pane) *previewState {
 		target := ev.URL
 		a.update(func() {
 			if current() {
-				a.followLink(p, target)
+				a.followLink(pv.owner, target)
 			}
 		})
 	})
@@ -342,9 +340,9 @@ func (a *App) makeWebView(p *Pane) *previewState {
 			log.Printf("preview: page loaded")
 			pv.loaded = true
 			pv.phase = "rendering…"
-			a.applyPreviewTheme(p)
+			a.applyPreviewTheme(pv.owner)
 			pv.version, pv.path, pv.base = 0, "", ""
-			a.renderPreview(p)
+			a.renderPreview(pv.owner)
 			a.changed()
 		})
 	})
@@ -380,13 +378,12 @@ func (a *App) loadPreviewPage(pv *previewState) {
 	pv.web.Page().LoadHTML(strings.ReplaceAll(string(html), "gorex-asset://localhost", assetOrigin), "gorex-file://localhost/")
 }
 
-// showFile puts a pane in View on a file the engine shows: an image in
+// showFile puts a view in View on a file the engine shows: an image in
 // GoRex's viewer page, a document by the engine itself.
-func (a *App) showFile(p *Pane, path string) {
-	e := p.edit
+func (a *App) showFile(e *fileView, path string) {
 	pv := e.preview
 	if pv == nil || pv.web == nil || pv.web.IsDestroyed() {
-		pv = a.makeWebView(p)
+		pv = a.makeWebView(e)
 		if pv == nil {
 			return
 		}
@@ -415,12 +412,15 @@ func hexOfJSON(c ui.Color) string {
 	return string(js)
 }
 
-// previewBack takes a pane's page from a file a link opened back to its
-// document; a pane in View has nothing to go back to.
-func (a *App) previewBack(p *Pane) {
-	e := p.edit
+// previewBack takes a view's page from a file a link opened back to its
+// document; with nothing to go back to (the document, or a file in
+// View), Escape there is the place's: the popup closes.
+func (a *App) previewBack(e *fileView) {
 	pv := e.preview
 	if pv == nil || pv.showing == "" || e.mode == modeView {
+		if h := e.host; h != nil && h.escape != nil {
+			h.escape()
+		}
 		return
 	}
 	pv.showing = ""
@@ -428,9 +428,8 @@ func (a *App) previewBack(p *Pane) {
 	a.changed()
 }
 
-// dropPreview destroys the pane's web view.
-func (a *App) dropPreview(p *Pane) {
-	e := p.edit
+// dropPreview destroys the view's web view.
+func (a *App) dropPreview(e *fileView) {
 	if e.preview == nil {
 		return
 	}
@@ -446,8 +445,7 @@ func (a *App) dropPreview(p *Pane) {
 
 // renderPreview renders the buffer to the page when it changed, a moment
 // after the last edit, one render at a time.
-func (a *App) renderPreview(p *Pane) {
-	e := p.edit
+func (a *App) renderPreview(e *fileView) {
 	pv := e.preview
 	if pv == nil || !pv.loaded || pv.showing != "" || e.buf == nil {
 		return
@@ -502,7 +500,7 @@ func (a *App) renderPreview(p *Pane) {
 					}
 					if pv.again {
 						pv.again = false
-						a.renderPreview(p)
+						a.renderPreview(e)
 					}
 				})
 			}()
@@ -510,17 +508,16 @@ func (a *App) renderPreview(p *Pane) {
 	})
 }
 
-// previewChanged tells a pane's preview that its buffer changed, which
+// previewChanged tells a view's preview that its buffer changed, which
 // renders again after a moment.
-func (a *App) previewChanged(p *Pane) {
-	if e := p.edit; e != nil && e.mode == modePreview && e.preview != nil {
-		a.renderPreview(p)
+func (a *App) previewChanged(e *fileView) {
+	if e != nil && e.mode == modePreview && e.preview != nil {
+		a.renderPreview(e)
 	}
 }
 
 // applyPreviewTheme gives the page the window's colors and fonts.
-func (a *App) applyPreviewTheme(p *Pane) {
-	e := p.edit
+func (a *App) applyPreviewTheme(e *fileView) {
 	pv := e.preview
 	if pv == nil || !pv.loaded || a.win == nil {
 		return
@@ -556,16 +553,19 @@ func (a *App) previewThemeChanged() {
 	for _, t := range a.tabs {
 		for _, p := range t.panes() {
 			if p.Kind == paneEditor && p.edit.preview != nil {
-				a.applyPreviewTheme(p)
+				a.applyPreviewTheme(p.edit)
 			}
 		}
+	}
+	if pk := a.peek; pk != nil && pk.view.preview != nil {
+		a.applyPreviewTheme(pk.view)
 	}
 }
 
 // followLink takes a link the preview's page navigated to: the web's
-// open with the system, the host's files open in the tab, as the file
-// browser opens them.
-func (a *App) followLink(p *Pane, raw string) {
+// open with the system, the host's files open as the place showing the
+// view opens them.
+func (a *App) followLink(e *fileView, raw string) {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return
@@ -585,15 +585,15 @@ func (a *App) followLink(p *Pane, raw string) {
 	if target == "" {
 		return
 	}
-	a.openHostPath(p, target, u.Fragment)
+	a.openHostPath(e, target, u.Fragment)
 }
 
-// openHostPath opens a path of the host's from a preview: a Markdown or
-// text file in the tab's editor (Markdown in Preview), a directory in
-// the browser, anything else in the page itself when the engine shows
-// it, else with the system is not possible here: a toast says so.
-func (a *App) openHostPath(p *Pane, target, fragment string) {
-	t := p.Tab
+// openHostPath opens a path of the host's from a preview: a folder or a
+// Markdown or text file as the place showing the view does (an editor
+// tab: its browser, its editor, with Markdown in Preview), anything else
+// in the page itself when the engine shows it, else a toast says it
+// can't.
+func (a *App) openHostPath(e *fileView, target, fragment string) {
 	client := a.client
 	if client == nil {
 		return
@@ -601,27 +601,24 @@ func (a *App) openHostPath(p *Pane, target, fragment string) {
 	go func() {
 		fi, err := client.Stat(target)
 		a.update(func() {
+			h := e.host
 			switch {
+			case e.gone || h == nil:
 			case err != nil:
 				a.toast(ui.Toast{Title: "Not found on " + a.hostName(), Description: target, Type: "error"})
 			case fi.Dir:
-				// The tree opens and chooses it.
-				if b := t.Browser; b != nil {
-					b.files.isDir[target] = true
-					b.files.tree.Open.Add(target)
-					b.files.reveal = target
-					a.changed()
+				if h.reveal != nil {
+					h.reveal(target)
 				}
 			case viewable(target) != "":
-				// The engine shows it in the pane; Back or Escape returns.
-				if pv := p.edit.preview; pv != nil && pv.web != nil {
+				// The engine shows it in the page; Back or Escape returns.
+				if pv := e.preview; pv != nil && pv.web != nil {
 					a.showInPage(pv, target)
 					a.changed()
 				}
 			case isMarkdown(target) || textLike(target):
-				a.openFile(t, target, false)
-				if np := t.treeFocus(); np != nil && np.edit.path == target && isMarkdown(target) {
-					a.previewWhenLoaded(np, fragment)
+				if h.open != nil {
+					h.open(target, fragment)
 				}
 			default:
 				a.toast(ui.Toast{Title: "Can't show " + baseName(target), Description: "The preview can't show this kind of file.", Timeout: 4 * time.Second})
@@ -643,14 +640,13 @@ func textLike(name string) bool {
 	return false
 }
 
-// previewWhenLoaded puts a pane into Preview once its file is read, and
+// previewWhenLoaded puts a view into Preview once its file is read, and
 // scrolls to a fragment.
-func (a *App) previewWhenLoaded(p *Pane, fragment string) {
-	e := p.edit
+func (a *App) previewWhenLoaded(e *fileView, fragment string) {
 	if e.buf != nil {
-		a.showPreview(p, true)
+		a.showPreview(e, true)
 		if fragment != "" {
-			a.previewScrollTo(p, fragment)
+			a.previewScrollTo(e, fragment)
 		}
 		return
 	}
@@ -660,17 +656,16 @@ func (a *App) previewWhenLoaded(p *Pane, fragment string) {
 // previewScrollTo scrolls a preview to a heading's id, previewScrollToLine
 // to a source line: at once when the page shows the buffer as it is,
 // else once the render due has run.
-func (a *App) previewScrollTo(p *Pane, id string) {
+func (a *App) previewScrollTo(e *fileView, id string) {
 	js, _ := json.Marshal(id)
-	a.previewEval(p, "return gorexScrollTo("+string(js)+")")
+	a.previewEval(e, "return gorexScrollTo("+string(js)+")")
 }
 
-func (a *App) previewScrollToLine(p *Pane, line int) {
-	a.previewEval(p, fmt.Sprintf("return gorexScrollToLine(%d)", line))
+func (a *App) previewScrollToLine(e *fileView, line int) {
+	a.previewEval(e, fmt.Sprintf("return gorexScrollToLine(%d)", line))
 }
 
-func (a *App) previewEval(p *Pane, code string) {
-	e := p.edit
+func (a *App) previewEval(e *fileView, code string) {
 	pv := e.preview
 	if pv == nil || pv.web == nil {
 		return

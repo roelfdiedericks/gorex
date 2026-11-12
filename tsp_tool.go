@@ -29,22 +29,32 @@ func (a *App) tspTool(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pane
 	}
 	tool.Children(func() {
 		h := ui.Row(c).Gap(8).AlignItems(ui.Center).FillWidth()
+		// The file the card names (its href), its name a link to it.
+		href, _ := n.Props["href"].(string)
+		file := tspFileHref(href)
+		opened := false
 		if collapsible, _ := n.Props["collapsible"].(bool); collapsible {
 			h.Unselectable()
 		}
 		h.Children(func() {
-			if collapsible, _ := n.Props["collapsible"].(bool); collapsible && flat {
-				glyph := "▾"
-				if collapsed {
-					glyph = "▸"
-				}
-				ui.Text(c, glyph).FontSize(a.tspText(12)).TextColor(k.textMuted)
-			}
+			a.tspChevron(c, k, n, collapsed)
 			a.tspIcon(c, k, tspToolIcon(name))
 			a.tspRich(c, k, n.Props["title"], 13, true).Shrink(0)
 			if target := n.Props["target"]; target != nil {
 				kind, _ := n.Props["targetKind"].(string)
-				a.tspToolTarget(c, k, target, kind).Shrink(1).MinWidth(0)
+				if file != "" {
+					// The file's name, a link to it: in the links' color,
+					// underlined while the pointer is on it, as a
+					// message's links are.
+					link := ui.Row(c.Key("target")).Shrink(1).MinWidth(0)
+					hover := link.Hovered()
+					link.Children(func() {
+						a.tspToolTarget(c, k, target, kind, true, hover).Shrink(1).MinWidth(0)
+					})
+					opened = a.fileLink(link, p, file)
+				} else {
+					a.tspToolTarget(c, k, target, kind, false, false).Shrink(1).MinWidth(0)
+				}
 			}
 			if meta, _ := n.Props["meta"].([]any); len(meta) > 0 {
 				for i, m := range meta {
@@ -75,7 +85,10 @@ func (a *App) tspTool(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pane
 			}
 			a.tspActions(c, k, p, sf, n, n.Props["tools"])
 		})
-		a.tspFoldHead(h, p, sf, n, collapsed)
+		if !opened {
+			// A click on the file's name opened it, not the fold.
+			a.tspFoldHead(h, p, sf, n, collapsed)
+		}
 		if intent != "" && status == "running" {
 			ui.Text(c, intent).FontSize(a.tspText(12)).TextColor(k.textMuted).Italic()
 		}
@@ -120,27 +133,49 @@ func (a *App) tspTool(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pane
 
 // tspToolTarget draws a tool's primary argument by its kind: a command in
 // the mono face, a path with its directory dim and its name strong, a
-// pattern or a query quoted in the accent color.
-func (a *App) tspToolTarget(c *ui.Context, k *colors, v any, kind string) ui.Element {
+// pattern or a query quoted in the accent color. A link (the file the
+// card names) is in the links' color, underlined while hovered.
+func (a *App) tspToolTarget(c *ui.Context, k *colors, v any, kind string, link, hover bool) ui.Element {
 	mono := a.tspLook().mono
+	ink := k.text
+	if link {
+		ink = k.busy
+	}
 	s, isString := v.(string)
 	if !isString {
-		return a.tspRich(c, k, v, 12, false).Font(mono).SingleLine()
+		spans, ok := v.([]any)
+		if !ok || !link {
+			return a.tspRich(c, k, v, 12, false).Font(mono).SingleLine()
+		}
+		sp, _ := a.tspSpans(k, spans, 12, false)
+		for i := range sp {
+			sp[i].Font, sp[i].Underline = mono, hover
+			if sp[i].Color == k.text {
+				sp[i].Color = ink
+			}
+		}
+		return ui.RichText(c, sp...).SingleLine()
 	}
+	var t ui.Element
 	switch kind {
 	case "path":
 		dir, file := path.Split(s)
 		return ui.RichText(c,
-			ui.Span{Text: dir, Font: mono, Size: a.tspCode(12), Color: k.textMuted},
-			ui.Span{Text: file, Font: mono, Size: a.tspCode(12), Color: k.text, Weight: 600},
+			ui.Span{Text: dir, Font: mono, Size: a.tspCode(12), Color: k.textMuted, Underline: hover},
+			ui.Span{Text: file, Font: mono, Size: a.tspCode(12), Color: ink, Weight: 600, Underline: hover},
 		).SingleLine()
 	case "pattern", "query":
-		return ui.Text(c, "“"+s+"”").Font(mono).FontSize(a.tspCode(12)).TextColor(k.busy).SingleLine()
+		t = ui.Text(c, "“"+s+"”").Font(mono).FontSize(a.tspCode(12)).TextColor(k.busy).SingleLine()
 	case "text":
-		return ui.Text(c, s).FontSize(a.tspText(12)).TextColor(k.text).SingleLine()
+		t = ui.Text(c, s).FontSize(a.tspText(12)).TextColor(ink).SingleLine()
+	default:
+		first, _, _ := strings.Cut(s, "\n")
+		t = ui.Text(c, first).Font(mono).FontFeatures(a.tspLook().monoFeatures...).FontSize(a.tspCode(12)).TextColor(ink).SingleLine()
 	}
-	first, _, _ := strings.Cut(s, "\n")
-	return ui.Text(c, first).Font(mono).FontFeatures(a.tspLook().monoFeatures...).FontSize(a.tspCode(12)).TextColor(k.text).SingleLine()
+	if hover {
+		t.Underline()
+	}
+	return t
 }
 
 // tspToolIcon is the icon of a tool by its name.
@@ -190,7 +225,10 @@ func (a *App) tspChips(c *ui.Context, k *colors, v any) {
 }
 
 // tspActions draws buttons a program offers (a tool's head tools, a
-// picker's action bar): a click sends the action with the button's id.
+// picker's action bar) as MyGo's buttons, as Tern's: the primary one as
+// the primary button, one that is on as chosen, a danger one's label in
+// the error color, a disabled one with its reason as its tooltip, the
+// keys in the tooltip. A click sends the action with the button's id.
 func (a *App) tspActions(c *ui.Context, k *colors, p *Pane, sf *rex.Surface, n *rex.TSPNode, v any) {
 	actions, _ := v.([]any)
 	for i, ac := range actions {
@@ -201,35 +239,43 @@ func (a *App) tspActions(c *ui.Context, k *colors, p *Pane, sf *rex.Surface, n *
 		danger, _ := ac["danger"].(bool)
 		on, _ := ac["on"].(bool)
 		disabled := ac["disabled"] != nil && ac["disabled"] != false
-		keys, _ := ac["keys"].([]any)
-		btn := ui.Row(c.Key(fmt.Sprintf("act-%d-%s", i, id))).Gap(5).AlignItems(ui.Center).Padding(2, 8).Radius(5).Unselectable().Shrink(0)
-		color := k.text
-		switch {
-		case primary:
-			btn.Background(k.busy.Alpha(0.25))
-		case on:
-			btn.Background(k.hover).Border(1, k.busy)
-		default:
-			btn.Background(k.hover)
+		key := c.Key(fmt.Sprintf("act-%d-%s", i, id))
+		var btn ui.Element
+		if primary {
+			btn = ui.PrimaryButton(key, label)
+		} else {
+			btn = ui.Button(key, label)
+		}
+		btn.Shrink(0)
+		if on {
+			btn.Selected(true)
 		}
 		if danger {
-			color = k.attention
+			btn.TextColor(k.attention)
+		}
+		tip := label
+		if keys, _ := ac["keys"].([]any); len(keys) > 0 {
+			names := make([]string, 0, len(keys))
+			for _, key := range keys {
+				if s, ok := key.(string); ok {
+					names = append(names, s)
+				}
+			}
+			tip += "  " + strings.Join(names, " ")
 		}
 		if disabled {
-			btn.Opacity(0.5)
+			btn.Disabled(true)
 			if why, ok := ac["disabled"].(string); ok {
-				btn.Tooltip(why)
+				tip = why
 			}
 		}
-		btn.Children(func() {
-			if label != "" {
-				ui.Text(c, label).FontSize(a.tspText(12)).TextColor(color)
-			}
-			if len(keys) > 0 {
-				a.tspKeys(c, k, keys)
-			}
-		})
+		if tip != "" {
+			btn.Tooltip(tip)
+		}
 		if btn.Clicked() && !disabled && !sf.Closed {
+			// The keys stay the program's, not the button's.
+			a.focusReq = p
+			a.changed()
 			a.tspSend(p, map[string]any{"ev": "action", "sf": sf.ID, "id": n.ID, "act": id})
 		}
 	}

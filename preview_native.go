@@ -32,25 +32,24 @@ type nativePreview struct {
 	opts    *markdown.Options
 }
 
-// switchRenderer moves a pane in preview between the web view's preview
+// switchRenderer moves a view in preview between the web view's preview
 // and MyGo's.
-func (a *App) switchRenderer(p *Pane) {
-	switch p.edit.mode {
+func (a *App) switchRenderer(e *fileView) {
+	switch e.mode {
 	case modePreview:
-		p.edit.mode = modeNative
+		e.mode = modeNative
 	case modeNative:
-		a.showPreview(p, true)
+		a.showPreview(e, true)
 	default:
 		return
 	}
-	a.focusReq = p
+	e.keys = true
 	a.changed()
 }
 
-// nativeBody draws the MyGo preview of a pane's buffer, which follows
+// nativeBody draws the MyGo preview of a view's buffer, which follows
 // edits a moment after them, as the web view's does.
-func (a *App) nativeBody(c *ui.Context, k *colors, t *Tab, p *Pane) {
-	e := p.edit
+func (a *App) nativeBody(c *ui.Context, k *colors, e *fileView, h *fileHost) {
 	np := e.native
 	if np == nil || np.path != e.path {
 		np = &nativePreview{path: e.path, text: e.buf.String(), version: e.buf.Version()}
@@ -75,11 +74,7 @@ func (a *App) nativeBody(c *ui.Context, k *colors, t *Tab, p *Pane) {
 	s.Children(func() {
 		markdown.View(c, np.text, np.opts)
 	})
-	a.editorFocus(s, t, p)
-	if s.Pressed() && t.Focus != p {
-		t.setFocus(p)
-		a.changed()
-	}
+	a.fileFocus(s, e, h)
 }
 
 // hostImages loads the images of a Markdown file of the host's, as the

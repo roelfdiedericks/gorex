@@ -5,7 +5,6 @@ import (
 	"math"
 	"net/url"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +30,8 @@ import (
 // surfaces draws the pane's surfaces over its terminal, in the box the
 // terminal's view fills.
 func (a *App) surfaces(c *ui.Context, k *colors, t *Tab, p *Pane) {
+	a.tspPane, a.tspLinkClicked = p, false
+	defer func() { a.tspPane = nil }()
 	a.takeHints(c, p)
 	// The nodes the overlays were anchored at in the last frame record
 	// where they draw in this one (overlayAnchor).
@@ -75,7 +76,69 @@ func (a *App) surfaces(c *ui.Context, k *colors, t *Tab, p *Pane) {
 		}
 	}
 	a.tspPal = nil
+	a.tspJump(c, k, p)
 	a.surfaceZoom(c, k, t, p)
+}
+
+// tspJump draws, while a live omp transcript is scrolled back, a round ↓
+// button at the pane's right edge above the composer, as Tern does: it
+// widens to tell how many lines are below as the pointer comes over it,
+// and a click brings the view to the end. It takes no focus, so the keys
+// stay with the composer, and hands the wheel to the terminal. Its width
+// is animated here, its right edge where it is: a transition of its size
+// put it at its new left edge at once, away from the pointer, which then
+// left it, and it went back and forth.
+func (a *App) tspJump(c *ui.Context, k *colors, p *Pane) {
+	dock := p.dockOver()
+	below := p.term.LinesBelow()
+	if dock <= 0 || below <= 0 {
+		return
+	}
+	const round = 28
+	pill := ui.Row(c.Key("tsp-jump")).Absolute().Right(p.term.ScrollbarStrip()+6).Bottom(dock+tspDockPadBottom+8).
+		Height(round).AlignItems(ui.Center).ClipX().
+		Radius(round/2).Background(k.panel).Border(1, k.panelBorder).Cursor(ui.CursorPointer).
+		Font(a.tspLook().font).
+		Transition(ui.ElementTransition{Duration: 150 * time.Millisecond, Colors: true, Enter: &ui.Motion{}, Exit: &ui.Motion{}})
+	hovered := pill.Hovered()
+	shown := float32(0)
+	if hovered {
+		shown = 1
+	}
+	text := fmt.Sprintf("%d lines below", below)
+	if below == 1 {
+		text = "1 line below"
+	}
+	// The arrow and the count, at their own width: the pill as wide as
+	// the arrow shows the arrow alone, and widening shows the count.
+	full := float32(round)
+	pill.Children(func() {
+		inner := ui.Row(c.Key("inner")).Shrink(0).Padding(0, 10).Gap(6).AlignItems(ui.Center)
+		full = max(inner.Bounds().W, round)
+		inner.Children(func() {
+			ui.Text(c, "↓").FontSize(a.tspText(13)).TextColor(k.textMuted)
+			ui.Text(c.Key("label"), text).FontSize(a.tspText(12)).TextColor(k.textMuted).SingleLine().
+				Opacity(pill.Animate("label", shown, 150*time.Millisecond))
+		})
+	})
+	target := float32(round)
+	if hovered {
+		target = full
+	}
+	pill.Width(pill.Animate("width", target, 150*time.Millisecond))
+	term, view := p.term, p.hostBounds
+	pill.HandleInput(func(ev ui.InputEvent) bool {
+		if ev.Kind != ui.InputScroll {
+			return false
+		}
+		b := pill.Bounds()
+		ev.X, ev.Y = ev.X+b.X-view.X, ev.Y+b.Y-view.Y
+		return term.Scroll(ev)
+	})
+	if pill.Clicked() {
+		term.ScrollToBottom()
+		a.services.Invalidate()
+	}
 }
 
 // screenSurface draws a screen surface over a pane's terminal, filling
@@ -868,14 +931,26 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		sheet := a.tspSheet
 		if sheet != nil && sheet.panes[n.ID] {
 			// A pane of an overlay's sheet: it scrolls on its own, as
-			// tall as the row of panes (tspPaneSheet).
+			// tall as the row of panes (tspPaneSheet). The jobs sheet's
+			// list is a third of it, apart from the detail by a line, as
+			// Tern draws it.
 			pane := ui.Scroll(key).TrackScroll(p.overlayScroll(n.ID))
 			a.scrolled(p, n.ID, pane)
-			if !tspFlexed(n) {
+			// Clear of its scroll bar, which draws over its right edge.
+			pt, pr, pb, pl := float32(0), float32(12), float32(0), float32(0)
+			switch {
+			case role == "omp.jobs.master":
+				pane.WidthPercent(30).MinWidth(200).MaxWidth(300).Shrink(0).BorderWidth(0, 1, 0, 0).BorderColor(k.panelBorder)
+				pt, pr, pb, pl = 10, 10, 10, 8
+			case role == "omp.jobs.detail":
+				pane.Grow(1).MinWidth(0)
+				pt, pr, pb, pl = 18, 24, 18, 24
+			case !tspFlexed(n):
 				pane.Grow(1)
 			}
-			// Clear of its scroll bar, which draws over its right edge.
-			el = pane.Children(func() { ui.Column(c).Gap(a.tspGap(8)).FillWidth().Padding(0, 12, 0, 0).Children(children) })
+			el = pane.Children(func() {
+				ui.Column(c).Gap(a.tspGap(8)).FillWidth().Padding(pt, pr, pb, pl).Children(children)
+			})
 			break
 		}
 		col := ui.Column(key).Gap(a.tspGap(8))
@@ -883,6 +958,21 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		case a.tspPinned && role == "omp.hud.status":
 			// The working rows, beside the todo HUD on their line.
 			col.Grow(1).MinWidth(0)
+		case role == "omp.jobs.master":
+			// The jobs sheet's list, beside the selected job's detail:
+			// about a third of the sheet.
+			col.WidthPercent(30).MinWidth(200).MaxWidth(300).Shrink(0)
+		case role == "omp.jobs.detail":
+			// The rest, its long lines wrapped or scrolled in it; under
+			// the list where there is no room beside it.
+			col.Grow(1).MinWidth(360)
+		case role == "omp.job.widget.side":
+			// A job widget's figure beside its chart, which takes the
+			// rest of the row.
+			col.Shrink(0)
+		case role == "omp.jobs.widget":
+			// A job's widget in the jobs sheet: a card of its own.
+			col.FillWidth().Padding(10, 14).Radius(8).Border(1, k.panelBorder).Background(k.text.Alpha(0.03))
 		case tspFlexed(n):
 			// Sized by its row (tspFlex), as a pane beside another.
 		default:
@@ -895,6 +985,12 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		}
 		el = col.Children(children)
 	case "row":
+		if role == "omp.btn" {
+			// omp's button, drawn as a row of its label and key: MyGo's
+			// button, the key in its tooltip, as Tern's.
+			el = a.tspButton(key, k, n)
+			break
+		}
 		if role == "omp.recap" {
 			var ok bool
 			if el, ok = a.tspRecap(c, key, k, n); ok {
@@ -918,6 +1014,30 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		case role == "omp.composer.mode":
 			// The shell-mode chip before the input.
 			row.Gap(4).Padding(1, 8).Radius(10).Background(k.hover).Shrink(0)
+		case role == "omp.hud.pill":
+			// omp's running-work counter, as Tern's: an outlined pill
+			// at the right end, as wide as its segments.
+			row.Gap(2).Padding(2).Radius(16).Border(1, k.bgBottom.Mix(k.text, 0.22)).Shrink(0)
+		case role == "omp.hud.seg":
+			// A segment of it: a button of an icon, a count, and a
+			// job's glance and spark.
+			row.Gap(5).Padding(4, 8).Radius(14).Shrink(0).Cursor(ui.CursorPointer)
+			if row.Hovered() {
+				row.Background(k.hover)
+			}
+		case role == "omp.actions" && a.tspSheet != nil:
+			// A sheet's actions, under a line across it.
+			row.FillWidth().Padding(10, 18).BorderWidth(1, 0, 0, 0).BorderColor(k.panelBorder)
+		case role == "omp.jobs.split":
+			// The jobs sheet: its list and the selected job side by
+			// side; outside a sheet of panes, from the top, or stacked
+			// in a narrow pane.
+			row.FillWidth()
+			if s := a.tspSheet; s != nil && s.row == n.ID {
+				row.Gap(0)
+			} else {
+				row.AlignItems(ui.Start).Gap(14).Wrap()
+			}
 		case strings.HasPrefix(role, "omp.composer.") && role != "omp.composer.bar" && role != "omp.composer.line":
 			// The composer's other controls take their content's width.
 			row.Shrink(0)
@@ -967,6 +1087,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 				h.Unselectable()
 			}
 			h.Children(func() {
+				a.tspChevron(c, k, n, collapsed)
 				if head != nil {
 					a.tspHead = true
 					ui.Box(c).Grow(1).Children(func() { a.tspNode(c, k, t, p, sf, head) })
@@ -995,13 +1116,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 				h.Unselectable()
 			}
 			h.Children(func() {
-				if collapsible, _ := n.Props["collapsible"].(bool); collapsible {
-					glyph := "▾"
-					if collapsed {
-						glyph = "▸"
-					}
-					ui.Text(c, glyph).FontSize(a.tspText(12)).TextColor(k.textMuted)
-				}
+				a.tspChevron(c, k, n, collapsed)
 				if head != nil {
 					a.tspHead = true
 					a.tspNode(c, k, t, p, sf, head)
@@ -1039,9 +1154,31 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 			el = a.tspCutText(c, sp, hrefs, truncate)
 			break
 		}
-		if isSpans {
+		// A tone colors the text, as Tern's data-tone: the spans of no
+		// color of their own too.
+		tone, _ := n.Props["tone"].(string)
+		toneCol, toned := a.spanColor(k, tone)
+		if !toned && tone == "pending" {
+			// Work under way, in amber, as Tern's.
+			toneCol, toned = k.attention, true
+		}
+		switch {
+		case role == "omp.jobs.state" && toned:
+			// The selected job's status: MyGo's badge in its tone.
+			el = ui.Badge(c, tspPlain(n.Props["spans"], text)).Background(toneCol.Alpha(0.15)).TextColor(toneCol)
+		case isSpans && toned:
+			sp, _ := a.tspSpans(k, spans, 13, false)
+			for i := range sp {
+				if sp[i].Color == k.text {
+					sp[i].Color = toneCol
+				}
+			}
+			el = ui.RichText(c, sp...).TextColor(toneCol)
+		case isSpans:
 			el = a.tspRich(c, k, spans, 13, false)
-		} else {
+		case toned:
+			el = ui.Text(c, text).FontSize(a.tspText(13)).TextColor(toneCol)
+		default:
 			el = ui.Text(c, text).FontSize(a.tspText(13)).TextColor(k.text)
 		}
 		if a.tspPinned && role == "omp.composer.usage" {
@@ -1070,7 +1207,8 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 					CodeFont: look.mono, CodeSize: a.tspCode(12) / a.tspMsg(14), BlockSpacing: 0.75 * look.gap,
 				},
 				// Charts come as SVG: drawn in the theme's colors with
-				// their labels, once the block is whole.
+				// their labels, once the block is whole. Mermaid diagrams
+				// are drawn as pictures (tsp_mermaid.go).
 				Code: map[string]func(*ui.Context, *markdown.CodeBlockView){"svg": func(c *ui.Context, b *markdown.CodeBlockView) {
 					if !b.Open {
 						if s := a.tspSVGFor(k, b.Code()); s != nil {
@@ -1079,10 +1217,18 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 						}
 					}
 					markdown.DefaultCodeBlock(c, b)
+				}, "mermaid": func(c *ui.Context, b *markdown.CodeBlockView) {
+					a.tspMermaidBlock(c, k, p, b)
 				}},
 				Extensions: tspMDExtensions,
 				Math:       a.tspMDMath(k),
 				InlineMath: tspInlineMath(k),
+				// Files the message names, as `FOO.md`, link to them,
+				// when they are (tsp_files.go); a click on one opens it
+				// as the settings say, on a web address in the browser.
+				CodeLink: a.tspCodeLinker(p),
+				OnLink:   func(dest string) { a.tspOpenLink(c, p, dest) },
+				LinkMenu: func(m *ui.Menu, dest string) { a.tspLinkItems(m, p, dest) },
 			})
 		})
 		el = box
@@ -1123,24 +1269,32 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		}
 		selected := a.tspSelected != "" && a.tspSelected == n.ID
 		if selected {
-			item.Background(k.hover)
+			// Tinted, with a bar of the accent at its left, as Tern's.
+			item.Background(k.hover).BorderWidth(0, 0, 0, 2).BorderColor(k.busy)
 		}
 		// Into view as it is selected, not every frame after, which would
 		// pin the scroll on it.
 		tspReveal(item, selected)
 		item.Children(func() {
 			if icon, _ := n.Props["icon"].(string); icon != "" {
-				a.tspIcon(c, k, icon)
+				ic := a.tspIcon(c, k, icon)
+				if tone, _ := n.Props["tone"].(string); tone != "" {
+					if col, ok := a.spanColor(k, tone); ok {
+						ic.TextColor(col)
+					}
+				}
 			}
-			col := ui.Column(c).Gap(1).Grow(1)
+			// The label and its detail each on one line, cut to the
+			// room; the value whole.
+			col := ui.Column(c).Gap(1).Grow(1).MinWidth(0)
 			col.Children(func() {
-				a.tspRich(c, k, n.Props["label"], 13, false)
+				a.tspRich(c, k, n.Props["label"], 13, false).SingleLine().MinWidth(0)
 				if d := n.Props["detail"]; d != nil {
-					a.tspRich(c, k, d, 12, false).TextColor(k.textMuted)
+					a.tspRich(c, k, d, 12, false).TextColor(k.textMuted).SingleLine().MinWidth(0)
 				}
 			})
 			if v := n.Props["value"]; v != nil {
-				a.tspRich(c, k, v, 12, false).TextColor(k.textMuted)
+				a.tspRich(c, k, v, 12, false).TextColor(k.textMuted).SingleLine().Shrink(0)
 			}
 			if hint, _ := n.Props["hint"].([]any); len(hint) > 0 {
 				a.tspKeys(c, k, hint)
@@ -1169,26 +1323,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		}
 		return
 	case "code":
-		lang, _ := n.Props["lang"].(string)
-		path, _ := n.Props["path"].(string)
-		block := ui.Column(key).Radius(6).Background(k.bgLow).Border(1, k.cardBorder).FillWidth().Clip()
-		block.Children(func() {
-			if lang != "" || path != "" {
-				label := path
-				if label == "" {
-					label = lang
-				}
-				ui.Text(c, label).FontSize(a.tspText(11)).TextColor(k.textMuted).Padding(4, 10, 0, 10)
-			}
-			body := ui.ScrollHorizontal(c).FillWidth().Padding(8, 10)
-			if wrap, _ := n.Props["wrap"].(bool); wrap {
-				body = ui.Box(c).FillWidth().Padding(8, 10)
-			}
-			body.Children(func() {
-				ui.Text(c, text).Font(a.tspLook().mono).FontFeatures(a.tspLook().monoFeatures...).FontSize(a.tspCode(12)).TextColor(k.text).NoWrap().Selectable()
-			})
-		})
-		el = block
+		el = a.tspCodeBlock(c, key, k, p, sf, n, text)
 	case "diff":
 		// A unified diff, as text or hunks: added lines green, removed
 		// red, hunk heads muted.
@@ -1251,6 +1386,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		ag.Children(func() {
 			h := ui.Row(c).Gap(8).AlignItems(ui.Center).FillWidth().Unselectable()
 			h.Children(func() {
+				a.tspChevron(c, k, n, collapsed)
 				ui.Text(c, name).FontSize(a.tspText(13)).Bold().TextColor(k.text)
 				if kind != "" {
 					ui.Text(c, kind).FontSize(a.tspText(12)).TextColor(k.textMuted)
@@ -1377,6 +1513,11 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 	case "icon":
 		name, _ := n.Props["name"].(string)
 		el = a.tspIcon(c.Key(n.ID), k, name)
+		if tone, _ := n.Props["tone"].(string); tone != "" {
+			if col, ok := a.spanColor(k, tone); ok {
+				el.TextColor(col)
+			}
+		}
 	case "editor":
 		el = a.tspField(c, key, k, t, p, sf, n, true)
 	case "meter":
@@ -1434,14 +1575,14 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 			}
 			img := ui.Image(key, bm).Size(float32(w), float32(h)).Radius(4).Tooltip(alt)
 			if img.Clicked() {
-				a.tspZoom, a.tspZoomAlt, a.tspZoomPane = bm, alt, p
 				// The file it came from, which the viewer opens.
-				a.tspZoomPath = ""
+				path := ""
 				if href, _ := n.Props["href"].(string); href != "" {
 					if u, err := url.Parse(href); err == nil && u.Scheme == "file" {
-						a.tspZoomPath = hostPathOf(u)
+						path = hostPathOf(u)
 					}
 				}
+				a.zoomPicture(p, bm, 1, alt, path, nil)
 			}
 			el = img
 			break
@@ -1459,7 +1600,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		if s, ok := n.Props["stopped"].(float64); ok {
 			stopped = &s
 		}
-		el = ui.Text(c, elapsedText(a.liveMS(c, p, sf, n.ID, age, stopped)/1000)).FontSize(a.tspText(12)).TextColor(k.textMuted)
+		el = ui.Text(c, elapsedText(a.liveMS(c, p, sf, n.ID, age, stopped)/1000)).FontSize(a.tspText(12)).TextColor(k.textMuted).SingleLine().Shrink(0)
 	case "media":
 		el = a.tspMedia(c, key, k, p, n)
 	case "tabs":
@@ -1500,7 +1641,9 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		el = ui.Text(c, fmt.Sprintf("%.1f %s", value, unit)).FontSize(a.tspText(12)).TextColor(k.textMuted).SingleLine().Shrink(0)
 	case "ansi":
 		// A program's terminal output in its colors (the terminal's
-		// palette), cut to the preview it asks for.
+		// palette), cut to the preview it asks for; with a height bound
+		// (max h, tspFlex), scrolling in it, kept at its end with follow
+		// while the user leaves it there, as Tern does.
 		th := a.ansiPalette()
 		font := a.tspLook().mono
 		lines := ansiLines(ansiSpans(text, ui.Span{Font: font, Size: a.tspCode(12), Color: k.text}, &th.Palette, k.bgLow))
@@ -1508,7 +1651,8 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 			lines = lines[:len(lines)-1]
 		}
 		more := 0
-		if pv, ok := n.Props["preview"].(map[string]any); ok {
+		pv, previewed := n.Props["preview"].(map[string]any)
+		if previewed {
 			if l, ok := pv["lines"].(float64); ok && int(l) < len(lines) {
 				more, lines = len(lines)-int(l), lines[:int(l)]
 			} else if t, ok := pv["tail"].(float64); ok && int(t) < len(lines) {
@@ -1522,16 +1666,42 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 			}
 			spans = append(spans, line...)
 		}
-		block := ui.Column(key).Radius(6).Background(k.bgLow).FillWidth().Padding(6, 10).Clip()
-		block.Children(func() {
+		body := func() {
 			if len(spans) > 0 {
 				ui.RichText(c, spans...).FontFeatures(a.tspLook().monoFeatures...).NoWrap().Selectable()
 			}
 			if more > 0 {
 				ui.Text(c, fmt.Sprintf("… %d more lines", more)).FontSize(a.tspText(11)).TextColor(k.textMuted)
 			}
-		})
-		el = block
+		}
+		// In a sheet, as Tern's: a faint fill under a hairline.
+		fill, edge := k.bgLow, k.bgLow
+		if a.tspInOverlay {
+			fill, edge = k.text.Alpha(0.04), k.panelBorder
+		}
+		bound, _ := n.Props["max"].(map[string]any)
+		if _, ok := bound["h"]; ok && !previewed {
+			f := p.tspFollowOf(fmt.Sprintf("%d/%s", sf.Image, n.ID))
+			if follow, _ := n.Props["follow"].(bool); follow && len(lines) != f.lines {
+				// New output, or the first: to the end, unless the user
+				// scrolled away from it.
+				if f.lines == 0 || f.scroll.Y >= f.scroll.MaxY-1 {
+					f.scroll.Y = math.MaxFloat32
+				}
+			}
+			f.lines = len(lines)
+			// The scroll inset in its box, so that the text keeps clear
+			// of the edges and the scroll bar as it scrolls.
+			block := ui.Column(key).Radius(6).Background(fill).Border(1, edge).FillWidth().Padding(10, 6, 10, 14).Clip()
+			block.Children(func() {
+				ui.Scroll(c).TrackScroll(&f.scroll).FillWidth().MinHeight(0).Shrink(1).Children(func() {
+					ui.Column(c).Padding(0, 14, 0, 0).Children(body)
+				})
+			})
+			el = block
+			break
+		}
+		el = ui.Column(key).Radius(6).Background(fill).Border(1, edge).FillWidth().Padding(10, 14).Clip().Children(body)
 	case "checklist":
 		phases, _ := n.Props["phases"].([]any)
 		if mode, _ := n.Props["mode"].(string); mode == "hud" {
@@ -1557,8 +1727,9 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 	}
 	tspFlex(p, n, el)
 	// A tool's title is its verb, printed in its head (TspToolProps), not
-	// a tooltip.
-	if title, _ := n.Props["title"].(string); title != "" && n.Kind != "tool" {
+	// a tooltip. A hover card, while it shows, takes the tooltip's place.
+	carded := a.tspHoverCardFor(c, k, t, p, sf, n, el)
+	if title, _ := n.Props["title"].(string); title != "" && n.Kind != "tool" && !carded {
 		el.Tooltip(title)
 	}
 	a.tspClick(t, p, sf, n, el)
@@ -1724,7 +1895,8 @@ func (a *App) tspChildren(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Sur
 // text with style tokens (muted, strong, em, code, accent, success,
 // warning, error, link, …). A span with a web address (href) is a link:
 // a click opens it in the browser, and its context menu opens or copies
-// it.
+// it. A span with a file's link (file://) opens the file as a click on a
+// file does, underlined while hovered.
 func (a *App) tspRich(c *ui.Context, k *colors, v any, size float32, bold bool) ui.Element {
 	switch v := v.(type) {
 	case string:
@@ -1735,21 +1907,96 @@ func (a *App) tspRich(c *ui.Context, k *colors, v any, size float32, bold bool) 
 		return t
 	case []any:
 		spans, hrefs := a.tspSpans(k, v, size, bold)
-		if !slices.ContainsFunc(hrefs, webURL) {
+		if !slices.ContainsFunc(hrefs, a.tspOpenable) {
 			return ui.RichText(c, spans...)
 		}
 		return ui.RichText(c).Children(func() {
 			for i, sp := range spans {
-				if !webURL(hrefs[i]) {
+				switch href := hrefs[i]; {
+				case webURL(href):
+					l := ui.Link(c.Key(i), "", href).Children(func() { ui.RichText(c, sp) })
+					a.tspLinkMenu(l, href)
+				case a.tspFileLink(href) != "":
+					a.tspFileSpan(c.Key(i), sp, a.tspFileLink(href))
+				default:
 					ui.RichText(c.Key(i), sp)
-					continue
 				}
-				l := ui.Link(c.Key(i), "", hrefs[i]).Children(func() { ui.RichText(c, sp) })
-				a.tspLinkMenu(l, hrefs[i])
 			}
 		})
 	}
 	return ui.Text(c, "").FontSize(a.tspText(size))
+}
+
+// tspFileLink is the file a span's href links to when a click can open
+// it: a file:// link in a pane's surface; "" for none.
+func (a *App) tspFileLink(href string) string {
+	if a.tspPane == nil {
+		return ""
+	}
+	return tspFileHref(href)
+}
+
+// tspOpenable tells an href a click opens: a web address or a file.
+func (a *App) tspOpenable(href string) bool { return webURL(href) || a.tspFileLink(href) != "" }
+
+// tspFileSpan draws a span that links to a file as a tool card's file
+// name is drawn: underlined while hovered, opening the file on a click as
+// the settings say, with the file's menu.
+func (a *App) tspFileSpan(c *ui.Context, sp ui.Span, file string) {
+	w := ui.RichText(c)
+	sp.Underline = w.Hovered()
+	w.Children(func() { ui.RichText(c, sp) })
+	if a.fileLink(w, a.tspPane, file) {
+		a.tspLinkClicked = true
+	}
+}
+
+// tspButton draws omp's button (an omp.btn row of its label and key) as
+// MyGo's button, the key in its tooltip as Tern has it: the accent tone's
+// as the primary button, the error tone's label in the error color, one
+// without a click action disabled.
+func (a *App) tspButton(key *ui.Context, k *colors, n *rex.TSPNode) ui.Element {
+	var label strings.Builder
+	for _, ch := range n.Children {
+		if ch.Kind == "text" {
+			text, _ := ch.Props["text"].(string)
+			label.WriteString(tspPlain(ch.Props["spans"], text))
+		}
+	}
+	tone, _ := n.Props["tone"].(string)
+	var b ui.Element
+	if tone == "accent" {
+		b = ui.PrimaryButton(key, label.String())
+	} else {
+		b = ui.Button(key, label.String())
+	}
+	if tone == "error" {
+		b.TextColor(k.attention)
+	}
+	if _, ok := n.Props["actions"]; !ok {
+		b.Disabled(true)
+	}
+	return b.Shrink(0)
+}
+
+// tspPlain is the plain text of the protocol's rich text v (spans), else
+// text.
+func tspPlain(v any, text string) string {
+	spans, ok := v.([]any)
+	if !ok {
+		return text
+	}
+	var s strings.Builder
+	for _, sp := range spans {
+		switch sp := sp.(type) {
+		case string:
+			s.WriteString(sp)
+		case map[string]any:
+			t, _ := sp["t"].(string)
+			s.WriteString(t)
+		}
+	}
+	return s.String()
 }
 
 // tspSpans makes the spans of the protocol's rich text, with each one's
@@ -1794,7 +2041,8 @@ func (a *App) tspSpans(k *colors, v []any, size float32, bold bool) ([]ui.Span, 
 		}
 		href, _ := m["href"].(string)
 		if href != "" {
-			sp.Underline, sp.Color = true, k.busy
+			// A file's link underlines only while hovered (tspFileSpan).
+			sp.Underline, sp.Color = tspFileHref(href) == "", k.busy
 		}
 		spans = append(spans, sp)
 		hrefs = append(hrefs, href)
@@ -1817,30 +2065,68 @@ func (a *App) tspKeys(c *ui.Context, k *colors, keys []any) ui.Element {
 	return row
 }
 
-// tspIcon draws an icon of the protocol's by name, those GoRex has.
+// tspIcons are GoRex's icons by the protocol's names.
+var tspIcons = map[string]string{
+	"check": "check", "x": "x", "copy": "copy", "folder": "folder", "folder-open": "folder-open",
+	"file": "file", "file-code": "file-code", "branch": "git-branch", "diff": "diff", "trash": "trash-2",
+	"search": "search", "terminal": "terminal", "model": "sparkles", "bot": "bot", "settings": "settings-2",
+	"users": "users", "user": "users", "job": "play", "run": "play", "play": "play",
+	"rewind": "rotate-ccw", "undo": "rotate-ccw", "refresh": "refresh-cw", "more": "ellipsis", "plus": "plus",
+	"minus": "minus", "arrow-left": "arrow-left", "chev": "chevron-down", "chev-down": "chevron-down",
+	"circle": "circle-dot", "eye": "eye", "pencil": "pencil", "pen": "pencil", "globe": "globe", "database": "database",
+	"cpu": "cpu", "server": "server", "keyboard": "keyboard", "command": "command", "activity": "activity",
+	"open": "external-link", "link": "link", "history": "history", "doc": "file", "sliders": "settings-2",
+	"layers": "layers", "brain": "brain", "laptop": "laptop", "monitor": "monitor", "tree": "folder-tree",
+	"list": "list-checks", "list-checks": "list-checks", "box": "puzzle", "puzzle": "puzzle", "plug": "plug",
+	"sparkle": "sparkles", "wrench": "wrench", "palette": "palette", "grid": "layout-grid", "columns": "columns-2",
+	// omp's settings pages.
+	"appearance": "palette", "interaction": "mouse-pointer-click", "context": "layers", "memory": "brain",
+	"files": "file", "shell": "terminal", "tools": "wrench", "tasks": "list-checks", "providers": "plug",
+	"plugins": "puzzle",
+}
+
+// tspIconAliases are the names Tern takes for its icons, when no icon has
+// the name (omp's symbol names and common words), as its book lists them.
+var tspIconAliases = map[string]string{
+	"success": "check", "done": "check", "error": "x", "failed": "x", "warning": "warn", "pending": "clock",
+	"running": "activity", "aborted": "stop", "cancelled": "stop", "disabled": "minus", "model": "sparkle",
+	"plan": "list", "goal": "pin", "loop": "redo", "git": "branch", "pr": "merge", "tokens": "hash",
+	"speculation": "selection", "compaction": "wand", "context": "layers", "cost": "hash", "time": "clock",
+	"agents": "user", "agent": "user", "job": "run", "cache": "database", "input": "download", "output": "send",
+	"host": "laptop", "session": "history", "worktree": "tree", "bash": "terminal", "shell": "terminal",
+	"edit": "pen", "write": "pen", "read": "doc", "web": "globe", "url": "link", "todo": "list", "task": "layers",
+	"thinking": "sparkle", "settings": "sliders", "appearance": "ink", "interaction": "keyboard", "memory": "brain",
+	"tools": "wand", "tasks": "list", "providers": "server", "plugins": "box", "advisor": "sparkle",
+	"git-branch": "branch",
+}
+
+// tspIconSVG is GoRex's icon of the protocol's name: by its name, else by
+// the icon Tern takes the name for; nil when GoRex has none.
+func tspIconSVG(name string) *ui.SVG {
+	svg, ok := tspIcons[name]
+	if !ok {
+		svg, ok = tspIcons[tspIconAliases[name]]
+	}
+	if !ok {
+		return nil
+	}
+	return icon(svg)
+}
+
+// tspIcon draws an icon of the protocol's by name, those GoRex has: by
+// its name, else by the icon Tern takes the name for, else a glyph.
 func (a *App) tspIcon(c *ui.Context, k *colors, name string) ui.Element {
-	// GoRex's icons, by the protocol's names.
-	if svg, ok := map[string]string{
-		"check": "check", "x": "x", "copy": "copy", "folder": "folder", "folder-open": "folder-open",
-		"file": "file", "file-code": "file-code", "branch": "git-branch", "diff": "diff", "trash": "trash-2",
-		"search": "search", "terminal": "terminal", "model": "sparkles", "bot": "bot", "settings": "settings-2",
-		"rewind": "rotate-ccw", "undo": "rotate-ccw", "refresh": "refresh-cw", "more": "ellipsis", "plus": "plus",
-		"minus": "minus", "arrow-left": "arrow-left", "chev": "chevron-down", "chev-down": "chevron-down",
-		"circle": "circle-dot", "eye": "eye", "pencil": "pencil", "globe": "globe", "database": "database",
-		"cpu": "cpu", "server": "server", "keyboard": "keyboard", "command": "command", "activity": "activity",
-		"open": "external-link", "link": "link", "history": "history",
-		// omp's settings pages.
-		"appearance": "palette", "interaction": "mouse-pointer-click", "context": "layers", "memory": "brain",
-		"files": "file", "shell": "terminal", "tools": "wrench", "tasks": "list-checks", "providers": "plug",
-		"plugins": "puzzle",
-	}[name]; ok {
-		return ui.Icon(c, icon(svg)).Size(13, 13).TextColor(k.textMuted).Shrink(0)
+	if svg := tspIconSVG(name); svg != nil {
+		return ui.Icon(c, svg).Size(13, 13).TextColor(k.textMuted).Shrink(0)
+	}
+	if alias, ok := tspIconAliases[name]; ok {
+		name = alias
 	}
 	glyph := map[string]string{
 		"close": "✕", "x-circle": "⊗", "warn": "⚠", "warning": "⚠", "error": "⊗", "info": "ⓘ", "help": "?",
 		"arrow-up": "↑", "arrow-down": "↓", "arrow-right": "→", "back": "←", "forward": "→",
 		"chev-r": "›", "chev-up": "︿", "dot": "•", "star": "★", "clock": "◷", "timer": "⏱", "lightbulb": "💡",
-		"play": "▶", "pause": "⏸", "stop": "■", "send": "➤", "lock": "🔒", "key": "⚿", "bell": "🔔",
+		"pause": "⏸", "stop": "■", "send": "➤", "lock": "🔒", "key": "⚿", "bell": "🔔",
 		"context.speculation": "◔", "context.compaction": "◑", "commit": "●", "merge": "⑂",
 	}[name]
 	if glyph == "" {
@@ -1989,12 +2275,20 @@ func (a *App) tspFold(p *Pane, sf *rex.Surface, n *rex.TSPNode) (head *rex.TSPNo
 }
 
 // tspFoldHead makes a collapsible node's head row flip its fold on a
-// click, which the program is told of (a toggle event).
+// click, which the program is told of (a toggle event). The row shows it
+// can, as MyGo's disclosures do: a pointer, a shade on hover, and a
+// disclosure, open or not, to assistive technology.
 func (a *App) tspFoldHead(h ui.Element, p *Pane, sf *rex.Surface, n *rex.TSPNode, collapsed bool) {
 	if collapsible, _ := n.Props["collapsible"].(bool); !collapsible || sf.Closed {
 		return
 	}
-	if h.Clicked() {
+	h.Cursor(ui.CursorPointer).Role(ui.RoleDisclosure).Expanded(!collapsed).Radius(6).
+		Transition(ui.ElementTransition{Colors: true, Duration: 120 * time.Millisecond})
+	if h.Hovered() {
+		h.Background(a.k.hover)
+	}
+	// A click on a file link in the head opened the file, not the fold.
+	if h.Clicked() && !a.tspLinkClicked {
 		if p.folds == nil {
 			p.folds = map[string]bool{}
 		}
@@ -2003,6 +2297,23 @@ func (a *App) tspFoldHead(h ui.Element, p *Pane, sf *rex.Surface, n *rex.TSPNode
 		ev := map[string]any{"ev": "toggle", "sf": sf.ID, "id": n.ID, "collapsed": !collapsed}
 		go stream.TSPEvent(ev)
 	}
+}
+
+// tspChevron draws a collapsible node's fold mark, first in its head as
+// MyGo's disclosures have it: a chevron pointing down while open and
+// right while folded, turning between them. A node that does not fold
+// has none.
+func (a *App) tspChevron(c *ui.Context, k *colors, n *rex.TSPNode, collapsed bool) {
+	if collapsible, _ := n.Props["collapsible"].(bool); !collapsible {
+		return
+	}
+	open := float32(1)
+	if collapsed {
+		open = 0
+	}
+	s := a.tspText(13)
+	ch := ui.Icon(c.Key("fold"), icon("chevron-down")).Size(s, s).TextColor(k.textMuted).Shrink(0)
+	ch.Rotate(-90 * (1 - ch.Animate("open", open, 160*time.Millisecond)))
 }
 
 // surfaceOverlays draws the overlays a surface's document has (pickers,
@@ -2068,17 +2379,29 @@ func (a *App) surfaceOverlays(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex
 		if anchored && size != "full" {
 			sheet = nil
 		}
+		// A sheet with a head draws as Tern's: the head on a line of its
+		// own over a hairline, what is under it scrolling (or its row of
+		// panes, each scrolling); without one it scrolls whole.
+		head := ov.Props["head"]
 		var panel ui.Element
-		if sheet != nil {
+		switch {
+		case sheet != nil:
 			panel = ui.Column(c.Key("tsp-sheet-" + ov.ID)).Absolute()
 			if !anchored {
 				panel.HeightPercent(84)
 			}
-		} else {
+		case head != nil:
+			panel = ui.Column(c.Key("tsp-ov-" + ov.ID)).Absolute().MaxHeightPercent(85)
+		default:
 			panel = ui.Scroll(c.Key("tsp-ov-" + ov.ID)).Absolute().MaxHeightPercent(85).TrackScroll(p.overlayScroll(ov.ID))
 			a.scrolled(p, ov.ID, panel)
 		}
-		panel.Radius(cardR).Background(k.panel).Border(1, k.panelBorder).Padding(12, 14).Font(a.tspLook().font)
+		panel.Radius(cardR).Background(k.panel).Border(1, k.panelBorder).Font(a.tspLook().font)
+		if head == nil {
+			panel.Padding(12, 14)
+		} else {
+			panel.Clip()
+		}
 		if anchored {
 			a.tspOverlayAt(panel, p, at, near, size)
 		} else {
@@ -2094,19 +2417,60 @@ func (a *App) surfaceOverlays(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex
 			}
 		}
 		panel.Children(func() {
-			if head := ov.Props["head"]; head != nil {
-				a.tspRich(c, k, head, 14, true)
+			wasOverlay := a.tspInOverlay
+			a.tspInOverlay = true
+			draw := func() {
+				a.tspSheet = sheet
+				for _, ch := range ov.Children {
+					a.tspNode(c, k, t, p, sf, ch)
+				}
+				a.tspSheet = nil
 			}
-			a.tspSheet = sheet
-			for _, ch := range ov.Children {
-				a.tspNode(c, k, t, p, sf, ch)
+			switch {
+			case head == nil:
+				draw()
+			case sheet != nil:
+				a.tspSheetHead(c, k, ov, head)
+				draw()
+			default:
+				a.tspSheetHead(c, k, ov, head)
+				body := ui.Scroll(c.Key("tsp-ov-body-" + ov.ID)).TrackScroll(p.overlayScroll(ov.ID)).FillWidth().MinHeight(0).Shrink(1)
+				a.scrolled(p, ov.ID, body)
+				body.Children(func() { ui.Column(c).Gap(a.tspGap(8)).FillWidth().Padding(14, 18).Children(draw) })
 			}
-			a.tspSheet = nil
+			a.tspInOverlay = wasOverlay
 		})
 		if panel.Pressed() {
 			a.surfacePressed(t, p)
 		}
+		// Escape with the focus in it (its text) is the program's, as
+		// with the focus in the terminal: it closes the sheet.
+		if panel.Shortcut(0, ui.KeyEscape) {
+			a.surfacePressed(t, p)
+			p.term.Send([]byte{0x1b})
+		}
 	}
+}
+
+// tspSheetIcons are the icons Tern heads omp's sheets with, which omp
+// does not send, by their roles.
+var tspSheetIcons = map[string]string{"omp.overlay.jobs": "activity"}
+
+// tspSheetHead draws an overlay's head as Tern does: its icon (its own,
+// or its role's) and its title on a row, over a hairline across it.
+func (a *App) tspSheetHead(c *ui.Context, k *colors, ov *rex.TSPNode, head any) {
+	row := ui.Row(c.Key("head")).Gap(10).AlignItems(ui.Center).FillWidth().Shrink(0).Padding(14, 18).BorderWidth(0, 0, 1, 0).BorderColor(k.panelBorder)
+	row.Children(func() {
+		name, _ := ov.Props["icon"].(string)
+		if name == "" {
+			role, _ := ov.Props["role"].(string)
+			name = tspSheetIcons[role]
+		}
+		if name != "" {
+			a.tspIcon(c, k, name).TextColor(k.text)
+		}
+		a.tspRich(c, k, head, 15, true)
+	})
 }
 
 // tspSheetLayout is how an overlay of panes lays out (tspPaneSheet): the
@@ -2138,6 +2502,11 @@ func tspPaneSheet(ov *rex.TSPNode) *tspSheetLayout {
 					_, basis := ch.Props["basis"]
 					sized = sized || grow || basis
 				}
+			}
+			// omp's jobs sheet: its list beside the selected job,
+			// sized here (tspNode's col), as Tern sizes them.
+			if role, _ := n.Props["role"].(string); role == "omp.jobs.split" {
+				sized = true
 			}
 			if sized {
 				s := &tspSheetLayout{row: n.ID, path: map[string]bool{}, panes: panes}
@@ -2274,14 +2643,22 @@ func tspOverlayDown(above bool, below, aboveRoom, h float32) bool {
 	return down
 }
 
-// tspChart draws a chart: a bars or spark chart as a bar for each point
-// of its series, labeled, scaled to its domain; a heatmap as a grid of
-// cells shaded by intensity; the summary under it.
+// tspChart draws a chart: a bars chart as a bar for each point of its
+// series, labeled, scaled to its domain; a spark as a row of thin bars
+// (tspSpark); a heatmap as a grid of cells shaded by intensity; the
+// summary under it.
 func (a *App) tspChart(c *ui.Context, k *colors, key *ui.Context, n *rex.TSPNode) ui.Element {
 	kind, _ := n.Props["kind"].(string)
+	if kind == "spark" {
+		return a.tspSpark(c, k, key, n)
+	}
 	chart := ui.Column(key).Gap(3).FillWidth()
 	chart.Children(func() {
-		if kind == "bars" || kind == "spark" {
+		if kind == "bars" {
+			// As Tern draws it: one bar per point, side by side across
+			// the row, at most 24 DIPs wide, 2, 4 or 8 lines tall by
+			// size, scaled to the domain, in the token's color or the
+			// point's tone; a point's title, else label, its tooltip.
 			series, _ := n.Props["series"].([]any)
 			lo, _ := n.Props["min"].(float64)
 			hi, ok := n.Props["max"].(float64)
@@ -2293,27 +2670,41 @@ func (a *App) tspChart(c *ui.Context, k *colors, key *ui.Context, n *rex.TSPNode
 					}
 				}
 			}
-			for i, pt := range series {
-				pt, _ := pt.(map[string]any)
-				v, _ := pt["value"].(float64)
-				label, _ := pt["label"].(string)
-				frac := float32(0)
-				if hi > lo {
-					frac = float32(max(0, min(1, (v-lo)/(hi-lo))))
-				}
-				row := ui.Row(c.Key(i)).Gap(8).AlignItems(ui.Center).FillWidth()
-				row.Children(func() {
-					ui.Text(c, label).FontSize(a.tspText(12)).TextColor(k.textMuted).Width(140).NoWrap()
-					track := ui.Box(c).Height(10).Grow(1).Radius(2).Clip()
-					track.Children(func() {
-						ui.Box(c).WidthPercent(frac * 100).Height(10).Background(k.busy)
-					})
-					ui.Text(c, strconv.FormatFloat(v, 'g', 6, 64)).FontSize(a.tspText(12)).TextColor(k.textMuted).Width(70)
-				})
-				if title, _ := pt["title"].(string); title != "" {
-					row.Tooltip(title)
+			fill := k.busy
+			if tok, _ := n.Props["token"].(string); tok != "" {
+				if col, ok := a.spanColor(k, tok); ok {
+					fill = col
 				}
 			}
+			size, _ := n.Props["size"].(string)
+			lines := map[string]float32{"sm": 2, "lg": 8}[size]
+			if lines == 0 {
+				lines = 4
+			}
+			h := lines * a.tspText(13) * 1.4
+			bars := ui.Row(c).Gap(2).AlignItems(ui.End).FillWidth().Height(h)
+			bars.Children(func() {
+				for i, pt := range series {
+					pt, _ := pt.(map[string]any)
+					v, _ := pt["value"].(float64)
+					frac := float32(0)
+					if hi > lo {
+						frac = float32(max(0, min(1, (v-lo)/(hi-lo))))
+					}
+					col := fill
+					if tone, _ := pt["tone"].(string); tone != "" {
+						if tc, ok := a.spanColor(k, tone); ok {
+							col = tc
+						}
+					}
+					bar := ui.Box(c.Key(i)).Grow(1).MaxWidth(24).Height(max(1, frac*h)).Radius(2).Background(col)
+					if title, _ := pt["title"].(string); title != "" {
+						bar.Tooltip(title)
+					} else if label, _ := pt["label"].(string); label != "" {
+						bar.Tooltip(label)
+					}
+				}
+			})
 		} else {
 			cells, _ := n.Props["cells"].([]any)
 			labels, _ := n.Props["rows"].([]any)
@@ -2341,39 +2732,132 @@ func (a *App) tspChart(c *ui.Context, k *colors, key *ui.Context, n *rex.TSPNode
 	return chart
 }
 
-// surfaceZoom shows a surface's image whole over the pane, fitted to
-// it, with its name and size, and an Open file button when it came
-// from a file of the host's: a click or Escape closes it.
-func (a *App) surfaceZoom(c *ui.Context, k *colors, t *Tab, p *Pane) {
-	bm := a.tspZoom
-	if bm == nil || a.tspZoomPane != p {
-		return
-	}
-	w, h := bm.Size()
-	open := false
-	view := ui.Column(c.Key("tsp-zoom")).Absolute().Fill().Background(ui.RGBA(0, 0, 0, 0.75)).
-		Center().Gap(8).Padding(16).Focusable().FocusRing(false).Focus().Font(a.tspLook().font)
-	view.Children(func() {
-		ui.Image(c, bm).MaxWidthPercent(100).MaxHeightPercent(90)
-		ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
-			caption := fmt.Sprintf("%d×%d", w, h)
-			if a.tspZoomAlt != "" {
-				caption = a.tspZoomAlt + "  " + caption
+// tspSpark draws a spark chart as Tern does: a row of thin bars, one line
+// tall, scaled to its domain, in its token's color or each point's tone;
+// its summary under it, except in omp's HUD, whose segment says it.
+func (a *App) tspSpark(c *ui.Context, k *colors, key *ui.Context, n *rex.TSPNode) ui.Element {
+	series, _ := n.Props["series"].([]any)
+	lo, _ := n.Props["min"].(float64)
+	hi, ok := n.Props["max"].(float64)
+	if !ok {
+		for _, pt := range series {
+			pt, _ := pt.(map[string]any)
+			if v, _ := pt["value"].(float64); v > hi {
+				hi = v
 			}
-			ui.Text(c, caption).FontSize(a.tspText(12)).TextColor(ui.RGB(230, 230, 230))
-			if a.tspZoomPath != "" {
-				open = textButton(c, k, "Open File").Tooltip(a.tspZoomPath).Clicked()
+		}
+	}
+	fill := k.busy
+	if tok, _ := n.Props["token"].(string); tok != "" {
+		if col, ok := a.spanColor(k, tok); ok {
+			fill = col
+		}
+	}
+	h := a.tspText(13)
+	chart := ui.Column(key).Gap(3).AlignItems(ui.Start).Shrink(0)
+	chart.Children(func() {
+		bars := ui.Row(c).Gap(1).AlignItems(ui.End).Height(h).Shrink(0)
+		bars.Children(func() {
+			for i, pt := range series {
+				pt, _ := pt.(map[string]any)
+				v, _ := pt["value"].(float64)
+				frac := float32(0)
+				if hi > lo {
+					frac = float32(max(0, min(1, (v-lo)/(hi-lo))))
+				}
+				col := fill
+				if tone, _ := pt["tone"].(string); tone != "" {
+					if tc, ok := a.spanColor(k, tone); ok {
+						col = tc
+					}
+				}
+				bar := ui.Box(c.Key(i)).Width(3).Height(max(1, frac*h)).Radius(1).Background(col).Shrink(0)
+				if title, _ := pt["title"].(string); title != "" {
+					bar.Tooltip(title)
+				} else if label, _ := pt["label"].(string); label != "" {
+					bar.Tooltip(label)
+				}
 			}
 		})
+		if role, _ := n.Props["role"].(string); role != "omp.hud.spark" {
+			if s := n.Props["summary"]; s != nil {
+				a.tspRich(c, k, s, 12, false).TextColor(k.textMuted)
+			}
+		}
 	})
-	if open {
-		path := a.tspZoomPath
-		a.tspZoom, a.tspZoomPane = nil, nil
-		a.update(func() { a.openPaneFile(p, path) })
-		return
+	return chart
+}
+
+// tspCodeBlock draws a code block: its language or path over its text,
+// which scrolls sideways, or wraps with wrap. A preview of {lines: N}
+// shows its first N lines with a button for the rest, which shows them
+// all (and Show less folds them again), as Tern's does.
+func (a *App) tspCodeBlock(c *ui.Context, key *ui.Context, k *colors, p *Pane, sf *rex.Surface, n *rex.TSPNode, text string) ui.Element {
+	lang, _ := n.Props["lang"].(string)
+	path, _ := n.Props["path"].(string)
+	wrap, _ := n.Props["wrap"].(bool)
+	text = strings.TrimRight(text, "\n")
+	more, shown := 0, text
+	open := p.codeMore[fmt.Sprintf("%d/%s", sf.Image, n.ID)]
+	if pv, ok := n.Props["preview"].(map[string]any); ok {
+		if l, ok := pv["lines"].(float64); ok && l > 0 {
+			if lines := strings.Split(text, "\n"); len(lines) > int(l) {
+				more = len(lines) - int(l)
+				if !open {
+					shown = strings.Join(lines[:int(l)], "\n")
+				}
+			}
+		}
 	}
-	if view.Clicked() || view.Shortcut(0, ui.KeyEscape) {
-		a.tspZoom, a.tspZoomPane = nil, nil
-		a.surfacePressed(t, p)
+	// In a sheet, as Tern's: a faint fill under a hairline, roomier;
+	// a job's command without its language.
+	fill, edge, py, px := k.bgLow, k.cardBorder, float32(8), float32(10)
+	if a.tspInOverlay {
+		fill, edge, py, px = k.text.Alpha(0.04), k.panelBorder, 10, 14
 	}
+	if role, _ := n.Props["role"].(string); role == "omp.jobs.command" {
+		lang, path = "", ""
+	}
+	block := ui.Column(key).Radius(6).Background(fill).Border(1, edge).FillWidth().MinWidth(0).Clip()
+	block.Children(func() {
+		if lang != "" || path != "" {
+			label := path
+			if label == "" {
+				label = lang
+			}
+			ui.Text(c, label).FontSize(a.tspText(11)).TextColor(k.textMuted).Padding(4, px, 0, px)
+		}
+		body := ui.ScrollHorizontal(c).FillWidth().Padding(py, px)
+		if wrap {
+			body = ui.Box(c).FillWidth().MinWidth(0).Padding(py, px)
+		}
+		body.Children(func() {
+			t := ui.Text(c, shown).Font(a.tspLook().mono).FontFeatures(a.tspLook().monoFeatures...).FontSize(a.tspCode(12)).TextColor(k.text).Selectable()
+			if wrap {
+				t.MinWidth(0)
+			} else {
+				t.NoWrap()
+			}
+		})
+		if more > 0 {
+			label := fmt.Sprintf("%d more lines", more)
+			if more == 1 {
+				label = "1 more line"
+			}
+			if open {
+				label = "Show less"
+			}
+			btn := ui.Text(c, label).FontSize(a.tspText(11)).TextColor(k.textMuted).Padding(2, 10, 6, 10).Cursor(ui.CursorPointer).Unselectable()
+			if btn.Hovered() {
+				btn.TextColor(k.text)
+			}
+			if btn.Clicked() {
+				if p.codeMore == nil {
+					p.codeMore = map[string]bool{}
+				}
+				p.codeMore[fmt.Sprintf("%d/%s", sf.Image, n.ID)] = !open
+			}
+		}
+	})
+	return block
 }

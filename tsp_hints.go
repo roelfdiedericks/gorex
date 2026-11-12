@@ -122,6 +122,41 @@ func (p *Pane) overlayScroll(id string) *ui.ScrollState {
 	return st
 }
 
+// tspFollow is a bounded output block's scroll, and how many lines it
+// showed last, to keep it at its end as lines come (tspNode's ansi).
+type tspFollow struct {
+	scroll ui.ScrollState
+	lines  int
+}
+
+// tspFollowOf is the scroll of the output block key, the last ones kept.
+func (p *Pane) tspFollowOf(key string) *tspFollow {
+	if p.tspFollows == nil || len(p.tspFollows) > 64 {
+		p.tspFollows = map[string]*tspFollow{}
+	}
+	f := p.tspFollows[key]
+	if f == nil {
+		f = &tspFollow{}
+		p.tspFollows[key] = f
+	}
+	return f
+}
+
+// tspScopeOpen is whether a picker's group of scopes is open (its
+// section in the scope column), open at first; by picker and group.
+func (p *Pane) tspScopeOpen(key string) *bool {
+	if p.tspScopesOpen == nil {
+		p.tspScopesOpen = map[string]*bool{}
+	}
+	open := p.tspScopesOpen[key]
+	if open == nil {
+		open = new(bool)
+		*open = true
+		p.tspScopesOpen[key] = open
+	}
+	return open
+}
+
 // revealed acts on a reveal of node n, drawn as el: its scroll container
 // brings it into view, and for a node of an inline surface's content the
 // terminal's scrollback scrolls to it when it is outside the view, the

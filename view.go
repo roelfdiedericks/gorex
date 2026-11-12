@@ -88,6 +88,8 @@ func (a *App) view(c *ui.Context) {
 	a.shortcuts(c)
 	a.palette(c, k)
 	a.connectionLog(c, k)
+	a.drawPeek(c, k)
+	a.syncWatches()
 	a.settingsDialog(c, k)
 	a.hostDialog(c, k)
 	a.restartDialog(c, k)
@@ -348,22 +350,24 @@ func (a *App) paneCard(c *ui.Context, k *colors, t *Tab, p *Pane) ui.Element {
 	card.Transition(ui.ElementTransition{Colors: true, Duration: 160 * time.Millisecond})
 	hovered := card.Hovered()
 	card.Children(func() {
-		switch p.Kind {
-		case paneBrowser:
+		if p.Kind == paneEditor {
+			// The tab asks the pane for the keys: its view takes them.
+			if a.focusReq == p && a.tab() == t {
+				p.edit.keys = true
+				a.focusReq = nil
+			}
+			a.fileViewUI(c, k, p.edit, a.paneHost(t, p, focused, hovered))
+			return
+		}
+		if p.Kind == paneBrowser {
 			a.browserHeader(c, k, t, p, focused, hovered)
-		case paneEditor:
-			a.editorHeader(c, k, t, p, focused, hovered)
-		default:
+		} else {
 			a.paneHeader(c, k, t, p, focused, hovered)
 		}
 		body := ui.Box(c).Grow(1).MinHeight(0).Padding(0, 5, 6, 5)
 		body.Children(func() {
-			switch p.Kind {
-			case paneBrowser:
+			if p.Kind == paneBrowser {
 				a.browserBody(c, k, t, p)
-				return
-			case paneEditor:
-				a.editorBody(c, k, t, p)
 				return
 			}
 			if p.term == nil {
@@ -384,13 +388,14 @@ func (a *App) paneCard(c *ui.Context, k *colors, t *Tab, p *Pane) ui.Element {
 				if p.termHeld && !tv.Focused() && a.focusReq != p {
 					p.termHeld = false
 				}
-				// While the program's settings sheet is open, the keys are
-				// the program's (its search, arrows, Enter and Esc), not its
-				// composer's: the focus stays with the terminal, and leaves
-				// the composer if it had it.
-				prefs := p.tspPrefsOpen()
-				dock := p.tspDockLive() && p.composerAt+1 >= a.frame && !p.termHeld && !prefs
-				if prefs && p.composerFocused && t.Focus == p && a.tab() == t {
+				// While one of the program's sheets is open (its settings,
+				// its Background jobs), the keys are the program's (its
+				// search, arrows, Enter and Esc), not its composer's: the
+				// focus stays with the terminal, and leaves the composer if
+				// it had it.
+				sheet := p.tspSheetOpen()
+				dock := p.tspDockLive() && p.composerAt+1 >= a.frame && !p.termHeld && !sheet
+				if sheet && p.composerFocused && t.Focus == p && a.tab() == t {
 					p.composerFocused = false
 					tv.Focus()
 				}
@@ -798,6 +803,9 @@ func (a *App) connectionLog(c *ui.Context, k *colors) {
 			}
 			ui.Box(c).Size(7, 7).Radius(4).Background(dot)
 			ui.Text(c, a.bind.label()+" · "+state).FontSize(12.5).TextColor(k.textFaint)
+			if textButton(c, k, "Copy").Clicked() {
+				a.copyLink(strings.Join(lines, "\n"))
+			}
 			if textButton(c, k, "Clear").Clicked() {
 				a.connLogMu.Lock()
 				a.connLog = nil
@@ -811,9 +819,13 @@ func (a *App) connectionLog(c *ui.Context, k *colors) {
 			if len(lines) == 0 {
 				ui.Text(c, "Nothing yet.").FontSize(12.5).TextColor(k.textFaint)
 			}
-			for i, l := range lines {
-				ui.Text(c.Key(i), l).Font(termFont.Family).FontSize(12).TextColor(k.text).Selectable().LineHeight(1.5)
-			}
+			// One selection over all the lines, which Copy joins with
+			// newlines.
+			ui.Column(c).FillWidth().Selectable().Children(func() {
+				for i, l := range lines {
+					ui.Text(c.Key(i), l).Font(termFont.Family).FontSize(12).TextColor(k.text).LineHeight(1.5)
+				}
+			})
 		})
 	})
 }

@@ -205,9 +205,11 @@ func bridge(t Target, profile string, p Payload, logf func(string), login *askpa
 // no place for it: the error is a StopError then, as another folder may
 // do. Its files go as a gzipped tar archive made on the way, which the
 // host's tar unpacks. A server there already is kept, as another window
-// may run it, unless it can't be run, which the copy then replaces. It
-// says on its error output, which the Connection Log shows, which it did,
-// and the files' modes there.
+// may run it, unless it can't be run, which the copy then replaces. The
+// servers of other builds in the folder are removed, but not one that
+// runs, nor any where pgrep can't tell. It says on its error output,
+// which the Connection Log shows, what it did, and the files' modes
+// there.
 func upload(t Target, s server, logf func(string), login *askpass.Session) error {
 	dir := `"$c/` + s.id + `"`
 	script := `c=` + serverDir(t.Dir) + `; ` +
@@ -217,6 +219,12 @@ func upload(t Target, s server, logf func(string), login *askpass.Session) error
 		`if [ -d ` + dir + ` ] && [ ! -x ` + dir + `/gorex ]; then rm -rf ` + dir + `; echo "host: replacing "` + dir + `", because its server cannot run" >&2; fi; ` +
 		`if [ ! -d ` + dir + ` ]; then mv "$t" ` + dir + `; echo "host: copied to "` + dir + ` >&2; ` +
 		`else echo "host: "` + dir + `" already exists; keeping it" >&2; fi; ` +
+		// Another build's folder: its ID, 16 hex digits, and no server
+		// running from it.
+		`if command -v pgrep >/dev/null 2>&1; then for f in "$c"/*; do n=${f##*/}; ` +
+		`[ -d "$f" ] && [ ${#n} -eq 16 ] && [ "$f" != ` + dir + ` ] || continue; ` +
+		`case $n in *[!0-9a-f]*) continue;; esac; ` +
+		`if ! pgrep -f "$f/gorex" >/dev/null 2>&1; then rm -rf "$f" && echo "host: removed $f, an older server that is not running" >&2 || true; fi; done; fi; ` +
 		`ls -l ` + dir + ` 2>&1 | sed 's/^/host: /' >&2; echo GOREX-DEPLOYED`
 	cmd, err := sshCmd(t, script, logf, login)
 	if err != nil {

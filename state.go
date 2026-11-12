@@ -108,6 +108,16 @@ type Pane struct {
 	// folds is how the user folded a surface's collapsible nodes (by
 	// anchor and node id), over what the program said.
 	folds map[string]bool
+	// codeMore are the code blocks of the pane's surfaces whose preview
+	// the user opened to show them whole, by surface image and node id.
+	codeMore map[string]bool
+	// tspFollows are the scroll of the pane's surfaces' bounded output
+	// blocks, and how many lines each had, by surface image and node id
+	// (tspFollowOf).
+	tspFollows map[string]*tspFollow
+	// tspScopesOpen are the pickers' groups of scopes open in their scope
+	// column, by picker and group (tspScopeOpen).
+	tspScopesOpen map[string]*bool
 	// els is the state of the el nodes the pane draws: the user's flips
 	// of their controls (tsp_el.go).
 	els *tspEls
@@ -157,7 +167,7 @@ type Pane struct {
 	fields map[string]*tspField
 	// files is a browser pane's tree, and edit an editor pane's file.
 	files *browserState
-	edit  *editorState
+	edit  *fileView
 
 	// info is what the server last said of the session.
 	info rex.SessionInfo
@@ -291,7 +301,12 @@ type App struct {
 	nextID int
 	// keptEdits are editor buffers with unsaved changes kept across a
 	// reconnect, by path, until a pane takes them over.
-	keptEdits map[string]*editorState
+	keptEdits map[string]*fileView
+	// watched are the folders the server watches for the window, on
+	// watchClient; watchWant is syncWatches' list of those it should.
+	watched     map[string]bool
+	watchClient *rex.Client
+	watchWant   map[string]bool
 	// dark is whether the window's theme was dark in the last frame, k
 	// the palette it drew with, for what paints outside a frame;
 	// reduceMotion whether the desktop asked for less motion; uiTheme
@@ -331,6 +346,11 @@ type App struct {
 	// tspFlat counts the tool bodies being drawn: the cards and tools in
 	// one are drawn bare, as sections of its frame.
 	tspFlat int
+	// tspPane is the pane whose surfaces are being drawn, over which
+	// their file links open; tspLinkClicked tells that a click in this
+	// frame opened a file link, which a head around it does not fold.
+	tspPane        *Pane
+	tspLinkClicked bool
 	// tspReveal are the nodes the pane being drawn is to bring into
 	// view, by id, with where; tspFocus the field to focus;
 	// tspSearchArmed the prefs search field clicked, which draws a caret
@@ -342,13 +362,9 @@ type App struct {
 	// surface.
 	tspLogged map[string]string
 	// tspImages are the programs' blobs decoded, by id; tspZoom is the
-	// one shown whole over tspZoomPane, named tspZoomAlt, from the file
-	// tspZoomPath when the program said so.
-	tspImages   map[string]*ui.Bitmap
-	tspZoom     *ui.Bitmap
-	tspZoomAlt  string
-	tspZoomPane *Pane
-	tspZoomPath string
+	// picture shown over a pane, which zooms and pans (tsp_zoom.go).
+	tspImages map[string]*ui.Bitmap
+	tspZoom   *tspViewer
 	// ansiThemes are the terminal's themes by the appearance's names, for
 	// the colors of programs' output in surfaces (ansiPalette).
 	ansiThemes struct {
@@ -358,6 +374,20 @@ type App struct {
 	// tspSVGs are the SVGs surfaces show (charts), parsed for a theme,
 	// by theme and source.
 	tspSVGs map[string]*tspSVG
+	// tspMermaids are the Mermaid diagrams surfaces show, drawn for a
+	// theme, by theme and source (tsp_mermaid.go).
+	tspMermaids map[string]*tspMermaid
+	// tspCard is the hover card showing, or about to (tsp_hovercard.go).
+	tspCard tspHoverCard
+	// tspInOverlay tells that an overlay's nodes are being drawn, which
+	// draw as Tern's sheets do.
+	tspInOverlay bool
+	// peek is the file shown in the popup over a pane, nil for none
+	// (tsp_files.go).
+	peek *filePeek
+	// fileKnown is what the host said of the paths messages name as code:
+	// a file or not, false too while it is asked (tspCodeLinker).
+	fileKnown map[string]bool
 	// tspPal is the palette of the surface being drawn, the variant for
 	// the window's appearance (surfaceColors); tspPalettes the programs'
 	// palettes parsed, by palette and appearance.
@@ -801,8 +831,13 @@ func (a *App) currentDir() string {
 
 // split splits the focused pane, the new pane right of it or below it: a
 // shell in a terminal tab, an empty editor in an editor tab. From the
-// file browser, the editor pane focused last splits.
+// file browser, the editor pane focused last splits. While the file popup
+// shows, its file is kept in a split instead.
 func (a *App) split(vertical bool) *Pane {
+	if a.peek != nil {
+		a.keepPeek(vertical)
+		return nil
+	}
 	t := a.tab()
 	if t == nil || t.Focus == nil || a.client == nil || a.onePane() {
 		return nil
@@ -814,11 +849,11 @@ func (a *App) split(vertical bool) *Pane {
 	return a.splitPane(old, vertical)
 }
 
-// splitPane splits a pane of the tree.
+// splitPane splits a pane of the tree: an empty editor beside it in an
+// editor tab, else a shell, in the folder of the pane's file when it is an
+// editor (of a terminal tab).
 func (a *App) splitPane(old *Pane, vertical bool) *Pane {
 	t := old.Tab
-	t.Zoom = nil
-	n := old.Node
 	var p *Pane
 	if t.Kind == paneEditor {
 		p = a.newEditorPane("")
@@ -832,8 +867,22 @@ func (a *App) splitPane(old *Pane, vertical bool) *Pane {
 				cols = max(cols/2, 10)
 			}
 		}
-		p = a.newPane(a.currentDir(), cols, rows)
+		dir := a.currentDir()
+		if old.Kind == paneEditor && old.edit.path != "" {
+			dir = dirName(old.edit.path)
+		}
+		p = a.newPane(dir, cols, rows)
 	}
+	a.splitWith(old, p, vertical)
+	return p
+}
+
+// splitWith puts pane p beside old in old's tab, right of it or below it,
+// and gives it the focus.
+func (a *App) splitWith(old, p *Pane, vertical bool) {
+	t := old.Tab
+	t.Zoom = nil
+	n := old.Node
 	p.Tab = t
 	left := &Node{ID: a.id(), Pane: old, Parent: n}
 	right := &Node{ID: a.id(), Pane: p, Parent: n}
@@ -842,7 +891,6 @@ func (a *App) splitPane(old *Pane, vertical bool) *Pane {
 	t.setFocus(p)
 	a.focusReq = p
 	a.changed()
-	return p
 }
 
 // treeFocus is the focused pane of the tree: the focused pane, or, when
@@ -873,12 +921,19 @@ func (a *App) closePane(p *Pane) {
 		p.term.Close()
 	}
 	if p.Kind == paneEditor {
-		a.dropPreview(p)
+		a.dropPreview(p.edit)
+		p.edit.gone = true
 	}
 	if sid := p.SID; sid != "" {
 		c := a.client
 		go c.Kill(sid)
 	}
+	a.unlinkPane(p)
+}
+
+// unlinkPane takes a pane out of its tab's tree, the other side of its
+// split taking its place, or closes the tab it was the last pane of.
+func (a *App) unlinkPane(p *Pane) {
 	t := p.Tab
 	if t.Zoom == p {
 		t.Zoom = nil
@@ -917,6 +972,58 @@ func (a *App) closePane(p *Pane) {
 	a.changed()
 }
 
+// moveToEditorTab moves an editor pane of a terminal tab, as it is, into
+// the editor tab.
+func (a *App) moveToEditorTab(p *Pane) {
+	t := a.editorTabFor(dirName(p.edit.path))
+	if t == nil {
+		return
+	}
+	a.unlinkPane(p)
+	a.putInTab(t, p)
+}
+
+// editorTabFor is the first editor tab, or a new one rooted at dir; nil
+// when there can be none.
+func (a *App) editorTabFor(dir string) *Tab {
+	for _, t := range a.tabs {
+		if t.Kind == paneEditor {
+			return t
+		}
+	}
+	return a.newEditorTab(dir)
+}
+
+// putInTab puts an editor pane of no tab in tab t, shown and focused: in
+// place of the tab's focused editor when that shows no file, else in a
+// split beside it.
+func (a *App) putInTab(t *Tab, p *Pane) {
+	for i, x := range a.tabs {
+		if x == t {
+			a.selectTab(i)
+		}
+	}
+	target := t.treeFocus()
+	if target == nil {
+		return
+	}
+	if target.Kind == paneEditor && target.edit.path == "" && !target.edit.modified() {
+		target.closed, target.edit.gone = true, true
+		n := target.Node
+		n.Pane, p.Node, p.Tab = p, n, t
+		t.recent = slices.DeleteFunc(t.recent, func(q *Pane) bool { return q == target })
+		if t.Zoom == target {
+			t.Zoom = nil
+		}
+		t.Focus = nil
+		t.setFocus(p)
+		a.focusReq = p
+		a.changed()
+		return
+	}
+	a.splitWith(target, p, false)
+}
+
 func (a *App) removeTab(t *Tab) {
 	i := slices.Index(a.tabs, t)
 	if i < 0 {
@@ -945,16 +1052,14 @@ func (a *App) removeTab(t *Tab) {
 
 // closeTab closes a tab and ends the sessions of its panes.
 func (a *App) closeTab(t *Tab) {
-	if t.Browser != nil {
-		a.unwatchAll(t.Browser)
-	}
 	for _, p := range t.allPanes() {
 		p.closed = true
 		if p.term != nil {
 			p.term.Close()
 		}
 		if p.Kind == paneEditor {
-			a.dropPreview(p)
+			a.dropPreview(p.edit)
+			p.edit.gone = true
 		}
 		if p.SID != "" {
 			go a.client.Kill(p.SID)
@@ -1101,6 +1206,13 @@ func (a *App) equalize() {
 }
 
 func (a *App) toggleZoom() {
+	// The file popup, while it shows: it fills the window, or not.
+	if pk := a.peek; pk != nil {
+		pk.big = !pk.big
+		pk.view.keys = true
+		a.changed()
+		return
+	}
 	t := a.tab()
 	if t == nil || t.Focus == nil {
 		return
@@ -1376,7 +1488,9 @@ func (a *App) restore() bool {
 		if s.A == nil || s.B == nil {
 			var p *Pane
 			switch {
-			case t.Kind == paneEditor:
+			case t.Kind == paneEditor || s.Path != "":
+				// An editor: of an editor tab, or a file kept beside a
+				// terminal (Keep in the file popup).
 				p = a.newEditorPane(s.Path)
 				if s.Mode == modeChanges || s.Mode == modePreview {
 					p.edit.mode = s.Mode

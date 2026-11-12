@@ -206,7 +206,7 @@ func readHostSettings(spec string) (Settings, error) {
 	// A read of the settings leaves the host's server as it is (nil
 	// guard), and asks nothing: a host that wants a password fails. A
 	// plain host's settings are those of its server on this machine.
-	client, link, _, err := dialBinding(b, remote.Progress{
+	client, link, _, _, err := dialBinding(b, remote.Progress{
 		Status: func(string) {}, Log: func(s string) { log.Print(s) },
 	}, nil, false, nil)
 	if err != nil {

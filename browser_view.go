@@ -142,7 +142,6 @@ func (a *App) browserBody(c *ui.Context, k *colors, t *Tab, p *Pane) {
 			})
 			return
 		}
-		a.syncWatches(p)
 		b.tree.List.Selected = &b.row
 		b.tree.List.Label = func(row int) string { return baseName(b.tree.Item(row)) }
 		focusedFile := ""

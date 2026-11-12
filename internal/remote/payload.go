@@ -156,7 +156,7 @@ func (p Payload) bridgeScript(profile, dir string) string {
 		`elif [ -e "$d/gorex" ] && ! ` + mine + `; then echo "host: $c belongs to another user, so GoRex does not run a server from it" >&2; ` +
 		`elif [ -e "$d/gorex" ]; then echo "host: $d/gorex exists but cannot run:" >&2; ls -ld "$d" "$d/gorex" "$d/$lib" 2>&1 | sed 's/^/host: /' >&2; ` +
 		`(findmnt -no TARGET,FSTYPE,OPTIONS -T "$d" 2>/dev/null || df -P "$d") 2>&1 | sed 's/^/host: mount: /' >&2; ` +
-		`else echo "host: no GoRex server in $d yet" >&2; fi; `)
+		`else echo "host: this version of GoRex has no server on this host yet ($id)" >&2; fi; `)
 	b.WriteString(`echo "` + deployMarker + `$(uname -s) $(uname -m)"`)
 	return b.String()
 }

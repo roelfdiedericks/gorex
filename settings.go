@@ -163,6 +163,14 @@ type OMP struct {
 	// Motion animates the working indicators: the label's shimmer, the
 	// star, the context meter's sweep.
 	Motion *bool `json:"motion,omitempty" kind:"pc" label:"Animate working indicators" group:"Motion"`
+	// FileClick and FileCtrlClick are what a click on a file's name in a
+	// tool card, or on a file named in a message, does, and one with
+	// Ctrl (⌘ on macOS): "popup" shows it over the pane, "tab" in an
+	// editor tab, "none" nothing. FileLinks makes the files messages name
+	// (as `FOO.md`) links, when they are files in the session's folder.
+	FileClick     string `json:"fileClick,omitempty" kind:"pc" label:"Click on a file" group:"Files"`
+	FileCtrlClick string `json:"fileCtrlClick,omitempty" kind:"pc" label:"Ctrl+click on a file" group:"Files"`
+	FileLinks     *bool  `json:"fileLinks,omitempty" kind:"pc" label:"Make file names in messages links" group:"Files"`
 }
 
 type Shell struct {
@@ -228,7 +236,7 @@ type Editor struct {
 	// cap. Larger files offer Open anyway.
 	MaxFile int64 `json:"maxFile,omitempty" kind:"pc" label:"Open files up to" group:"Files"`
 	// PreviewOnOpen opens Markdown files in Preview; Mermaid draws the
-	// diagrams in them.
+	// diagrams in them and in omp's transcripts.
 	PreviewOnOpen *bool `json:"previewOnOpen,omitempty" kind:"pc" label:"Open Markdown files in Preview" group:"Preview"`
 	Mermaid       *bool `json:"mermaid,omitempty" kind:"pc" label:"Draw Mermaid diagrams" group:"Preview"`
 }
@@ -244,7 +252,8 @@ var builtin = Settings{
 		Cursor: "block", Blink: on, Scrollback: 10000, Images: 320, CompressScrollback: on, CopyOnSelect: notOnMac, OptionAsAlt: off, Bell: "mark", Identity: "ghostty", StatusNotify: on,
 		CtrlCCopies: onWindows, CtrlVPastes: onWindows, InsertKeys: on, RightClickPastes: onWindows,
 	},
-	OMP: OMP{Size: 13, LineHeight: 1.5, DockWidth: 800, MessageWidth: 960, Spacing: "normal", Motion: on},
+	OMP: OMP{Size: 13, LineHeight: 1.5, DockWidth: 800, MessageWidth: 960, Spacing: "normal", Motion: on,
+		FileClick: "popup", FileCtrlClick: "tab", FileLinks: on},
 	Editor: Editor{
 		LineHeight: 1.5, WrapGuides: "100", SoftWrap: off, DiffLayout: "split", DiffInline: "words",
 		HiddenFiles: on, MaxFile: 8 << 20, OpenOn: "click", PreviewOnOpen: on, Mermaid: on,
