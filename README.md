@@ -50,7 +50,9 @@ To install omp: `curl -fsSL https://omp.sh/install | sh` (on Windows:
     the tab to take a strip along that whole side. Drop it on an edge of
     its own place to split it, with a new pane in the other half.
   - Hold a dragged pane over another tab to open that tab, and drop it
-    there, a terminal into an editor tab too. Escape gives up the drag.
+    there, a terminal into an editor tab too. Drop it on the New Tab
+    button, or on the empty title bar after the tabs, to give it a tab of
+    its own. Escape gives up the drag.
 - **Persistent sessions.** Shells run in a session server. This is a
   background process of the same binary (`GoRex -server`).
   - When you quit GoRex, everything keeps running. When you open it again,

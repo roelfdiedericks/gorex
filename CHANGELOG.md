@@ -4,6 +4,18 @@ Each release's version is its heading in this file. The `version` in
 `mygo.json` must match the top heading. Otherwise `make website` refuses
 to build. It also refuses to build a version that is already published.
 
+## 0.1.20
+
+- Drag a terminal into an editor tab too, as a file could already go into
+  a terminal tab. With the terminal focused, a file opened from the tree
+  opens in an editor beside it.
+- Drag a pane onto the New Tab button, or onto the empty part of the
+  title bar after the tabs, to move it into a tab of its own. A file's
+  pane goes into a new editor tab, with the tree open at its folder. A
+  terminal that was alone in an editor tab leaves an empty editor there.
+- Fixed: the copy of a pane that follows the pointer while you drag it
+  was not drawn.
+
 ## 0.1.19
 
 - A terminal pane's header has a Show Files button beside Split Right,

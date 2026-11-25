@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -445,5 +446,114 @@ func TestZoneFor(t *testing.T) {
 		if got := zoneFor(c.x, c.y, 100, 100); got != c.want {
 			t.Errorf("zone at %v,%v: %v, want %v", c.x, c.y, got, c.want)
 		}
+	}
+}
+
+// TestDragPaneToNewTab: a pane dropped on New Tab goes into a tab of its
+// own, after its tab, still running and focused; one dropped on the room
+// after the tabs does the same; the tab it leaves keeps its other pane.
+func TestDragPaneToNewTab(t *testing.T) {
+	a, tt, left, right := twoPanes(t)
+	first := a.tab()
+	plus, ok := tt.Find("New Tab")
+	if !ok {
+		t.Fatal("no New Tab button")
+	}
+	dragPane(tt, a, right, plus.X+plus.W/2, plus.Y+plus.H/2)
+	if len(a.tabs) != 2 || a.tabs[0] != first || a.tabs[1] != right.Tab || a.tab() != right.Tab {
+		t.Fatalf("after a drop on New Tab: %d tabs, the pane's tab at %d", len(a.tabs), slices.Index(a.tabs, right.Tab))
+	}
+	if right.closed || right.Tab.Root.Pane != right || right.Tab.Focus != right || right.Tab.Kind != paneTerminal {
+		t.Errorf("the moved pane: closed %v, alone %v, focused %v", right.closed, right.Tab.Root.Pane == right, right.Tab.Focus == right)
+	}
+	if first.Root.Pane != left {
+		t.Error("the first tab did not keep its other pane")
+	}
+
+	// Back with the other, then out by the room after the tabs.
+	a.selectTab(0)
+	tt.Frame()
+	moved := a.split(false)
+	tt.Frame()
+	tt.Frame()
+	track, _ := tt.Find("Tabs")
+	dragPane(tt, a, moved, track.X+track.W+titleFree/2, track.Y+track.H/2)
+	if len(a.tabs) != 3 || a.tabs[1] != moved.Tab || moved.Tab.Root.Pane != moved || a.tab() != moved.Tab {
+		t.Fatalf("after a drop past the tabs: %d tabs, the pane's tab at %d", len(a.tabs), slices.Index(a.tabs, moved.Tab))
+	}
+}
+
+// TestDragLonePaneToNewTab: a pane alone in its tab stays where it is
+// when dropped on New Tab.
+func TestDragLonePaneToNewTab(t *testing.T) {
+	a, tt := newTestApp(t)
+	tt.Frame()
+	tt.Frame()
+	p, tab := a.tab().Focus, a.tab()
+	plus, _ := tt.Find("New Tab")
+	dragPane(tt, a, p, plus.X+plus.W/2, plus.Y+plus.H/2)
+	if len(a.tabs) != 1 || p.Tab != tab || p.closed {
+		t.Errorf("%d tabs; the pane in its tab %v, closed %v", len(a.tabs), p.Tab == tab, p.closed)
+	}
+}
+
+// TestDragFileToNewTab: a file's pane dropped on New Tab from a terminal
+// tab goes into an editor tab whose tree opens at the file's folder, in
+// place of the empty editor such a tab starts with.
+func TestDragFileToNewTab(t *testing.T) {
+	a, tt := newTestApp(t)
+	a.eff = builtin
+	root := testDir(t)
+	defer os.RemoveAll(root)
+	file := filepath.Join(root, "notes.md")
+	os.WriteFile(file, []byte("# Notes\n"), 0o644)
+	term := a.tab().Focus
+	e := a.newEditorPane(file)
+	a.splitWith(term, e, false)
+	waitFor(t, tt, "the file", func() bool { return e.edit.buf != nil })
+	tt.Frame()
+	plus, _ := tt.Find("New Tab")
+	dragPane(tt, a, e, plus.X+plus.W/2, plus.Y+plus.H/2)
+	nt := e.Tab
+	if len(a.tabs) != 2 || a.tabs[1] != nt || nt.Kind != paneEditor || a.tab() != nt {
+		t.Fatalf("%d tabs; the file's tab at %d, an editor tab %v", len(a.tabs), slices.Index(a.tabs, nt), nt.Kind == paneEditor)
+	}
+	if ps := nt.panes(); len(ps) != 1 || ps[0] != e || e.closed {
+		t.Errorf("the editor tab's panes: %d, the file's %v", len(ps), len(ps) == 1 && ps[0] == e)
+	}
+	if b := nt.Browser; b == nil || b.files.root != root {
+		t.Errorf("the tree opens at %q, want %q", b.files.root, root)
+	}
+	if a.tabs[0].Root.Pane != term {
+		t.Error("the terminal tab did not keep its terminal")
+	}
+}
+
+// TestDragLoneTerminalOutOfEditorTab: a terminal alone in an editor tab,
+// dropped on New Tab, goes into a terminal tab of its own; the editor tab
+// stays, its tree with it, an empty editor in the terminal's place.
+func TestDragLoneTerminalOutOfEditorTab(t *testing.T) {
+	a, tt := newTestApp(t)
+	root := testDir(t)
+	defer os.RemoveAll(root)
+	term := a.tab().Focus
+	a.newTab(os.TempDir())
+	ed := a.newEditorTab(root)
+	a.swapPanes(term, ed.Root.Pane)
+	tt.Frame()
+	tt.Frame()
+	if term.Tab != ed || ed.Root.Pane != term {
+		t.Fatal("the terminal is not alone in the editor tab")
+	}
+	plus, _ := tt.Find("New Tab")
+	dragPane(tt, a, term, plus.X+plus.W/2, plus.Y+plus.H/2)
+	if !slices.Contains(a.tabs, ed) || term.Tab == ed || term.Tab.Kind != paneTerminal || term.closed {
+		t.Fatalf("editor tab kept %v; the terminal in it %v, in a terminal tab %v", slices.Contains(a.tabs, ed), term.Tab == ed, term.Tab.Kind == paneTerminal)
+	}
+	if e := ed.Root.Pane; e == nil || e.Kind != paneEditor || e.edit.path != "" || ed.Focus != e || ed.Browser == nil {
+		t.Errorf("the editor tab's pane: %+v", e)
+	}
+	if i := slices.Index(a.tabs, term.Tab); i != slices.Index(a.tabs, ed)+1 || a.tab() != term.Tab {
+		t.Errorf("the terminal's tab at %d, the editor tab at %d", i, slices.Index(a.tabs, ed))
 	}
 }

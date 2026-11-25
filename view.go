@@ -180,7 +180,18 @@ func (a *App) titleBar(c *ui.Context, k *colors) {
 	} else {
 		left += 14
 	}
-	ui.Row(c).Height(titleH).Padding(0, max(bar.Right, 10), 0, left).Gap(14).AlignItems(ui.Center).DragWindow().Children(func() {
+	row := ui.Row(c).Height(titleH).Padding(0, max(bar.Right, 10), 0, left).Gap(14).AlignItems(ui.Center).DragWindow()
+	// A pane dragged onto the title bar past the tabs, as onto New Tab or
+	// the room after the tabs, goes into a tab of its own (pane_drag.go).
+	if p, ok := ui.Drop[*Pane](row); ok {
+		a.later(c, func() { a.movePaneToNewTab(p) })
+	}
+	out, over := ui.DragOver[*Pane](row)
+	if over {
+		a.drag.seen = a.frame
+		a.drag.hover = tabHover{}
+	}
+	row.Children(func() {
 		a.windowControls(c, k, true)
 		a.hostChip(c, k)
 		a.tabStrip(c, k)
@@ -206,6 +217,8 @@ func (a *App) titleBar(c *ui.Context, k *colors) {
 				b.Opacity(0.45).Tooltip(serialReason)
 			} else if b.Tooltip(tip("New Tab", &cmdNewTab)).Clicked() {
 				a.newTab(a.currentDir())
+			} else if over && a.canMoveOut(out) {
+				b.Background(k.busy.Alpha(0.35))
 			}
 		})
 		a.windowControls(c, k, false)

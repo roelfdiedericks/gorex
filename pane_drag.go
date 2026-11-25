@@ -643,6 +643,72 @@ func (a *App) dropOnTab(p *Pane, t *Tab) {
 	}
 }
 
+// canMoveOut reports whether pane p may go into a tab of its own: not a
+// file browser, one alone in a tab of its kind already, nor one of a
+// serial port's window, which has one pane.
+func (a *App) canMoveOut(p *Pane) bool {
+	if p == nil || p.closed || p.Kind == paneBrowser || a.bind.serial != "" {
+		return false
+	}
+	return p.Tab.Root.Pane != p || p.Tab.Kind != p.Kind
+}
+
+// movePaneToNewTab moves pane p, its session still running, into a tab
+// of its own after its tab: a terminal into a terminal tab, and a file
+// into an editor tab whose tree opens at its folder. The tab it leaves
+// closes when it is left empty, but for an editor tab, which keeps its
+// tree and takes an empty editor in the terminal's place.
+func (a *App) movePaneToNewTab(p *Pane) {
+	if !a.canMoveOut(p) {
+		return
+	}
+	if p.Kind == paneEditor {
+		dir := ""
+		if p.edit != nil && p.edit.path != "" {
+			dir = dirName(p.edit.path)
+		}
+		t := a.newEditorTab(dir)
+		if t == nil {
+			return
+		}
+		a.unlinkPane(p)
+		a.putInTab(t, p)
+		a.showPane(p)
+		return
+	}
+	from := p.Tab
+	if from.Kind == paneEditor && from.Root.Pane == p {
+		a.replacePane(p, a.newEditorPane(""))
+	} else {
+		a.unlinkPane(p)
+	}
+	t := &Tab{ID: a.id()}
+	t.Root = &Node{ID: a.id(), Pane: p}
+	p.Tab, p.Node = t, t.Root
+	at := len(a.tabs)
+	if i := slices.Index(a.tabs, from); i >= 0 {
+		at = i + 1
+	}
+	a.tabs = slices.Insert(a.tabs, at, t)
+	a.active = at
+	a.showPane(p)
+}
+
+// replacePane puts pane q in pane p's place in its tab, focused there,
+// and takes p out of the tab.
+func (a *App) replacePane(p, q *Pane) {
+	t, n := p.Tab, p.Node
+	n.Pane, q.Node, q.Tab = q, n, t
+	if t.Zoom == p {
+		t.Zoom = nil
+	}
+	t.recent = slices.DeleteFunc(t.recent, func(x *Pane) bool { return x == p })
+	if t.Focus == p {
+		t.Focus = nil
+		t.setFocus(q)
+	}
+}
+
 // movePane moves pane p, its session still running, to a zone of pane
 // target, a half of it, or to its place, swapping the two; when outer, to
 // a strip along that side of target's tree. The tree's splits then fit
