@@ -11,10 +11,30 @@ to build. It also refuses to build a version that is already published.
   opens in an editor beside it.
 - Drag a pane onto the New Tab button, or onto the empty part of the
   title bar after the tabs, to move it into a tab of its own. A file's
-  pane goes into a new editor tab, with the tree open at its folder. A
-  terminal that was alone in an editor tab leaves an empty editor there.
+  pane goes into a new editor tab, with the tree open at its folder.
+- A terminal that was alone in an editor tab leaves an empty editor there
+  when you drag it away, so the tab keeps its tree.
 - Fixed: the copy of a pane that follows the pointer while you drag it
   was not drawn.
+- omp's background work shows on top of the composer, as in Tern. While
+  something runs, a row of cards shows each background job and
+  subagent, newest first, with its status, time and latest output; it
+  scrolls sideways when there are more, with a bar of all of them under
+  it. Click a card to see its details, with Open, Stop and Dismiss;
+  double-click it or press Enter to open that subagent's conversation,
+  its card marked with an eye, and click MAIN to go back. When nothing
+  runs, the status line shows a dot for the newest eight and how many
+  more there are: point at a dot to see its card, and click it to show
+  the row. Escape closes a card's details, then folds the row back to
+  dots, as does a click in the composer. The row and a card's details
+  open and close smoothly, and the conversation moves with them.
+- While omp works, a streak crosses the composer's context line from end
+  to end, as in Tern, instead of a glow inside the part used.
+- While you scroll back through an omp conversation, the text under the
+  composer's strip is blurred, as in Tern, so the composer reads clearly
+  over it.
+- In light themes, omp's composer is a touch lighter than the
+  conversation behind it, as in Tern.
 
 ## 0.1.19
 

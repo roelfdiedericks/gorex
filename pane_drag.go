@@ -677,11 +677,7 @@ func (a *App) movePaneToNewTab(p *Pane) {
 		return
 	}
 	from := p.Tab
-	if from.Kind == paneEditor && from.Root.Pane == p {
-		a.replacePane(p, a.newEditorPane(""))
-	} else {
-		a.unlinkPane(p)
-	}
+	a.leaveTab(p)
 	t := &Tab{ID: a.id()}
 	t.Root = &Node{ID: a.id(), Pane: p}
 	p.Tab, p.Node = t, t.Root
@@ -692,6 +688,17 @@ func (a *App) movePaneToNewTab(p *Pane) {
 	a.tabs = slices.Insert(a.tabs, at, t)
 	a.active = at
 	a.showPane(p)
+}
+
+// leaveTab takes pane p out of its tab, which closes when it is left
+// empty; but a terminal alone in an editor tab leaves an empty editor in
+// its place, for the tab to keep its tree.
+func (a *App) leaveTab(p *Pane) {
+	if t := p.Tab; p.Kind == paneTerminal && t.Kind == paneEditor && t.Root.Pane == p {
+		a.replacePane(p, a.newEditorPane(""))
+		return
+	}
+	a.unlinkPane(p)
 }
 
 // replacePane puts pane q in pane p's place in its tab, focused there,
@@ -731,7 +738,7 @@ func (a *App) movePane(p, target *Pane, zone dropZone, outer bool, plan *movePla
 		a.splitOff(p, zone)
 		return
 	}
-	a.unlinkPane(p)
+	a.leaveTab(p)
 	n, share := target.Node, float32(0.5)
 	if outer {
 		n, share = t.Root, treeShare

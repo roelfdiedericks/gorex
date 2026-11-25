@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
@@ -394,6 +395,13 @@ func (a *App) inlineSurface(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.S
 		if sf.Closed && size.rows <= sf.Rows {
 			return
 		}
+		if st := p.tray[sf.Image]; docked && st != nil && (st.moving || st.rowMoving) {
+			// The dock grows or shrinks with the tray's row or its peek:
+			// the space under the content follows it here, frame by
+			// frame, and the program hears of the dock's rows once it
+			// settles.
+			return
+		}
 		if size.rows > 0 && (size.rows != sf.Rows || size.dock != sf.Dock) && size != p.surfaceRows[sf.ID] {
 			if p.surfaceRows == nil {
 				p.surfaceRows = map[string]tspSize{}
@@ -462,9 +470,13 @@ func tspDockRegion(sf *rex.Surface) *rex.TSPNode {
 // types whatever part of the output they look at; the surface keeps a
 // space as tall in its place, so that at the bottom the dock is where
 // it would be. As Tern draws it, it floats over the output: centered,
-// no wider than the OMP settings' composer width, with no band of its
-// own behind it.
+// no wider than the OMP settings' composer width. Scrolled back, the
+// output under the dock's strip shows blurred (dockBand), the dock's own
+// cards solid over it.
 func (a *App) surfaceDock(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, dock *rex.TSPNode, x float32) {
+	if h := p.dockH[sf.Image]; h > 0 && !p.term.AtBottom() {
+		a.dockBand(c, k, p, sf, x, dockLead+min(h+tspDockPadTop+tspDockPadBottom, dockBandMost))
+	}
 	// The pinned strip passes the pointer through beside the dock, to the
 	// output under it.
 	pinned := ui.Column(c.Key(fmt.Sprintf("tsp-dock-%d", sf.Image))).Absolute().Left(x).Right(p.term.ScrollbarStrip()).Bottom(0).
@@ -473,11 +485,7 @@ func (a *App) surfaceDock(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Sur
 	var inner ui.Element
 	pinned.Children(func() {
 		inner = ui.Column(c).Gap(a.tspGap(8)).FillWidth().MaxWidth(a.tspLook().dockW).Children(func() {
-			a.tspPinned = true
-			for _, ch := range dock.Children {
-				a.tspNode(c, k, t, p, sf, ch)
-			}
-			a.tspPinned = false
+			a.dockNodes(c, k, t, p, sf, dock)
 		})
 	})
 	inner.HandleInput(func(ev ui.InputEvent) bool {
@@ -495,6 +503,45 @@ func (a *App) surfaceDock(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Sur
 		}
 		p.dockH[sf.Image] = h
 	}
+}
+
+// dockNodes draws the nodes of a dock region, pinned, knowing its tray,
+// whose quiet dots its status row takes (tsp_tray.go).
+func (a *App) dockNodes(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, dock *rex.TSPNode) {
+	a.tspPinned, a.trayAt = true, findTray(dock)
+	for _, ch := range dock.Children {
+		a.tspNode(c, k, t, p, sf, ch)
+	}
+	a.tspPinned, a.trayAt = false, trayDock{}
+}
+
+// dockBlur is how much the output blurs at the bottom of the dock's
+// strip, in DIPs: its text no longer reads, its shape still shows; and
+// dockDim how much of the surface's background it fades under then.
+// dockLead is how far above the dock the strip starts, about a line, so
+// that the blur grows over the line before the dock; dockBandMost the
+// most of the dock the strip covers, from the pane's bottom, so that a
+// tall dock (its tray's peek open) does not blur the whole view.
+const (
+	dockBlur     = 8
+	dockDim      = 0.35
+	dockLead     = 24
+	dockBandMost = 240
+)
+
+// dockBand draws the strip h tall at the pane's bottom, from x to the
+// scroll bar, that the dock floats in, over the output scrolled back
+// under it: blurred and dimmed, as Tern's, from none at its top to the
+// most at its bottom. At the end of the output nothing is under the
+// dock, so it has none there.
+func (a *App) dockBand(c *ui.Context, k *colors, p *Pane, sf *rex.Surface, x, h float32) {
+	band := func(key string) ui.Element {
+		return ui.Box(c.Key(fmt.Sprintf("tsp-dock-%s-%d", key, sf.Image))).Absolute().Left(x).Right(p.term.ScrollbarStrip()).
+			Bottom(0).Height(h).PassThrough()
+	}
+	// glass.Blur's mask reads From, To, Start and End, not Stops.
+	band("blur").Material(glass.Blur{Radius: dockBlur, Mask: &ui.LinearGradient{From: ui.Transparent, To: ui.RGB(0, 0, 0), Angle: 180}})
+	band("dim").LinearGradient(ui.LinearGradient{From: k.bgBottom.Alpha(0), To: k.bgBottom.Alpha(dockDim), Angle: 180})
 }
 
 // The room around the dock, in DIPs.
@@ -527,11 +574,20 @@ func (a *App) tspComposer(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *
 		if meter != nil {
 			labels = a.tspEdgeLabels(c, k, meter)
 		}
-		// Raised as Tern's: a touch toward the text's color from the
-		// output's, opaque, so that the output under the card does not
-		// show through, with a border a touch further (lighter in a dark
-		// theme, darker in a light one).
+		// omp's tray, while something runs: a tab on top of the card,
+		// under the meter, which then runs along the tab's top edge.
+		if tray := a.trayAt.tray; tray != nil && a.trayOnComposer(p, sf, tray) {
+			a.tspTray(c, c.Key("tray-tab"), k, t, p, sf, tray, true)
+		}
+		// Raised as Tern's, opaque, so that the output under the card
+		// does not show through: in a dark theme a touch toward the
+		// text's color from the output's, in a light one toward white,
+		// lighter than the output and the tray on it, as Tern's white
+		// card. Its border is a touch toward the text's color.
 		raised := k.bgBottom.Mix(k.text, 0.06)
+		if !a.dark {
+			raised = k.bgBottom.Mix(ui.RGB(255, 255, 255), 0.7)
+		}
 		ui.Column(c).FillWidth().Radius(tspComposerR).Background(raised).Shadow(0, 10, 28, -8, ui.RGBA(0, 0, 0, 0.22)).Children(func() {
 			ui.Column(c).Gap(10).FillWidth().Radius(tspComposerR).Border(1, k.bgBottom.Mix(k.text, 0.1)).Padding(16, 16, 14, 16).Children(func() {
 				a.tspFieldBare = true
@@ -589,13 +645,14 @@ func (a *App) tspEdgeLabels(c *ui.Context, k *colors, n *rex.TSPNode) ui.Element
 	return row
 }
 
-// tspEdgeSweep is how long the glow of a running turn takes to cross a
-// composer's edge meter.
-const tspEdgeSweep = 1600 * time.Millisecond
+// tspEdgeSweep is how long the streak of a running turn takes to cross a
+// composer's edge meter, as Tern's.
+const tspEdgeSweep = 2200 * time.Millisecond
 
 // tspEdgeLine draws a composer's edge meter: a hairline, filled to the
 // share used, with its marks (omp's auto-compact threshold). While a turn
-// runs, a glow sweeps the fill from left to right, as in Tern.
+// runs, a streak in the text's color, a quarter of the line wide, crosses
+// the whole line from left to right, as in Tern.
 func (a *App) tspEdgeLine(c *ui.Context, k *colors, n *rex.TSPNode, running bool) ui.Element {
 	value, has := n.Props["value"].(float64)
 	value = max(0, min(1, value))
@@ -603,33 +660,31 @@ func (a *App) tspEdgeLine(c *ui.Context, k *colors, n *rex.TSPNode, running bool
 	fill := tspMeterFill(k, n)
 	line := ui.Box(c.Key("edge-line")).Height(2)
 	var sweep float32 = -1
-	if running && has && value > 0 && a.tspMotion() {
+	if running && a.tspMotion() {
 		sweep = line.Loop("sweep", tspEdgeSweep, ui.EaseInOut)
 	}
 	line.Draw(func(pt *ui.Painter, r ui.Rect) {
-		pt.Fill(r, k.track, 1)
-		if !has {
-			return
+		r.H = 1
+		pt.Fill(r, k.track, 0.5)
+		if has {
+			pt.Fill(ui.Rect{X: r.X, Y: r.Y, W: r.W * float32(value), H: r.H}, fill, 0.5)
 		}
-		used := ui.Rect{X: r.X, Y: r.Y, W: r.W * float32(value), H: r.H}
-		pt.Fill(used, fill, 1)
 		if sweep >= 0 {
-			// A white glow, a quarter of the line wide, from before the
-			// fill's start to past its end, seen within the fill.
-			w := max(48, r.W/4)
-			x := used.X - w + sweep*(used.W+w)
-			pt.Clip(used, 1, func() {
+			// From wholly before the line's start to wholly past its end.
+			w := r.W * 0.24
+			x := r.X - w + sweep*(r.W+w)
+			pt.Clip(r, 0, func() {
 				pt.FillGradient(ui.Rect{X: x, Y: r.Y, W: w, H: r.H}, ui.LinearGradient{Angle: 90, Stops: []ui.GradientStop{
-					{Color: ui.RGBA(255, 255, 255, 0), At: 0},
-					{Color: ui.RGBA(255, 255, 255, 0.95), At: 0.8},
-					{Color: ui.RGBA(255, 255, 255, 0), At: 1},
-				}}, 1)
+					{Color: k.text.Alpha(0), At: 0},
+					{Color: k.text.Alpha(0.85), At: 0.7},
+					{Color: k.text.Alpha(0), At: 1},
+				}}, 0)
 			})
 		}
 		for _, m := range marks {
 			m, _ := m.(map[string]any)
 			at, _ := m["at"].(float64)
-			pt.Fill(ui.Rect{X: r.X + r.W*float32(max(0, min(1, at))), Y: r.Y, W: 1, H: r.H}, k.textMuted, 0)
+			pt.Fill(ui.Rect{X: r.X + r.W*float32(max(0, min(1, at))), Y: r.Y - 2, W: 1, H: r.H + 4}, k.textMuted, 0)
 		}
 	})
 	return line
@@ -871,7 +926,7 @@ func (a *App) surfaceContent(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.
 	})
 	if content.Shortcut(0, ui.KeyEscape) {
 		a.surfacePressed(t, p)
-		if !sf.Closed {
+		if !sf.Closed && !a.trayEscape(p, sf) {
 			p.term.Send([]byte{0x1b})
 		}
 	}
@@ -904,10 +959,12 @@ func (a *App) surfacePressed(t *Tab, p *Pane) {
 // tspNode draws a node and its children, and returns its element: none
 // for a node drawn elsewhere (an overlay) or not at all.
 func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, n *rex.TSPNode) (el ui.Element) {
-	if hidden, _ := n.Props["hidden"].(bool); hidden || tspBlank(n) {
+	role, _ := n.Props["role"].(string)
+	// The status row seats a quiet tray's dots, empty as omp sends it.
+	dots := a.tspPinned && role == "omp.hud.activity" && a.trayDotsHere(p, sf)
+	if hidden, _ := n.Props["hidden"].(bool); hidden || tspBlank(n) && !dots {
 		return
 	}
-	role, _ := n.Props["role"].(string)
 	if a.tspPinned && role == "omp.working.stop" {
 		// Tern leaves the working row's Esc Stop out: the composer's
 		// round button stops the turn.
@@ -926,6 +983,16 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 	case "col":
 		if a.tspPinned && strings.HasPrefix(role, "omp.editor") {
 			el = a.tspComposer(c, key, k, t, p, sf, n)
+			break
+		}
+		if role == "omp.tray" {
+			if a.trayAt.tray == n && a.trayAt.dotted && trayQuiet(p, sf, n) {
+				return // its dots are in the status row
+			}
+			if a.trayOnComposer(p, sf, n) {
+				return // the composer draws it, on top of its card
+			}
+			el = a.tspTray(c, key, k, t, p, sf, n, false)
 			break
 		}
 		sheet := a.tspSheet
@@ -973,6 +1040,9 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		case role == "omp.jobs.widget":
 			// A job's widget in the jobs sheet: a card of its own.
 			col.FillWidth().Padding(10, 14).Radius(8).Border(1, k.panelBorder).Background(k.text.Alpha(0.03))
+		case role == "omp.tray.tail":
+			// A peeked subagent's last tools, a line each, close.
+			col.FillWidth().Gap(1)
 		case tspFlexed(n):
 			// Sized by its row (tspFlex), as a pane beside another.
 		default:
@@ -1003,6 +1073,16 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 			row.Grow(1).MinHeight(0).AlignItems(ui.Stretch)
 		}
 		switch {
+		case role == "omp.tray.head":
+			// A tray card's head, its parts 7 DIPs apart, as Tern's.
+			row.FillWidth().Gap(7)
+		case role == "omp.tray.peek.head" || role == "omp.tray.ev":
+			// A peek's head (its buttons at the end) and its tool lines.
+			row.FillWidth().Gap(8)
+		case role == "omp.tray.tools":
+			// A tray card's tool count, right after its time and as wide
+			// as it, without omp's gear, as Tern's cards show it.
+			row.Gap(1).Shrink(0).Margin(0, 0, 0, -7)
 		case !a.tspPinned:
 			row.FillWidth()
 		case role == "omp.composer.model":
@@ -1057,8 +1137,27 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		}
 		if a.tspPinned && role == "omp.hud.activity" {
 			// The todo pill keeps the right end, with the working row
-			// beside it during a turn or without it after.
+			// beside it during a turn or without it after; the tray's
+			// dots, when it has them, the left.
 			row.Justify(ui.End)
+			if dots {
+				row.Justify(ui.SpaceBetween)
+				el = row.Children(func() {
+					a.statusDots(c, k, p, sf)
+					children()
+				})
+				break
+			}
+		}
+		if role == "omp.tray.tools" {
+			el = row.Children(func() {
+				for _, ch := range n.Children {
+					if ch.Kind != "icon" {
+						a.tspNode(c, k, t, p, sf, ch)
+					}
+				}
+			})
+			break
 		}
 		if a.tspPinned && role == "omp.composer.bar" {
 			el = row.Children(func() { a.tspComposerBar(c, k, t, p, sf, n) })
@@ -1144,6 +1243,10 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 			el = ui.Box(key).Size(1, 14).Background(k.cardBorder).Margin(0, 2)
 			break
 		}
+		if role == "omp.tray.dot" {
+			el = a.trayDot(c, key, k, p, sf, n)
+			break
+		}
 		truncate, _ := n.Props["truncate"].(string)
 		spans, isSpans := n.Props["spans"].([]any)
 		if isSpans && (truncate == "middle" || truncate == "start") {
@@ -1185,6 +1288,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 			// The session's cost, quiet beside the send button, as Tern's.
 			el.TextColor(k.textMuted)
 		}
+		a.trayText(el, k, role)
 		// Kept on one line: whole, or cut with an ellipsis.
 		if truncate != "" {
 			el.SingleLine().MinWidth(0)
@@ -1601,6 +1705,9 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 			stopped = &s
 		}
 		el = ui.Text(c, elapsedText(a.liveMS(c, p, sf, n.ID, age, stopped)/1000)).FontSize(a.tspText(12)).TextColor(k.textMuted).SingleLine().Shrink(0)
+		if role == "omp.tray.time" {
+			el.Font(a.tspLook().mono).FontSize(a.tspText(11))
+		}
 	case "media":
 		el = a.tspMedia(c, key, k, p, n)
 	case "tabs":
@@ -1714,6 +1821,8 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		tree := ui.Column(key).Gap(2).FillWidth()
 		tree.Children(func() { a.tspTreeNodes(c, k, nodes, 0) })
 		el = tree
+	case "button":
+		el = a.tspSmallButton(c, key, k, n)
 	default:
 		return
 	}
@@ -2050,6 +2159,41 @@ func (a *App) tspSpans(k *colors, v []any, size float32, bold bool) ([]ui.Span, 
 	return spans, hrefs
 }
 
+// tspSmallButton draws omp's button (kind button): its icon, its text and
+// its key caps, quiet until the pointer is over it; tone error colors it.
+// The node's click action makes it act (tspClick); its title is its
+// tooltip.
+func (a *App) tspSmallButton(c *ui.Context, key *ui.Context, k *colors, n *rex.TSPNode) ui.Element {
+	text, _ := n.Props["text"].(string)
+	name, _ := n.Props["icon"].(string)
+	keys, _ := n.Props["keys"].([]any)
+	aria, _ := n.Props["aria"].(string)
+	col := k.text
+	if tone, _ := n.Props["tone"].(string); tone == "error" {
+		col = k.attention
+	}
+	b := ui.Row(key).Gap(5).AlignItems(ui.Center).Height(22).Padding(0, 7).Radius(6).Shrink(0).Cursor(ui.CursorPointer)
+	if aria == "" {
+		aria = text
+	}
+	b.Label(aria)
+	if b.Hovered() {
+		b.Background(k.text.Alpha(0.08))
+	}
+	b.Children(func() {
+		if g, ok := tspIcons[name]; ok {
+			ui.Icon(c, icon(g)).Size(12, 12).TextColor(col)
+		}
+		if text != "" {
+			ui.Text(c, text).FontSize(a.tspText(12)).TextColor(col).SingleLine()
+		}
+		if len(keys) > 0 {
+			a.tspKeys(c, k, keys)
+		}
+	})
+	return b
+}
+
 // tspKeys draws key caps, as a hint of what a key does.
 func (a *App) tspKeys(c *ui.Context, k *colors, keys []any) ui.Element {
 	row := ui.Row(c).Gap(3).AlignItems(ui.Center)
@@ -2069,7 +2213,7 @@ func (a *App) tspKeys(c *ui.Context, k *colors, keys []any) ui.Element {
 var tspIcons = map[string]string{
 	"check": "check", "x": "x", "copy": "copy", "folder": "folder", "folder-open": "folder-open",
 	"file": "file", "file-code": "file-code", "branch": "git-branch", "diff": "diff", "trash": "trash-2",
-	"search": "search", "terminal": "terminal", "model": "sparkles", "bot": "bot", "settings": "settings-2",
+	"search": "search", "terminal": "terminal", "model": "sparkles", "bot": "bot", "settings": "settings-2", "gear": "settings-2",
 	"users": "users", "user": "users", "job": "play", "run": "play", "play": "play",
 	"rewind": "rotate-ccw", "undo": "rotate-ccw", "refresh": "refresh-cw", "more": "ellipsis", "plus": "plus",
 	"minus": "minus", "arrow-left": "arrow-left", "chev": "chevron-down", "chev-down": "chevron-down",

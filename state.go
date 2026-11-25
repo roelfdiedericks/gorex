@@ -127,6 +127,8 @@ type Pane struct {
 	// dockH is how tall each live surface's pinned dock was drawn (by
 	// anchor), the space the surface keeps for it.
 	dockH map[uint32]float32
+	// tray is how each live surface's tray shows, by anchor (tsp_tray.go).
+	tray map[uint32]*trayState
 	// tspCard is where the dock's composer (its card, and the meter's
 	// labels over it) was drawn last, in the window: the popups of its
 	// fields open above it (tspOverlayAt).
@@ -343,6 +345,12 @@ type App struct {
 	// where the scrollback does not move it.
 	tspDock   *rex.TSPNode
 	tspPinned bool
+	// trayAt is what the dock being drawn has of omp's tray; trayEye
+	// tells that the tray card being drawn is of the subagent the
+	// composer views, and trayRunning that it still runs (tsp_tray.go).
+	trayAt      trayDock
+	trayEye     bool
+	trayRunning bool
 	// tspFieldBare draws the fields being drawn without a box of their
 	// own, as the dock's composer card is theirs (tspComposer).
 	tspFieldBare bool

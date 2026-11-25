@@ -278,6 +278,9 @@ func (a *App) tspField(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pan
 		case tk.Key == ui.KeyZ && tk.Mods&(ui.Ctrl|ui.Cmd) != 0 && tk.Mods&ui.Shift == 0:
 			send(map[string]any{"ev": "undo"})
 			return true
+		case tk.Key == ui.KeyEscape && tk.Mods == 0 && composer && a.trayEscape(p, sf):
+			// The tray's first: a peek closes, a row from the dots folds.
+			return true
 		case tk.Key == ui.KeyEscape, tk.Key == ui.KeyTab:
 			term.Send(tspKeyBytes(tk.Key, tk.Mods))
 			return true

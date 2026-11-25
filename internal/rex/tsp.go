@@ -29,7 +29,7 @@ import (
 
 // tspKinds are the node kinds the windows draw: the hello reply says so,
 // and programs fall back for the others.
-var tspKinds = []string{"col", "row", "card", "section", "text", "md", "badge", "kv", "list", "item", "code", "table", "progress", "spinner", "status", "rule", "spacer", "kbd", "icon", "editor", "meter", "seg", "image", "elapsed", "rate", "ansi", "checklist", "tree", "overlay", "input", "diff", "chart", "agent", "toast", "tool", "picker", "media", "tabs", "effort", "shimmer", "rows", "prefs", "math", "el"}
+var tspKinds = []string{"col", "row", "card", "section", "text", "md", "badge", "kv", "list", "item", "code", "table", "progress", "spinner", "status", "rule", "spacer", "kbd", "icon", "editor", "meter", "seg", "image", "elapsed", "rate", "ansi", "checklist", "tree", "overlay", "input", "diff", "chart", "agent", "toast", "tool", "picker", "media", "tabs", "effort", "shimmer", "rows", "prefs", "math", "el", "button"}
 
 const (
 	tspAPC     = 65536 // the largest body a message carries
@@ -1076,8 +1076,9 @@ func (t *tspTracker) helloReply() []byte {
 		// telling it what changed; flow: flow surfaces stay among the
 		// output; scroll: the windows act on scroll ops; program-palette:
 		// a surface's palette colors it; reduce-motion: reduceMotion is
-		// the windows' setting, and motion events tell its changes.
-		"kinds": tspKinds, "features": []string{"dock", "blobs", "edit", "undo", "send", "flow", "scroll", "program-palette", "reduce-motion", "aside", "styles"},
+		// the windows' setting, and motion events tell its changes;
+		// tray: the dock shows omp's cards of the work in the background.
+		"kinds": tspKinds, "features": []string{"dock", "blobs", "edit", "undo", "send", "flow", "scroll", "program-palette", "reduce-motion", "aside", "styles", "tray"},
 		"apc": tspAPC, "credits": tspCredits,
 		"cols": t.cols, "cell": map[string]int{"w": t.cellW, "h": t.cellH},
 		"dark": t.dark, "reduceMotion": t.reduce,

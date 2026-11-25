@@ -557,3 +557,28 @@ func TestDragLoneTerminalOutOfEditorTab(t *testing.T) {
 		t.Errorf("the terminal's tab at %d, the editor tab at %d", i, slices.Index(a.tabs, ed))
 	}
 }
+
+// TestMoveLoneTerminalFromEditorTab: a terminal alone in an editor tab,
+// moved beside a pane of another tab, leaves the editor tab with an
+// empty editor, as it does going into a tab of its own.
+func TestMoveLoneTerminalFromEditorTab(t *testing.T) {
+	a, tt := newTestApp(t)
+	root := testDir(t)
+	defer os.RemoveAll(root)
+	term := a.tab().Focus
+	other := a.newTab(os.TempDir()).Focus
+	ed := a.newEditorTab(root)
+	a.swapPanes(term, ed.Root.Pane)
+	tt.Frame()
+	if term.Tab != ed || ed.Root.Pane != term {
+		t.Fatal("the terminal is not alone in the editor tab")
+	}
+	a.movePane(term, other, zoneRight, false, nil)
+	tt.Frame()
+	if !slices.Contains(a.tabs, ed) || term.Tab != other.Tab || term.closed {
+		t.Fatalf("editor tab kept %v; the terminal beside the other pane %v", slices.Contains(a.tabs, ed), term.Tab == other.Tab)
+	}
+	if e := ed.Root.Pane; e == nil || e.Kind != paneEditor || e.edit.path != "" || ed.Focus != e {
+		t.Errorf("the editor tab's pane: %+v", e)
+	}
+}
