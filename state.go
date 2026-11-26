@@ -133,6 +133,9 @@ type Pane struct {
 	// labels over it) was drawn last, in the window: the popups of its
 	// fields open above it (tspOverlayAt).
 	tspCard ui.Rect
+	// tspMeterHot tells that the pointer was over the composer's context
+	// meter in the last frame, which raises it (tspComposer).
+	tspMeterHot bool
 	// composerAt is the frame that drew a live surface's composer field
 	// last, composerFocused whether it had the keyboard focus then, and
 	// composerFocus asks it to take it: the terminal of a pane with a

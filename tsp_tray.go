@@ -37,14 +37,19 @@ import (
 // The tray's sizes, as Tern's, in DIPs: a card's width and the row's
 // height, the main session's strip, the peek's height, the fade at an
 // end of the row with more, and the bar of segments under a row with
-// more than shows.
+// more than shows. A lit card's box is set in trayLitInset from its top
+// and bottom, one less from its sides, and rounded trayLitR, the tray's
+// radius less the inset and a little; the row is taller than Tern's by
+// the inset above and below, for the box to clear a card's last line.
 const (
-	trayCardW = 180
-	trayRowH  = 64
-	trayMainW = 20
-	trayPeekH = 152
-	trayFade  = 36
-	trayScrub = 12
+	trayCardW    = 180
+	trayRowH     = 64 + 2*trayLitInset
+	trayMainW    = 20
+	trayPeekH    = 152
+	trayFade     = 36
+	trayScrub    = 12
+	trayLitInset = 4
+	trayLitR     = 10
 )
 
 // trayState is how a pane shows a surface's tray, from frame to frame.
@@ -116,6 +121,24 @@ func (a *App) trayEscape(p *Pane, sf *rex.Surface) bool {
 		return true
 	}
 	return false
+}
+
+// trayComposerPressed takes a press in the composer for the tray, as the
+// user goes to type: a card's peek closes, and a row shown from the dots
+// folds back to them. A row of running work stays, as Tern's.
+func (a *App) trayComposerPressed(p *Pane, sf *rex.Surface) {
+	st := p.tray[sf.Image]
+	if st == nil || sf.Closed {
+		return
+	}
+	if st.peek != "" {
+		a.tspSend(p, map[string]any{"ev": "action", "sf": sf.ID, "id": st.id, "act": "tray.peek="})
+		st.peek = ""
+	}
+	if st.open {
+		st.fold()
+	}
+	a.changed()
 }
 
 // trayOf is the pane's state of a surface's tray.
@@ -240,6 +263,10 @@ func (a *App) tspTray(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pane
 		return a.trayDots(c, key, k, p, sf, cards)
 	}
 	peekRef, _ := n.Props["peek"].(string)
+	if st.peek != "" && peekRef == "" {
+		// A peek closed, by any route: its card is no longer marked.
+		st.sel = ""
+	}
 	st.peek, st.id = peekRef, n.ID
 	main, _ := n.Props["main"].(string)
 	focus, _ := n.Props["focus"].(float64)
@@ -413,10 +440,18 @@ func (a *App) trayStrip(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surfa
 			return true
 		})
 		strip.Children(func() {
+			// A card lit (chosen, or viewed) shows its rounded box with no
+			// divider on either side.
+			lit := make([]bool, len(cards))
+			chosen := make([]bool, len(cards))
 			for i, card := range cards {
 				ref, _ := card.Props["ref"].(string)
-				chosen := ref != "" && (ref == peekRef || ref == st.sel) || i == 0 && peekRef == "" && st.sel == ""
-				el := a.trayCard(c, k, t, p, sf, card, peekRef, viewing, i > 0, chosen)
+				chosen[i] = ref != "" && (ref == peekRef || ref == st.sel) || i == 0 && peekRef == "" && st.sel == ""
+				lit[i] = chosen[i] || viewing != "" && trayName(card) == viewing
+			}
+			for i, card := range cards {
+				rule := i > 0 && !lit[i] && !lit[i-1]
+				el := a.trayCard(c, k, t, p, sf, card, peekRef, viewing, rule, chosen[i])
 				if takeFocus && i == 0 {
 					el.Focus()
 				}
@@ -705,19 +740,22 @@ func (a *App) trayCard(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surfac
 	viewed := viewing != "" && trayName(n) == viewing
 	card := ui.Column(c.Key("card-"+n.ID)).Width(trayCardW).Height(trayRowH).Shrink(0).Gap(2).Padding(9, 12, 0, 13).Clip().
 		Focusable().Cursor(ui.CursorPointer).Label(aria).SnapAlignX(ui.Start)
-	if rule && !viewed {
+	if rule {
 		card.BorderWidth(0, 0, 0, 1).BorderColor(trayRing(k))
 	}
+	// Its light, and its ring, are a box rounded as the tray, set in from
+	// the card's edges (trayLitInset).
+	var fill, ring ui.Color
 	switch {
 	case viewed:
-		card.Background(k.attention.Alpha(0.07)).Border(1, k.attention.Alpha(0.34))
+		fill, ring = k.attention.Alpha(0.07), k.attention.Alpha(0.34)
 	case chosen:
-		card.Background(k.text.Alpha(0.06))
+		fill = k.text.Alpha(0.06)
 		if ref == st.sel || ref == peekRef {
-			card.Border(1, k.busy.Alpha(0.5))
+			ring = k.busy.Alpha(0.5)
 		}
 	case card.Hovered() || card.Focused():
-		card.Background(k.text.Alpha(0.04))
+		fill = k.text.Alpha(0.04)
 	}
 	send := func(act string) {
 		if act == "" {
@@ -749,13 +787,20 @@ func (a *App) trayCard(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surfac
 		})
 	}
 	card.Children(func() {
+		if fill != (ui.Color{}) {
+			lit := ui.Box(c.Key("lit")).Absolute().Top(trayLitInset).Bottom(trayLitInset).Left(trayLitInset-1).Right(trayLitInset-1).
+				Radius(trayLitR).Background(fill).PassThrough()
+			if ring != (ui.Color{}) {
+				lit.Border(1, ring)
+			}
+		}
 		a.tspHead = true
 		a.trayEye, a.trayRunning = viewed, status == "running" || status == "queued"
 		a.tspChildren(c, k, t, p, sf, n)
 		a.trayEye, a.trayRunning = false, false
 		a.tspHead = false
 		if look && peekAct != "" && !sf.Closed && (card.Hovered() || chosen) {
-			cue := ui.Box(c.Key("cue")).Absolute().Top(3).Right(3).Size(14, 14).Radius(4).
+			cue := ui.Box(c.Key("cue")).Absolute().Top(trayLitInset+3).Right(trayLitInset+2).Size(14, 14).Radius(4).
 				AlignItems(ui.Center).Justify(ui.Center).Cursor(ui.CursorPointer).Label("Peek").Tooltip("Peek  Space")
 			if cue.Hovered() {
 				cue.Background(k.text.Alpha(0.08))

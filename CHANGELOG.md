@@ -25,14 +25,23 @@ to build. It also refuses to build a version that is already published.
   its card marked with an eye, and click MAIN to go back. When nothing
   runs, the status line shows a dot for the newest eight and how many
   more there are: point at a dot to see its card, and click it to show
-  the row. Escape closes a card's details, then folds the row back to
-  dots, as does a click in the composer. The row and a card's details
-  open and close smoothly, and the conversation moves with them.
+  the row. Escape closes a card's details, then folds a row shown from
+  the dots back to dots. A click in the composer does both at once; a
+  row of running work stays. The row and a card's details open and
+  close smoothly, and the conversation moves with them.
 - While omp works, a streak crosses the composer's context line from end
   to end, as in Tern, instead of a glow inside the part used.
 - While you scroll back through an omp conversation, the text under the
   composer's strip is blurred, as in Tern, so the composer reads clearly
   over it.
+- The context line over omp's composer shows its two marks as icons, as
+  in Tern: where the compaction summary starts, and where auto-compact
+  runs. Point at an icon to see what it marks; the whole line lights up
+  under the pointer, and a click anywhere on it opens the Context
+  dialog. Past the summary's mark, the line shows in the accent color.
+- omp's Context dialog looks as in Tern: the tokens used in large type,
+  a full-width bar colored by category with the auto-compact buffer
+  hatched, and a narrower window.
 - In light themes, omp's composer is a touch lighter than the
   conversation behind it, as in Tern.
 

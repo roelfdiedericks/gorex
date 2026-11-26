@@ -570,9 +570,16 @@ func (a *App) tspComposer(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *
 	// Its fields' popups open above it (tspOverlayAt).
 	p.tspCard = col.Bounds()
 	col.Children(func() {
+		// The pointer over the meter, its labels or its marks' icons
+		// raises it, as Tern's: hot goes 0 to 1 over tspEdgeHotMove.
+		var hot float32
+		if p.tspMeterHot {
+			hot = 1
+		}
+		hot = col.AnimateTo("meter-hot", hot, ui.Animation{Duration: tspEdgeHotMove})
 		var labels ui.Element
 		if meter != nil {
-			labels = a.tspEdgeLabels(c, k, meter)
+			labels = a.tspEdgeLabels(c, k, meter, hot)
 		}
 		// omp's tray, while something runs: a tab on top of the card,
 		// under the meter, which then runs along the tab's top edge.
@@ -588,7 +595,8 @@ func (a *App) tspComposer(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *
 		if !a.dark {
 			raised = k.bgBottom.Mix(ui.RGB(255, 255, 255), 0.7)
 		}
-		ui.Column(c).FillWidth().Radius(tspComposerR).Background(raised).Shadow(0, 10, 28, -8, ui.RGBA(0, 0, 0, 0.22)).Children(func() {
+		cardEl := ui.Column(c).FillWidth().Radius(tspComposerR).Background(raised).Shadow(0, 10, 28, -8, ui.RGBA(0, 0, 0, 0.22))
+		cardEl.Children(func() {
 			ui.Column(c).Gap(10).FillWidth().Radius(tspComposerR).Border(1, k.bgBottom.Mix(k.text, 0.1)).Padding(16, 16, 14, 16).Children(func() {
 				a.tspFieldBare = true
 				for _, ch := range rest {
@@ -597,16 +605,25 @@ func (a *App) tspComposer(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *
 				a.tspFieldBare = false
 			})
 		})
+		if cardEl.PressedInside() {
+			// The tray's peek closes, and a row from the dots folds.
+			a.trayComposerPressed(p, sf)
+		}
 		if meter != nil {
-			// Over the card's top border, inside its corners; omp's tone
+			// Over the card's top border, inside its corners, as tall as
+			// to take a click a few DIPs either side of it; omp's tone
 			// pending says a turn runs.
 			tone, _ := n.Props["tone"].(string)
-			line := a.tspEdgeLine(c, k, meter, tone == "pending").Absolute().Top(tspEdgeLabelsH).Left(tspComposerR).Right(tspComposerR)
+			line := a.tspEdgeLine(c, k, meter, tone == "pending", hot).Absolute().Top(tspEdgeLabelsH - tspEdgeLinePad).Left(tspComposerR).Right(tspComposerR)
 			a.tspClick(t, p, sf, meter, labels)
 			a.tspClick(t, p, sf, meter, line)
 			if title, _ := meter.Props["title"].(string); title != "" {
 				labels.Tooltip(title)
 				line.Tooltip(title)
+			}
+			if over := labels.Hovered() || line.Hovered(); over != p.tspMeterHot {
+				p.tspMeterHot = over
+				a.changed()
 			}
 		}
 	})
@@ -615,32 +632,67 @@ func (a *App) tspComposer(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *
 
 // tspEdgeLabelsH is the height of the labels over a composer's edge meter,
 // and tspComposerR the radius of the composer's card, whose corners the
-// meter keeps inside.
+// meter keeps inside. The line's box reaches tspEdgeLinePad above and
+// below it, to take a click; tspEdgeHotMove is how long the meter takes to
+// rise under the pointer, as Tern's.
 const (
 	tspEdgeLabelsH = 15
 	tspComposerR   = 22
+	tspEdgeLinePad = 3
+	tspEdgeHotMove = 180 * time.Millisecond
 )
 
 // tspEdgeLabels draws the labels of a composer's edge meter, over the
 // card: the share used ending where the fill ends, and the total at the
-// right end.
-func (a *App) tspEdgeLabels(c *ui.Context, k *colors, n *rex.TSPNode) ui.Element {
+// right end, faint, the text's color under the pointer (hot 1). Each mark
+// with an icon (omp's compaction summary and auto-compact) has it over
+// the line, as Tern's, faint, its tone's color if it has one, its title a
+// tooltip; it rises 3 DIPs and goes solid under the pointer.
+func (a *App) tspEdgeLabels(c *ui.Context, k *colors, n *rex.TSPNode, hot float32) ui.Element {
 	value, _ := n.Props["value"].(float64)
 	value = max(0, min(1, value))
 	label, _ := n.Props["label"].(string)
 	total, _ := n.Props["total"].(string)
+	marks, _ := n.Props["marks"].([]any)
+	ink := k.textFaint.Mix(k.text, hot)
 	row := ui.Row(c.Key("edge-labels")).FillWidth().Height(tspEdgeLabelsH).Padding(0, tspComposerR).AlignItems(ui.End)
+	span := row.Bounds().W - 2*tspComposerR
 	row.Children(func() {
 		ui.Row(c).Grow(float32(value)).Basis(0).MinWidth(0).Justify(ui.End).Children(func() {
 			if label != "" {
-				ui.Text(c, label).FontSize(a.tspText(10.5)).TextColor(k.textFaint).SingleLine()
+				ui.Text(c, label).FontSize(a.tspText(10.5)).TextColor(ink).SingleLine()
 			}
 		})
 		ui.Row(c).Grow(float32(1 - value)).Basis(0).MinWidth(0).Justify(ui.End).Children(func() {
 			if total != "" {
-				ui.Text(c, total).FontSize(a.tspText(10.5)).TextColor(k.textFaint).SingleLine()
+				ui.Text(c, total).FontSize(a.tspText(10.5)).TextColor(ink).SingleLine()
 			}
 		})
+		if span <= 0 {
+			return
+		}
+		for i, m := range marks {
+			m, _ := m.(map[string]any)
+			name, _ := m["icon"].(string)
+			svg := tspIconSVG(name)
+			if svg == nil {
+				continue
+			}
+			at, _ := m["at"].(float64)
+			tone, _ := m["tone"].(string)
+			color := k.textFaint
+			if tone != "" {
+				color = elTone(k, tone)
+			}
+			mark := ui.Box(c.Key(fmt.Sprintf("edge-mark-%d", i))).Absolute().Size(10, 10).
+				Left(tspComposerR + span*float32(max(0, min(1, at))) - 5).Bottom(2 + 3*hot)
+			if title, _ := m["title"].(string); title != "" {
+				mark.Tooltip(title)
+			}
+			mark.Children(func() {
+				ui.Icon(c, svg).Size(10, 10).TextColor(color.Alpha(0.75 + 0.25*hot))
+			})
+		}
 	})
 	return row
 }
@@ -649,25 +701,47 @@ func (a *App) tspEdgeLabels(c *ui.Context, k *colors, n *rex.TSPNode) ui.Element
 // composer's edge meter, as Tern's.
 const tspEdgeSweep = 2200 * time.Millisecond
 
-// tspEdgeLine draws a composer's edge meter: a hairline, filled to the
-// share used, with its marks (omp's auto-compact threshold). While a turn
-// runs, a streak in the text's color, a quarter of the line wide, crosses
-// the whole line from left to right, as in Tern.
-func (a *App) tspEdgeLine(c *ui.Context, k *colors, n *rex.TSPNode, running bool) ui.Element {
+// tspEdgeLine draws a composer's edge meter as Tern's: a hairline, the
+// text's color faint, filled in it a little stronger to the share used
+// (the error's color past the bad threshold), its parts in their tokens'
+// colors (omp's summed part past the compaction summary's mark in the
+// accent's). Under the pointer (hot 1) it thickens to 2 DIPs and its
+// marks show, ticks across it. While a turn runs, a streak in the text's
+// color, a quarter of the line wide, crosses the whole line from left to
+// right.
+func (a *App) tspEdgeLine(c *ui.Context, k *colors, n *rex.TSPNode, running bool, hot float32) ui.Element {
 	value, has := n.Props["value"].(float64)
 	value = max(0, min(1, value))
 	marks, _ := n.Props["marks"].([]any)
-	fill := tspMeterFill(k, n)
-	line := ui.Box(c.Key("edge-line")).Height(2)
+	parts, _ := n.Props["parts"].([]any)
+	fill := k.text.Alpha(0.42)
+	if tspMeterFill(k, n) == k.attention {
+		fill = k.attention
+	}
+	line := ui.Box(c.Key("edge-line")).Height(2*tspEdgeLinePad + 2)
 	var sweep float32 = -1
 	if running && a.tspMotion() {
 		sweep = line.Loop("sweep", tspEdgeSweep, ui.EaseInOut)
 	}
 	line.Draw(func(pt *ui.Painter, r ui.Rect) {
-		r.H = 1
-		pt.Fill(r, k.track, 0.5)
-		if has {
-			pt.Fill(ui.Rect{X: r.X, Y: r.Y, W: r.W * float32(value), H: r.H}, fill, 0.5)
+		r.Y += tspEdgeLinePad - hot*0.5
+		r.H = 1 + hot
+		pt.Fill(r, k.text.Alpha(0.09+0.04*hot), r.H/2)
+		if has && len(parts) > 0 {
+			x := r.X
+			for _, part := range parts {
+				part, _ := part.(map[string]any)
+				v, _ := part["value"].(float64)
+				w := r.W * float32(max(0, min(1, v)))
+				color := fill
+				if tok, _ := part["token"].(string); tok != "" {
+					color = elTone(k, tok)
+				}
+				pt.Fill(ui.Rect{X: x, Y: r.Y, W: min(w, r.X+r.W-x), H: r.H}, color, r.H/2)
+				x += w
+			}
+		} else if has {
+			pt.Fill(ui.Rect{X: r.X, Y: r.Y, W: r.W * float32(value), H: r.H}, fill, r.H/2)
 		}
 		if sweep >= 0 {
 			// From wholly before the line's start to wholly past its end.
@@ -681,10 +755,18 @@ func (a *App) tspEdgeLine(c *ui.Context, k *colors, n *rex.TSPNode, running bool
 				}}, 0)
 			})
 		}
+		if hot <= 0 {
+			return
+		}
 		for _, m := range marks {
 			m, _ := m.(map[string]any)
 			at, _ := m["at"].(float64)
-			pt.Fill(ui.Rect{X: r.X + r.W*float32(max(0, min(1, at))), Y: r.Y - 2, W: 1, H: r.H + 4}, k.textMuted, 0)
+			color := k.text.Alpha(0.4)
+			if tone, _ := m["tone"].(string); tone != "" {
+				color = elTone(k, tone)
+			}
+			color = color.Alpha(hot)
+			pt.Fill(ui.Rect{X: r.X + r.W*float32(max(0, min(1, at))), Y: r.Y - 3, W: 1, H: r.H + 6}, color, 0)
 		}
 	})
 	return line
@@ -1083,6 +1165,10 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 			// A tray card's tool count, right after its time and as wide
 			// as it, without omp's gear, as Tern's cards show it.
 			row.Gap(1).Shrink(0).Margin(0, 0, 0, -7)
+		case role == "omp.context.summary":
+			// The Context dialog's head: what is used, large, and the room
+			// left before auto-compaction, as Tern's.
+			row.FillWidth().Gap(16).Margin(0, 0, 6, 0)
 		case !a.tspPinned:
 			row.FillWidth()
 		case role == "omp.composer.model":
@@ -1269,6 +1355,25 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 		case role == "omp.jobs.state" && toned:
 			// The selected job's status: MyGo's badge in its tone.
 			el = ui.Badge(c, tspPlain(n.Props["spans"], text)).Background(toneCol.Alpha(0.15)).TextColor(toneCol)
+		case role == "omp.context.used" || role == "omp.context.room":
+			// The Context dialog's head, as Tern's: the figure used large,
+			// what it is of and the room left faint.
+			size := float32(13)
+			if role == "omp.context.room" {
+				size = 12.5
+			}
+			sp := []ui.Span{{Text: text, Size: a.tspText(size)}}
+			if isSpans {
+				sp, _ = a.tspSpans(k, spans, size, false)
+			}
+			for i := range sp {
+				if role == "omp.context.used" && sp[i].Weight > 400 {
+					sp[i].Size, sp[i].Weight, sp[i].Color = a.tspText(28), 600, k.text
+				} else {
+					sp[i].Color = k.textFaint
+				}
+			}
+			el = ui.RichText(c, sp...)
 		case isSpans && toned:
 			sp, _ := a.tspSpans(k, spans, 13, false)
 			for i := range sp {
@@ -1625,28 +1730,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 	case "editor":
 		el = a.tspField(c, key, k, t, p, sf, n, true)
 	case "meter":
-		value, has := n.Props["value"].(float64)
-		marks, _ := n.Props["marks"].([]any)
-		label, _ := n.Props["label"].(string)
-		fill := tspMeterFill(k, n)
-		meter := ui.Row(key).Gap(6).AlignItems(ui.Center)
-		meter.Children(func() {
-			track := ui.Box(c).Height(6).Radius(3).Background(k.track).Width(120).Clip()
-			track.Children(func() {
-				if has {
-					ui.Box(c).WidthPercent(float32(max(0, min(1, value)) * 100)).Height(6).Background(fill)
-				}
-				for i, m := range marks {
-					m, _ := m.(map[string]any)
-					at, _ := m["at"].(float64)
-					ui.Box(c.Key(i)).Absolute().LeftPercent(float32(at * 100)).Top(0).Width(1).Height(6).Background(k.textMuted)
-				}
-			})
-			if label != "" {
-				ui.Text(c, label).FontSize(a.tspText(11)).TextColor(k.textMuted)
-			}
-		})
-		el = meter
+		el = a.tspMeter(c, key, k, n)
 	case "seg":
 		seg := ui.Row(key).Gap(4).AlignItems(ui.Center)
 		seg.Children(func() {
@@ -1976,6 +2060,102 @@ func (a *App) tspClick(t *Tab, p *Pane, sf *rex.Surface, n *rex.TSPNode, el ui.E
 	send(act)
 }
 
+// tspMeter draws a meter of the protocol's, as Tern's: a rounded track, 6
+// DIPs tall, 10 for size lg, filled to its value (tspMeterFill), or in its
+// parts one after the other, each in its token's color and hatched if it
+// says so (omp's Context dialog: its categories, the free space and the
+// auto-compact buffer). Its marks are ticks across it, 2 DIPs wide, in
+// their tones' colors, ringed in the panel's. A bar takes the width it
+// has; another meter's track is 120 DIPs wide. Its label follows it.
+func (a *App) tspMeter(c *ui.Context, key *ui.Context, k *colors, n *rex.TSPNode) ui.Element {
+	value, has := n.Props["value"].(float64)
+	value = max(0, min(1, value))
+	marks, _ := n.Props["marks"].([]any)
+	parts, _ := n.Props["parts"].([]any)
+	label, _ := n.Props["label"].(string)
+	style, _ := n.Props["style"].(string)
+	size, _ := n.Props["size"].(string)
+	h := float32(6)
+	if size == "lg" {
+		h = 10
+	}
+	fill := tspMeterFill(k, n)
+	// The rail, and the free space a part of the track's token shows, as
+	// Tern's layer color: the text's, faint.
+	rail := k.text.Alpha(0.1)
+	hatchInk := ui.RGBA(255, 255, 255, 0.45)
+	meter := ui.Row(key).Gap(8).AlignItems(ui.Center)
+	if style == "bar" {
+		meter.FillWidth()
+	}
+	meter.Children(func() {
+		track := ui.Box(c.Key("track")).Height(h)
+		if style == "bar" {
+			track.Grow(1).MinWidth(40)
+		} else {
+			track.Width(120).Shrink(0)
+		}
+		track.Draw(func(pt *ui.Painter, r ui.Rect) {
+			pt.Fill(r, rail, h/2)
+			pt.Clip(r, h/2, func() {
+				if len(parts) == 0 {
+					if has {
+						pt.Fill(ui.Rect{X: r.X, Y: r.Y, W: r.W * float32(value), H: r.H}, fill, 0)
+					}
+					return
+				}
+				x := r.X
+				for _, part := range parts {
+					part, _ := part.(map[string]any)
+					v, _ := part["value"].(float64)
+					pr := ui.Rect{X: x, Y: r.Y, W: r.W * float32(max(0, min(1, v))), H: r.H}
+					x += pr.W
+					color := fill
+					if tok, _ := part["token"].(string); tok == "track" {
+						color = rail
+					} else if tok != "" {
+						if col, ok := a.spanColor(k, tok); ok {
+							color = col
+						} else {
+							color = k.textMuted
+						}
+					}
+					pt.Fill(pr, color, 0)
+					if hatch, _ := part["hatch"].(bool); hatch {
+						// Light stripes rising to the right, as Tern's, each
+						// cut at the part's ends.
+						x0, x1 := pr.X, pr.X+pr.W
+						seg := make([][2]float32, 2)
+						for sx := x0 - pr.H; sx < x1; sx += 5.5 {
+							t0, t1 := max(0, (x0-sx)/pr.H), min(1, (x1-sx)/pr.H)
+							if t0 < t1 {
+								seg[0] = [2]float32{sx + pr.H*t0, pr.Y + pr.H*(1-t0)}
+								seg[1] = [2]float32{sx + pr.H*t1, pr.Y + pr.H*(1-t1)}
+								pt.StrokePolyline(seg, 1.5, hatchInk)
+							}
+						}
+					}
+				}
+			})
+			for _, m := range marks {
+				m, _ := m.(map[string]any)
+				at, _ := m["at"].(float64)
+				color := k.textMuted
+				if tone, _ := m["tone"].(string); tone != "" {
+					color = elTone(k, tone)
+				}
+				mr := ui.Rect{X: r.X + r.W*float32(max(0, min(1, at))) - 1, Y: r.Y - 3, W: 2, H: r.H + 6}
+				pt.Fill(ui.Rect{X: mr.X - 1, Y: mr.Y - 1, W: mr.W + 2, H: mr.H + 2}, k.panel, 2)
+				pt.Fill(mr, color, 1)
+			}
+		})
+		if label != "" {
+			ui.Text(c, label).FontSize(a.tspText(11)).TextColor(k.textMuted)
+		}
+	})
+	return meter
+}
+
 // tspMeterFill is the color of a meter's fill: by its thresholds of what
 // is left, warn and bad, the attention color.
 func tspMeterFill(k *colors, n *rex.TSPNode) ui.Color {
@@ -2223,6 +2403,7 @@ var tspIcons = map[string]string{
 	"layers": "layers", "brain": "brain", "laptop": "laptop", "monitor": "monitor", "tree": "folder-tree",
 	"list": "list-checks", "list-checks": "list-checks", "box": "puzzle", "puzzle": "puzzle", "plug": "plug",
 	"sparkle": "sparkles", "wrench": "wrench", "palette": "palette", "grid": "layout-grid", "columns": "columns-2",
+	"selection": "square-dot", "wand": "wand",
 	// omp's settings pages.
 	"appearance": "palette", "interaction": "mouse-pointer-click", "context": "layers", "memory": "brain",
 	"files": "file", "shell": "terminal", "tools": "wrench", "tasks": "list-checks", "providers": "plug",
@@ -2236,6 +2417,7 @@ var tspIconAliases = map[string]string{
 	"running": "activity", "aborted": "stop", "cancelled": "stop", "disabled": "minus", "model": "sparkle",
 	"plan": "list", "goal": "pin", "loop": "redo", "git": "branch", "pr": "merge", "tokens": "hash",
 	"speculation": "selection", "compaction": "wand", "context": "layers", "cost": "hash", "time": "clock",
+	"context.speculation": "selection", "context.compaction": "wand",
 	"agents": "user", "agent": "user", "job": "run", "cache": "database", "input": "download", "output": "send",
 	"host": "laptop", "session": "history", "worktree": "tree", "bash": "terminal", "shell": "terminal",
 	"edit": "pen", "write": "pen", "read": "doc", "web": "globe", "url": "link", "todo": "list", "task": "layers",
@@ -2271,7 +2453,7 @@ func (a *App) tspIcon(c *ui.Context, k *colors, name string) ui.Element {
 		"arrow-up": "↑", "arrow-down": "↓", "arrow-right": "→", "back": "←", "forward": "→",
 		"chev-r": "›", "chev-up": "︿", "dot": "•", "star": "★", "clock": "◷", "timer": "⏱", "lightbulb": "💡",
 		"pause": "⏸", "stop": "■", "send": "➤", "lock": "🔒", "key": "⚿", "bell": "🔔",
-		"context.speculation": "◔", "context.compaction": "◑", "commit": "●", "merge": "⑂",
+		"commit": "●", "merge": "⑂",
 	}[name]
 	if glyph == "" {
 		glyph = "•"
@@ -2549,7 +2731,15 @@ func (a *App) surfaceOverlays(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex
 		if anchored {
 			a.tspOverlayAt(panel, p, at, near, size)
 		} else {
-			panel.LeftPercent((100 - width) / 2).WidthPercent(width)
+			if role, _ := ov.Props["role"].(string); role == "omp.overlay.report" && size == "lg" {
+				// omp's reports (the Context dialog) at most 720 DIPs wide,
+				// as Tern's, centered clear of the scroll bar.
+				host, strip := p.hostBounds, p.term.ScrollbarStrip()
+				w := max(min(720, host.W-16-strip), 0)
+				panel.Left((host.W - strip - w) / 2).Width(w)
+			} else {
+				panel.LeftPercent((100 - width) / 2).WidthPercent(width)
+			}
 			anchor, _ := ov.Props["anchor"].(string)
 			switch anchor {
 			case "top":
