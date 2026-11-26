@@ -21,6 +21,13 @@ to build. It also refuses to build a version that is already published.
   composer's Viewing line hides; otherwise it shows the subagent's name
   in a pill, with esc main at the right end to go back.
 - Key caps read esc and show a return arrow for Enter, as in Tern.
+- A large paste into omp's composer, more than 10 lines or 1,000
+  characters, goes to omp as in Tern: omp collapses it into a chip, or
+  asks how to attach it when it's very long. Smaller pastes go straight
+  into the composer, as before.
+- Fixed: pasting text that a program reads itself, as omp does with a
+  large paste, showed "Image pasted". It now says "Pasted", and only an
+  image says image.
 
 ## 0.1.20
 

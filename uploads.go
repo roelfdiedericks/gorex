@@ -376,6 +376,7 @@ func (a *App) dropOnTerminal(p *Pane, paths []string) {
 		for i, t := range top {
 			quoted[i] = hostQuote(t)
 		}
+		p.pasteText = true
 		p.term.Paste(strings.Join(quoted, " "))
 	})
 }
@@ -390,6 +391,7 @@ func pasteLocalPaths(p *Pane, paths []string) {
 	for i, t := range paths {
 		quoted[i] = hostQuote(t)
 	}
+	p.pasteText = true
 	p.term.Paste(strings.Join(quoted, " "))
 }
 

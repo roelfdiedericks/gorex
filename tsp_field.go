@@ -23,9 +23,28 @@ import (
 // Escape, Tab, the arrows at the edges, chords, go to the program through
 // the terminal, as any key (tspChordBytes): Ctrl+C copies a selection
 // only, as the terminal's does, and Alt chords are the program's.
-// A paste of text goes into the field; a paste
-// without text (an image) goes to the program through the terminal, as a
-// paste into the terminal would, which programs take as an attachment.
+// A paste of text goes into the field, but a large one (tspLargePaste) in
+// omp's composer goes to omp, as Tern's does; a paste without text (an
+// image) goes to the program through the terminal, as a paste into the
+// terminal would, which programs take as an attachment.
+
+// tspLargePaste reports whether a pasted text is large as omp counts it:
+// more than 10 lines or more than 1000 characters (UTF-16 units, as its
+// JavaScript has them). omp makes such a paste a chip, or asks how to
+// attach it, rather than typing it into the draft.
+func tspLargePaste(text string) bool {
+	if strings.Count(text, "\n") >= 10 {
+		return true
+	}
+	n := 0
+	for _, r := range text {
+		n += utf16.RuneLen(r)
+		if n > 1000 {
+			return true
+		}
+	}
+	return false
+}
 
 // tspField is what the window keeps of a program's field: its text, which
 // the widget edits; what the program last said of it (said); the texts
@@ -215,9 +234,18 @@ func (a *App) tspField(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pan
 		}
 	}
 	term := p.term
+	composer := a.tspFieldBare
 	el.OnPaste(func(clip string) bool {
 		if clip != "" {
-			return false
+			if !composer || !tspLargePaste(clip) {
+				return false
+			}
+			// A large paste in omp's composer goes to omp as a paste, as
+			// Tern's does, which collapses it to a chip or asks how to
+			// attach it; the field takes the draft omp then has.
+			p.pasteText = true
+			term.Paste(clip)
+			return true
 		}
 		// No text: an image or a file, which the program takes through
 		// the terminal, as a paste into it.
@@ -225,12 +253,12 @@ func (a *App) tspField(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pan
 		if len(d.Formats()) == 0 {
 			return false
 		}
+		p.pasteText = false
 		term.PasteData(d)
 		return true
 	})
 	caretRunes, selected := &f.caretRunes, &f.selected
 	ctrlCCopies, optionAsAlt := is(a.eff.Terminal.CtrlCCopies), is(a.eff.Terminal.OptionAsAlt)
-	composer := a.tspFieldBare
 	el.OnTextKey(func(tk ui.TextKey) bool {
 		// The text area takes the keys it edits with before the pane's
 		// shortcuts (view.go) see them: the composer scrolls with them

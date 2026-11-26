@@ -136,6 +136,10 @@ type Pane struct {
 	// tspMeterHot tells that the pointer was over the composer's context
 	// meter in the last frame, which raises it (tspComposer).
 	tspMeterHot bool
+	// pasteText tells that GoRex itself pasted text into the terminal
+	// (a large paste for omp, an upload's paths), and pasteImage that the
+	// paste being offered to the program is an image (pasteStatus).
+	pasteText, pasteImage bool
 	// composerAt is the frame that drew a live surface's composer field
 	// last, composerFocused whether it had the keyboard focus then, and
 	// composerFocus asks it to take it: the terminal of a pane with a

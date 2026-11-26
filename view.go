@@ -864,8 +864,10 @@ func (a *App) toasts(c *ui.Context, k *colors) {
 	})
 }
 
-// pasteStatus tells how a paste of an image to a program goes, in one
-// toast per pane, which changes as it goes and leaves once it is sent.
+// pasteStatus tells how a paste to a program that reads it itself goes,
+// in one toast per pane, which changes as it goes and leaves once it is
+// sent. An image says so; text (as omp takes a large paste, or a path
+// GoRex pastes) is a paste.
 func (a *App) pasteStatus(p *Pane, status terminal.PasteStatus, sent, total int) {
 	id := fmt.Sprintf("paste/%d", p.ID)
 	host := a.hostName()
@@ -878,18 +880,38 @@ func (a *App) pasteStatus(p *Pane, status terminal.PasteStatus, sent, total int)
 		}
 		return fmt.Sprintf("%d bytes", n)
 	}
+	if status == terminal.PasteOffered {
+		// What is offered: text GoRex pasted itself, else what the
+		// clipboard holds.
+		p.pasteImage = !p.pasteText && a.clipboardHasImage()
+		p.pasteText = false
+	}
+	what, done := "paste", "Pasted"
+	if p.pasteImage {
+		what, done = "image", "Image pasted"
+	}
 	switch status {
 	case terminal.PasteOffered:
-		a.toast(ui.Toast{ID: id, Title: "Pasting image…", Description: "to " + host, Type: "working", Timeout: -1})
+		a.toast(ui.Toast{ID: id, Title: "Pasting " + what + "…", Description: "to " + host, Type: "working", Timeout: -1})
 	case terminal.PasteSending:
-		a.toast(ui.Toast{ID: id, Title: "Sending image", Description: size(sent) + " of " + size(total) + " to " + host, Type: "working", Timeout: -1})
+		a.toast(ui.Toast{ID: id, Title: "Sending " + what, Description: size(sent) + " of " + size(total) + " to " + host, Type: "working", Timeout: -1})
 	case terminal.PasteSent:
-		a.toast(ui.Toast{ID: id, Title: "Image pasted", Description: size(total) + " to " + host, Timeout: 2 * time.Second})
+		a.toast(ui.Toast{ID: id, Title: done, Description: size(total) + " to " + host, Timeout: 2 * time.Second})
 	case terminal.PasteNotTaken:
-		a.toast(ui.Toast{ID: id, Title: "The program didn't accept the image", Type: "error"})
+		a.toast(ui.Toast{ID: id, Title: "The program didn't accept the " + what, Type: "error"})
 	case terminal.PasteNoText:
 		a.toast(ui.Toast{ID: id, Title: "This program doesn't accept images", Type: "error"})
 	}
+}
+
+// clipboardHasImage reports whether the clipboard holds an image.
+func (a *App) clipboardHasImage() bool {
+	for _, f := range a.services.ReadClipboardData().Formats() {
+		if strings.HasPrefix(string(f), "image/") {
+			return true
+		}
+	}
+	return false
 }
 
 // connectionBar shows how connecting to the server goes, under the panes,
