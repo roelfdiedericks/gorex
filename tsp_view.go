@@ -1282,6 +1282,9 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 			} else {
 				row.AlignItems(ui.Start).Gap(14).Wrap()
 			}
+		case role == "omp.composer.chips":
+			// The draft's chips side by side, 6 DIPs apart, as Tern's.
+			row.FillWidth().Gap(6)
 		case strings.HasPrefix(role, "omp.composer.") && role != "omp.composer.bar" && role != "omp.composer.line":
 			// The composer's other controls take their content's width.
 			row.Shrink(0)
@@ -1401,6 +1404,10 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 			el = row.Children(children)
 		}
 	case "card":
+		if role == "omp.composer.chip" {
+			el = a.tspChip(c, key, k, t, p, sf, n)
+			break
+		}
 		status, _ := n.Props["status"].(string)
 		variant, _ := n.Props["variant"].(string)
 		head, body, collapsed := a.tspFold(p, sf, n)
@@ -2441,6 +2448,50 @@ func (a *App) tspButton(key *ui.Context, k *colors, n *rex.TSPNode) ui.Element {
 		b.Disabled(true)
 	}
 	return b.Shrink(0)
+}
+
+// tspChip draws a chip of omp's composer (omp.composer.chip), a paste or
+// an image attached to the draft, as Tern's: 44 DIPs tall and at most 220
+// wide, a 36 DIP tile at its left (a pasted text's first lines, tiny, or
+// the image), its name over its size at its right.
+func (a *App) tspChip(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, n *rex.TSPNode) ui.Element {
+	var preview, size *rex.TSPNode
+	if len(n.Children) > 0 {
+		preview = n.Children[0]
+	}
+	if len(n.Children) > 1 {
+		size = n.Children[1]
+	}
+	mono := a.tspLook().mono
+	chip := ui.Row(key).Height(44).MaxWidth(220).Padding(4, 12, 4, 4).Gap(9).Radius(10).Shrink(0).
+		Background(k.text.Alpha(0.04)).Border(1, k.text.Alpha(0.08)).AlignItems(ui.Center)
+	chip.Children(func() {
+		tile := ui.Box(c.Key("tile")).Size(36, 36).Radius(7).Background(k.text.Alpha(0.04)).Clip().Shrink(0)
+		tile.Children(func() {
+			switch {
+			case preview == nil:
+			case preview.Kind == "text":
+				text, _ := preview.Props["text"].(string)
+				ui.Text(c, tspPlain(preview.Props["spans"], text)).Font(mono).FontSize(5).LineHeight(7.0/5).
+					TextColor(k.textMuted).NoWrap().Margin(5, 4, 0, 4)
+			case preview.Kind == "image":
+				blob, _ := preview.Props["blob"].(string)
+				if bm := a.tspImages[blob]; bm != nil {
+					bw, bh := bm.Size()
+					s := min(36/float32(bw), 36/float32(bh))
+					ui.Image(c, bm).Size(float32(bw)*s, float32(bh)*s)
+				}
+			}
+		})
+		ui.Column(c.Key("label")).MinWidth(0).Justify(ui.Center).Children(func() {
+			a.tspRich(c, k, n.Props["head"], 12, true).SingleLine()
+			if size != nil {
+				text, _ := size.Props["text"].(string)
+				ui.Text(c, tspPlain(size.Props["spans"], text)).Font(mono).FontSize(a.tspText(11)).TextColor(k.textFaint).SingleLine()
+			}
+		})
+	})
+	return chip
 }
 
 // tspPlain is the plain text of the protocol's rich text v (spans), else

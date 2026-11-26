@@ -25,6 +25,9 @@ to build. It also refuses to build a version that is already published.
   characters, goes to omp as in Tern: omp collapses it into a chip, or
   asks how to attach it when it's very long. Smaller pastes go straight
   into the composer, as before.
+- Pastes and images attached in omp's composer show as chips, as in
+  Tern: a small preview of the text or image, with its name and size
+  beside it.
 - Fixed: pasting text that a program reads itself, as omp does with a
   large paste, showed "Image pasted". It now says "Pasted", and only an
   image says image.
