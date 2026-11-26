@@ -337,6 +337,9 @@ type App struct {
 	// tspHead tells that a surface's head slot is being drawn, whose
 	// text is not selectable: a click on it folds.
 	tspHead bool
+	// tspJobRow tells that a job widget's bar or meter row is being
+	// drawn, whose label is small (trayText's job widget roles).
+	tspJobRow bool
 	// tspList and tspSelected are the list being drawn and its selected
 	// item; tspOverlays the overlays of the surface being drawn, which
 	// float over it after it.

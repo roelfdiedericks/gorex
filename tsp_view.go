@@ -1102,6 +1102,15 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 			})
 			break
 		}
+		if role == "omp.tray.done" {
+			// A peek's finished list: the height the peek leaves, scrolled
+			// without a bar, its lines' light reaching the peek's edge.
+			list := ui.Scroll(key).FillWidth().Grow(1).MinHeight(0).TrackScroll(&p.trayOf(sf.Image).done).Scrollbars(false)
+			el = list.Children(func() {
+				ui.Column(c).FillWidth().Margin(0, 0, 0, -6).Children(children)
+			})
+			break
+		}
 		col := ui.Column(key).Gap(a.tspGap(8))
 		switch {
 		case a.tspPinned && role == "omp.hud.status":
@@ -1169,6 +1178,19 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 			// The Context dialog's head: what is used, large, and the room
 			// left before auto-compaction, as Tern's.
 			row.FillWidth().Gap(16).Margin(0, 0, 6, 0)
+		case role == "omp.tray.glance":
+			// A job card's figure, spark and stage, the stage going to a
+			// second line where they do not fit one, as Tern's.
+			row.FillWidth().Gap(0).Wrap().Height(32).Clip()
+		case role == "omp.tray.done.item":
+			// A line of a peek's finished list: 24 DIPs, lit under the
+			// pointer.
+			row.FillWidth().Gap(8).Height(24).Padding(0, 6).Radius(6).Shrink(0)
+			if row.Hovered() {
+				row.Background(k.hover)
+			}
+		case role == "omp.job.widget.head" || role == "omp.job.widget.bar" || role == "omp.job.widget.meter":
+			row.FillWidth().Gap(8)
 		case !a.tspPinned:
 			row.FillWidth()
 		case role == "omp.composer.model":
@@ -1249,7 +1271,58 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 			el = row.Children(func() { a.tspComposerBar(c, k, t, p, sf, n) })
 			break
 		}
-		el = row.Children(children)
+		switch role {
+		case "omp.tray.glance":
+			el = row.Children(func() {
+				for i, ch := range n.Children {
+					if e := a.tspNode(c, k, t, p, sf, ch); i < len(n.Children)-1 {
+						e.Margin(0, 6, 0, 0)
+					}
+				}
+			})
+		case "omp.tray.done.item":
+			// Its name and what it reported, then the model, effort,
+			// time, tools and cost at the end, as Tern orders them.
+			el = row.Children(func() {
+				var meta *rex.TSPNode
+				for _, ch := range n.Children {
+					if r, _ := ch.Props["role"].(string); r == "omp.tray.meta" {
+						meta = ch
+						continue
+					}
+					a.tspNode(c, k, t, p, sf, ch)
+				}
+				if meta != nil {
+					a.tspNode(c, k, t, p, sf, meta).Shrink(0)
+				}
+			})
+		case "omp.tray.peek.head", "omp.job.widget.head":
+			// What ends the row (a peek's buttons, a widget's headline)
+			// at its right end, unless something before it grows.
+			el = row.Children(func() {
+				pushed := false
+				for _, ch := range n.Children {
+					if g, _ := ch.Props["grow"].(float64); g > 0 {
+						pushed = true
+					}
+				}
+				for _, ch := range n.Children {
+					if r, _ := ch.Props["role"].(string); !pushed && (ch.Kind == "button" || r == "omp.job.widget.headline") {
+						ui.Box(c).Grow(1)
+						pushed = true
+					}
+					a.tspNode(c, k, t, p, sf, ch)
+				}
+			})
+		case "omp.job.widget.bar", "omp.job.widget.meter":
+			el = row.Children(func() {
+				a.tspJobRow = true
+				children()
+				a.tspJobRow = false
+			})
+		default:
+			el = row.Children(children)
+		}
 	case "card":
 		status, _ := n.Props["status"].(string)
 		variant, _ := n.Props["variant"].(string)
@@ -1351,6 +1424,14 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 			// Work under way, in amber, as Tern's.
 			toneCol, toned = k.attention, true
 		}
+		// The spans' size: the tray's and job widgets' texts are smaller,
+		// as Tern's (trayTextSize), a widget's bar labels too.
+		spanSize := float32(13)
+		if s := trayTextSize(role); s > 0 {
+			spanSize = s
+		} else if a.tspJobRow {
+			spanSize = 11.5
+		}
 		switch {
 		case role == "omp.jobs.state" && toned:
 			// The selected job's status: MyGo's badge in its tone.
@@ -1375,7 +1456,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 			}
 			el = ui.RichText(c, sp...)
 		case isSpans && toned:
-			sp, _ := a.tspSpans(k, spans, 13, false)
+			sp, _ := a.tspSpans(k, spans, spanSize, false)
 			for i := range sp {
 				if sp[i].Color == k.text {
 					sp[i].Color = toneCol
@@ -1383,7 +1464,7 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 			}
 			el = ui.RichText(c, sp...).TextColor(toneCol)
 		case isSpans:
-			el = a.tspRich(c, k, spans, 13, false)
+			el = a.tspRich(c, k, spans, spanSize, false)
 		case toned:
 			el = ui.Text(c, text).FontSize(a.tspText(13)).TextColor(toneCol)
 		default:
@@ -1393,11 +1474,20 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 			// The session's cost, quiet beside the send button, as Tern's.
 			el.TextColor(k.textMuted)
 		}
-		a.trayText(el, k, role)
-		// Kept on one line: whole, or cut with an ellipsis.
-		if truncate != "" {
+		if !a.trayText(el, k, role) && a.tspJobRow {
+			// A job widget's bar or meter row: its label small, in the
+			// terminal's font, quiet, as Tern's.
+			el.Font(a.tspLook().mono).FontSize(a.tspText(11.5)).TextColor(k.textMuted)
+		}
+		// Kept on one line: whole, or cut with an ellipsis. A text of
+		// several lines (a job's last output) keeps them, each whole.
+		wrap, _ := n.Props["wrap"].(string)
+		switch {
+		case truncate != "":
 			el.SingleLine().MinWidth(0)
-		} else if wrap, _ := n.Props["wrap"].(string); wrap == "none" {
+		case wrap == "none" && strings.Contains(text, "\n"):
+			el.NoWrap()
+		case wrap == "none":
 			el.SingleLine().Shrink(0)
 		}
 		if !a.tspHead {
@@ -2065,8 +2155,9 @@ func (a *App) tspClick(t *Tab, p *Pane, sf *rex.Surface, n *rex.TSPNode, el ui.E
 // parts one after the other, each in its token's color and hatched if it
 // says so (omp's Context dialog: its categories, the free space and the
 // auto-compact buffer). Its marks are ticks across it, 2 DIPs wide, in
-// their tones' colors, ringed in the panel's. A bar takes the width it
-// has; another meter's track is 120 DIPs wide. Its label follows it.
+// their tones' colors, ringed in the panel's. A bar, or a meter told to
+// grow, takes the width it has; another meter's track is 120 DIPs wide.
+// Its label follows it.
 func (a *App) tspMeter(c *ui.Context, key *ui.Context, k *colors, n *rex.TSPNode) ui.Element {
 	value, has := n.Props["value"].(float64)
 	value = max(0, min(1, value))
@@ -2084,13 +2175,20 @@ func (a *App) tspMeter(c *ui.Context, key *ui.Context, k *colors, n *rex.TSPNode
 	// Tern's layer color: the text's, faint.
 	rail := k.text.Alpha(0.1)
 	hatchInk := ui.RGBA(255, 255, 255, 0.45)
+	// A bar, and a meter the program tells to grow (a job widget's bars),
+	// stretches its track across the width it has.
+	grow, _ := n.Props["grow"].(float64)
+	stretch := style == "bar" || grow > 0
 	meter := ui.Row(key).Gap(8).AlignItems(ui.Center)
 	if style == "bar" {
 		meter.FillWidth()
 	}
+	if stretch {
+		meter.MinWidth(0)
+	}
 	meter.Children(func() {
 		track := ui.Box(c.Key("track")).Height(h)
-		if style == "bar" {
+		if stretch {
 			track.Grow(1).MinWidth(40)
 		} else {
 			track.Width(120).Shrink(0)

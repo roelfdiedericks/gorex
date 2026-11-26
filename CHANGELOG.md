@@ -4,6 +4,19 @@ Each release's version is its heading in this file. The `version` in
 `mygo.json` must match the top heading. Otherwise `make website` refuses
 to build. It also refuses to build a version that is already published.
 
+## 0.1.21
+
+- omp's background work row shares its width between its cards when
+  there are only a few, as in Tern, so a job's name and progress are no
+  longer cut short.
+- A background job's details show omp's summary of the job beside its
+  last lines of output, as in Tern, with its progress bars across the
+  space they have.
+- The details of finished work list each subagent on one line, as in
+  Tern: its name and what it reported, with the model, effort, time,
+  tools and cost at the right end. The list scrolls, and lights the line
+  under the pointer.
+
 ## 0.1.20
 
 - Drag a terminal into an editor tab too, as a file could already go into

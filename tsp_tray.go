@@ -62,8 +62,9 @@ type trayState struct {
 	// that the row brought into sight.
 	open      bool
 	sel, seen string
-	// scroll is how far the row of cards is scrolled.
-	scroll ui.ScrollState
+	// scroll is how far the row of cards is scrolled, done how far a
+	// peek's finished list is.
+	scroll, done ui.ScrollState
 	// peek is the card peeked at as last drawn, "" for none, and id the
 	// tray's node, which an action names.
 	peek, id string
@@ -338,7 +339,7 @@ func (a *App) tspTray(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pane
 				// Laid out at its full height, the panel cutting it.
 				ui.Column(c.Key("peek-body")).FillWidth().Height(trayPeekH).Shrink(0).Gap(3).Padding(6, 8, 10, 13).Children(func() {
 					a.tspHead = true
-					a.tspChildren(c, k, t, p, sf, shown)
+					a.trayPeekBody(c, k, t, p, sf, shown)
 					a.tspHead = false
 				})
 			})
@@ -351,6 +352,41 @@ func (a *App) tspTray(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pane
 		})
 	})
 	return tray
+}
+
+// trayPeekBody draws what a peek holds, as Tern lays it out: a job's
+// widget (omp.job.widget) and its last lines of output (omp.tray.out)
+// side by side under the head, the output a little wider; anything else
+// in order, a finished list (omp.tray.done) taking the height left.
+func (a *App) trayPeekBody(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, peek *rex.TSPNode) {
+	var widget, out *rex.TSPNode
+	for _, ch := range peek.Children {
+		switch role, _ := ch.Props["role"].(string); role {
+		case "omp.job.widget":
+			widget = ch
+		case "omp.tray.out":
+			out = ch
+		}
+	}
+	if widget == nil {
+		a.tspChildren(c, k, t, p, sf, peek)
+		return
+	}
+	for _, ch := range peek.Children {
+		if ch != widget && ch != out {
+			a.tspNode(c, k, t, p, sf, ch)
+		}
+	}
+	ui.Row(c.Key("peek-job")).FillWidth().Grow(1).MinHeight(0).Gap(20).AlignItems(ui.Start).Children(func() {
+		ui.Column(c.Key("peek-widget")).Grow(1).Basis(0).MinWidth(0).Padding(2, 0, 0, 0).Clip().Children(func() {
+			a.tspNode(c, k, t, p, sf, widget)
+		})
+		if out != nil {
+			ui.Column(c.Key("peek-out")).Grow(1.15).Basis(0).MinWidth(0).Padding(3, 0, 0, 0).Clip().Children(func() {
+				a.tspNode(c, k, t, p, sf, out)
+			})
+		}
+	})
 }
 
 // trayTuck is how far the tray's tab goes under the composer's card.
@@ -414,6 +450,12 @@ func (a *App) trayStrip(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surfa
 	box := ui.Column(c.Key("strip-box")).Grow(1).MinWidth(0)
 	over := sc.MaxX > 0
 	viewW := box.Bounds().W
+	// Few cards share the row's width, as Tern's; more are trayCardW
+	// wide, and the row scrolls.
+	cardW := float32(trayCardW)
+	if n := len(cards); n > 0 {
+		cardW = max(cardW, float32(math.Floor(float64(viewW/float32(n)))))
+	}
 	to := func(x float32) {
 		sc.ScrollTo(min(max(x, 0), sc.MaxX), sc.Y, ui.Smooth)
 		a.changed()
@@ -451,7 +493,7 @@ func (a *App) trayStrip(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surfa
 			}
 			for i, card := range cards {
 				rule := i > 0 && !lit[i] && !lit[i-1]
-				el := a.trayCard(c, k, t, p, sf, card, peekRef, viewing, rule, chosen[i])
+				el := a.trayCard(c, k, t, p, sf, card, peekRef, viewing, rule, chosen[i], cardW)
 				if takeFocus && i == 0 {
 					el.Focus()
 				}
@@ -725,8 +767,8 @@ func trayDoneCount(card *rex.TSPNode) int {
 // at it (omp's detail panel above the row, with Open, Stop and Dismiss),
 // or closes its peek; a double click or Enter opens it, and Space peeks.
 // The card the composer views has an eye, and the card chosen (the
-// first, unless one was chosen) is lit, with the mark.
-func (a *App) trayCard(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, n *rex.TSPNode, peekRef, viewing string, rule, chosen bool) ui.Element {
+// first, unless one was chosen) is lit, with the mark. It is w wide.
+func (a *App) trayCard(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, n *rex.TSPNode, peekRef, viewing string, rule, chosen bool, w float32) ui.Element {
 	ref, _ := n.Props["ref"].(string)
 	item, _ := n.Props["item"].(string)
 	status, _ := n.Props["status"].(string)
@@ -738,7 +780,7 @@ func (a *App) trayCard(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surfac
 	peekAct, openAct := trayActs(ref, peekRef, item, look)
 	aria, _ := n.Props["aria"].(string)
 	viewed := viewing != "" && trayName(n) == viewing
-	card := ui.Column(c.Key("card-"+n.ID)).Width(trayCardW).Height(trayRowH).Shrink(0).Gap(2).Padding(9, 12, 0, 13).Clip().
+	card := ui.Column(c.Key("card-"+n.ID)).Width(w).Height(trayRowH).Shrink(0).Gap(2).Padding(9, 12, 0, 13).Clip().
 		Focusable().Cursor(ui.CursorPointer).Label(aria).SnapAlignX(ui.Start)
 	if rule {
 		card.BorderWidth(0, 0, 0, 1).BorderColor(trayRing(k))
@@ -852,24 +894,61 @@ func trayActs(ref, peekRef, item string, look bool) (peek, open string) {
 	return peek, open
 }
 
+// trayTextSize is the size of a text of the tray, or of a job's widget,
+// by its role, as Tern's, at the scale of 13 (tspText); 0 for another.
+// Rich text takes it for its spans, which carry their size.
+func trayTextSize(role string) float32 {
+	switch role {
+	case "omp.tray.name", "omp.job.widget.title":
+		return 12.5
+	case "omp.tray.id", "omp.tray.stats", "omp.tray.ev.tool", "omp.tray.model", "omp.tray.meta",
+		"omp.tray.stage", "omp.tray.peek.meta", "omp.job.widget.caption":
+		return 11
+	case "omp.tray.done.more", "omp.tray.out", "omp.job.widget.stat", "omp.job.widget.text":
+		return 11.5
+	case "omp.tray.doing", "omp.tray.line", "omp.tray.ev.text", "omp.tray.peek.task",
+		"omp.job.widget.stage", "omp.job.widget.headline":
+		return 12
+	}
+	return 0
+}
+
 // trayText styles a text of the tray by its role, as Tern does: the name
 // semibold, what it does in the window's font, the rest small in the
-// terminal's font, quiet.
+// terminal's font, quiet. A job's widget, in its peek and in the jobs
+// sheet, the same way: its title semibold, its figures small in the
+// terminal's font. Its size is trayTextSize's.
 func (a *App) trayText(el ui.Element, k *colors, role string) bool {
 	mono := a.tspLook().mono
 	switch role {
 	case "omp.tray.name":
-		el.FontSize(a.tspText(12.5)).Bold()
-	case "omp.tray.id", "omp.tray.stats", "omp.tray.done.more", "omp.tray.ev.tool":
-		el.Font(mono).FontSize(a.tspText(11)).TextColor(k.textMuted.Alpha(0.8))
-	case "omp.tray.model", "omp.tray.meta", "omp.tray.stage", "omp.tray.out", "omp.tray.peek.meta":
-		el.Font(mono).FontSize(a.tspText(11)).TextColor(k.textMuted)
+		el.Bold()
+	case "omp.tray.id", "omp.tray.stats", "omp.tray.ev.tool":
+		el.Font(mono).TextColor(k.textMuted.Alpha(0.8))
+	case "omp.tray.done.more":
+		el.TextColor(k.textFaint).Margin(4, 6, 0, 6)
+	case "omp.tray.model", "omp.tray.meta", "omp.tray.stage", "omp.tray.peek.meta":
+		el.Font(mono).TextColor(k.textMuted)
+	case "omp.tray.out":
+		el.Font(mono).LineHeight(17.0 / 11.5).TextColor(k.textMuted)
 	case "omp.tray.doing", "omp.tray.line", "omp.tray.ev.text", "omp.tray.peek.task":
-		el.FontSize(a.tspText(12))
+	case "omp.job.widget.stat", "omp.job.widget.text":
+		el.Font(mono)
 	case "omp.tray.caption":
 		el.TextColor(k.textMuted)
+	case "omp.job.widget.title":
+		el.FontWeight(600)
+	case "omp.job.widget.stage":
+		el.TextColor(k.textMuted)
+	case "omp.job.widget.headline":
+		el.Font(mono)
+	case "omp.job.widget.caption":
+		el.TextColor(k.textFaint)
 	default:
 		return false
+	}
+	if size := trayTextSize(role); size > 0 {
+		el.FontSize(a.tspText(size))
 	}
 	return true
 }
