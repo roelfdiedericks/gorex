@@ -330,7 +330,8 @@ func (a *App) clearFocused() {
 		// its prompt again, as Command-K does in Terminal.
 		p.term.Feed([]byte("\x1b[H\x1b[2J\x1b[3J"))
 		if p.info.Idle {
-			p.term.Send([]byte{0x0c})
+			// Ctrl+L, as the shell's keyboard mode has it.
+			p.term.SendKey(ui.Ctrl, ui.KeyL, "")
 		}
 	}
 }

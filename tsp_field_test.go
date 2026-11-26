@@ -2,6 +2,7 @@ package main
 
 import (
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -48,6 +49,22 @@ func TestTSPEnterPress(t *testing.T) {
 // takes it out, the replacement is typed, and the caret moves to where
 // the field has it.
 func TestTSPEditKeys(t *testing.T) {
+	show := func(keys []tspKey) string {
+		var s strings.Builder
+		for _, k := range keys {
+			switch k.key {
+			case ui.KeyLeft:
+				s.WriteString("←")
+			case ui.KeyRight:
+				s.WriteString("→")
+			case ui.KeyBackspace:
+				s.WriteString("⌫")
+			default:
+				s.WriteString(k.text)
+			}
+		}
+		return s.String()
+	}
 	for _, c := range []struct {
 		old       string
 		oldAt     int
@@ -57,14 +74,14 @@ func TestTSPEditKeys(t *testing.T) {
 		situation string
 	}{
 		{"hai", 3, "haik", 4, "k", "typed at the end"},
-		{"haiku", 5, "hai", 3, "\x7f\x7f", "erased at the end"},
+		{"haiku", 5, "hai", 3, "⌫⌫", "erased at the end"},
 		{"hiku", 1, "haiku", 2, "a", "typed in the middle"},
-		{"haiku", 5, "hiku", 1, "\x1b[D\x1b[D\x1b[D\x7f", "erased in the middle, caret at the end"},
-		{"opus", 4, "haiku", 5, "\x7f\x7f\x7f\x7fhaiku", "replaced, as a selection typed over"},
-		{"a😀b", 4, "a😀xb", 4, "\x1b[Dx", "UTF-16 offsets around a character outside the BMP"},
-		{"abc", 3, "abc", 0, "\x1b[D\x1b[D\x1b[D", "the caret moved alone"},
+		{"haiku", 5, "hiku", 1, "←←←⌫", "erased in the middle, caret at the end"},
+		{"opus", 4, "haiku", 5, "⌫⌫⌫⌫haiku", "replaced, as a selection typed over"},
+		{"a😀b", 4, "a😀xb", 4, "←x", "UTF-16 offsets around a character outside the BMP"},
+		{"abc", 3, "abc", 0, "←←←", "the caret moved alone"},
 	} {
-		if got := string(tspEditKeys(c.old, c.oldAt, c.new, c.newAt)); got != c.want {
+		if got := show(tspEditKeys(c.old, c.oldAt, c.new, c.newAt)); got != c.want {
 			t.Errorf("%s: %q, want %q", c.situation, got, c.want)
 		}
 	}
@@ -118,35 +135,36 @@ func TestTSPFieldHear(t *testing.T) {
 
 // A chord typed in a program's field goes to the program but for the
 // field's own: Ctrl+C is the program's interrupt but for a selection
-// where Ctrl+C copies; Alt with a letter or digit is ESC and the key
-// (on macOS only with Option as Alt), with an arrow the field's; the
-// other Ctrl chords are the program's but the editing ones.
-func TestTSPChordBytes(t *testing.T) {
+// where Ctrl+C copies; Alt with a letter or digit is Meta with the key's
+// character (on macOS only with Option as Alt), with an arrow the
+// field's; the other Ctrl chords are the program's but the editing ones.
+func TestTSPChord(t *testing.T) {
 	for _, c := range []struct {
 		key                              ui.Key
 		mods                             ui.Modifiers
 		selected, ctrlCCopies, optionAlt bool
-		want                             string
+		sent                             bool
+		text                             string
 		situation                        string
 	}{
-		{ui.KeyC, ui.Ctrl, false, true, false, "\x03", "Ctrl+C with nothing selected"},
-		{ui.KeyC, ui.Ctrl, true, true, false, "", "Ctrl+C copying a selection"},
-		{ui.KeyC, ui.Ctrl, true, false, false, "\x03", "Ctrl+C with a selection, the setting off"},
-		{ui.KeyC, ui.Ctrl | ui.Shift, true, true, false, "", "Ctrl+Shift+C"},
-		{ui.KeyP, ui.Alt, false, false, true, "\x1bp", "Alt+P"},
-		{ui.KeyP, ui.Alt | ui.Shift, false, false, true, "\x1bP", "Alt+Shift+P"},
-		{ui.Key3, ui.Alt, false, false, true, "\x1b3", "Alt+3"},
-		{ui.KeyLeft, ui.Alt, false, false, true, "", "Alt+Left, a word move"},
-		{ui.KeyR, ui.Ctrl, false, false, false, "\x12", "Ctrl+R"},
-		{ui.KeyV, ui.Ctrl, false, false, false, "", "Ctrl+V, the field's paste"},
+		{ui.KeyC, ui.Ctrl, false, true, false, true, "", "Ctrl+C with nothing selected"},
+		{ui.KeyC, ui.Ctrl, true, true, false, false, "", "Ctrl+C copying a selection"},
+		{ui.KeyC, ui.Ctrl, true, false, false, true, "", "Ctrl+C with a selection, the setting off"},
+		{ui.KeyC, ui.Ctrl | ui.Shift, true, true, false, false, "", "Ctrl+Shift+C"},
+		{ui.KeyP, ui.Alt, false, false, true, true, "p", "Alt+P"},
+		{ui.KeyP, ui.Alt | ui.Shift, false, false, true, true, "P", "Alt+Shift+P"},
+		{ui.Key3, ui.Alt, false, false, true, true, "3", "Alt+3"},
+		{ui.KeyLeft, ui.Alt, false, false, true, false, "", "Alt+Left, a word move"},
+		{ui.KeyR, ui.Ctrl, false, false, false, true, "", "Ctrl+R"},
+		{ui.KeyV, ui.Ctrl, false, false, false, false, "", "Ctrl+V, the field's paste"},
 	} {
-		if got := string(tspChordBytes(c.key, c.mods, c.selected, c.ctrlCCopies, c.optionAlt)); got != c.want {
-			t.Errorf("%s: %q, want %q", c.situation, got, c.want)
+		if text, sent := tspChord(c.key, c.mods, c.selected, c.ctrlCCopies, c.optionAlt); sent != c.sent || text != c.text {
+			t.Errorf("%s: sent %v %q, want %v %q", c.situation, sent, text, c.sent, c.text)
 		}
 	}
 	if runtime.GOOS == "darwin" {
-		if b := tspChordBytes(ui.KeyP, ui.Alt, false, false, false); b != nil {
-			t.Errorf("Option+P without Option as Alt: %q", b)
+		if _, sent := tspChord(ui.KeyP, ui.Alt, false, false, false); sent {
+			t.Error("Option+P without Option as Alt went to the program")
 		}
 	}
 }

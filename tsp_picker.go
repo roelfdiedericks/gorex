@@ -169,7 +169,7 @@ func (a *App) tspPicker(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surfa
 	// program's, as with the focus in the terminal: it closes the sheet.
 	if sheet.Shortcut(0, ui.KeyEscape) {
 		a.surfacePressed(t, p)
-		p.term.Send([]byte{0x1b})
+		p.term.SendKey(0, ui.KeyEscape, "")
 	}
 }
 

@@ -1053,7 +1053,7 @@ func (a *App) surfaceContent(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.
 	if content.Shortcut(0, ui.KeyEscape) {
 		a.surfacePressed(t, p)
 		if !sf.Closed && !a.trayEscape(p, sf) {
-			p.term.Send([]byte{0x1b})
+			p.term.SendKey(0, ui.KeyEscape, "")
 		}
 	}
 	if sf.Image != 0 {
@@ -2978,7 +2978,7 @@ func (a *App) surfaceOverlays(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex
 		// with the focus in the terminal: it closes the sheet.
 		if panel.Shortcut(0, ui.KeyEscape) {
 			a.surfacePressed(t, p)
-			p.term.Send([]byte{0x1b})
+			p.term.SendKey(0, ui.KeyEscape, "")
 		}
 	}
 }

@@ -53,8 +53,8 @@ github.com/microcosm-cc/bluemonday v1.0.27 h1:MpEUotklkwCSLeH+Qdx1VJgNqLlpY2KXwX
 github.com/microcosm-cc/bluemonday v1.0.27/go.mod h1:jFi9vgW+H7c3V0lb6nR74Ib/DIB5OBs92Dimizgw2cA=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
-github.com/roelfdiedericks/mygo v0.0.0-20261124181215-076050965b32 h1:1Z/UaEz5cB2tYsZy794T6825m4aGzky2E3bTRyKhWC8=
-github.com/roelfdiedericks/mygo v0.0.0-20261124181215-076050965b32/go.mod h1:Hw9sxdSQ4tHuehHw5Q6alR1qTS8kgv3oSFxEejg+7qo=
+github.com/roelfdiedericks/mygo v0.0.0-20261126141319-4c2a7ad5951c h1:MEtxWXPzbh8ISdPQ2Qd0ahnyHXSi7Yujjfx3E+U+4+4=
+github.com/roelfdiedericks/mygo v0.0.0-20261126141319-4c2a7ad5951c/go.mod h1:Hw9sxdSQ4tHuehHw5Q6alR1qTS8kgv3oSFxEejg+7qo=
 github.com/stencil-hq/tern-sdk/go/tern v0.1.0 h1:FTxvBukWnVL6s45om7UnIeVSGhj3ELdzdLVbDomCNEc=
 github.com/stencil-hq/tern-sdk/go/tern v0.1.0/go.mod h1:A/gAtHLX+wy4UO7jMTOvmo6HrviXmCoYav0P9q+tFro=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=

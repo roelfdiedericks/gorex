@@ -7,6 +7,7 @@ import (
 	"unicode/utf16"
 	"unicode/utf8"
 
+	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
 
 	"gorex/internal/rex"
@@ -21,8 +22,10 @@ import (
 // has, which the field takes when they differ from what it last said, as
 // after a slash command or a history recall. Keys that type no text,
 // Escape, Tab, the arrows at the edges, chords, go to the program through
-// the terminal, as any key (tspChordBytes): Ctrl+C copies a selection
-// only, as the terminal's does, and Alt chords are the program's.
+// the terminal, encoded as the terminal encodes any key, in the keyboard
+// mode the program asked for (Terminal.SendKey; tspChord): Ctrl+C copies
+// a selection only, as the terminal's does, and Alt chords are the
+// program's.
 // A paste of text goes into the field, but a large one (tspLargePaste) in
 // omp's composer goes to omp, as Tern's does; a paste without text (an
 // image) goes to the program through the terminal, as a paste into the
@@ -271,7 +274,7 @@ func (a *App) tspField(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pan
 		case tk.Key == ui.KeyEnter && tk.Mods == 0 && !area:
 			// A one-line input's Enter is its program's key (a picker
 			// takes the selected item).
-			term.Send([]byte{'\r'})
+			term.SendKey(0, ui.KeyEnter, "")
 			return true
 		case tk.Key == ui.KeyEnter && tk.Mods == 0 && sendable:
 			// Enter submits omp's own draft, as its send button does:
@@ -310,13 +313,13 @@ func (a *App) tspField(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pan
 			// The tray's first: a peek closes, a row from the dots folds.
 			return true
 		case tk.Key == ui.KeyEscape, tk.Key == ui.KeyTab:
-			term.Send(tspKeyBytes(tk.Key, tk.Mods))
+			term.SendKey(tk.Mods, tk.Key, "")
 			return true
 		case tk.Mods&(ui.Ctrl|ui.Cmd|ui.Alt) != 0:
 			// The program's chords (Ctrl+C, Ctrl+R, Alt+P, …): through
 			// the terminal, as any key; the field keeps its own.
-			if b := tspChordBytes(tk.Key, tk.Mods, *selected, ctrlCCopies, optionAsAlt); b != nil {
-				term.Send(b)
+			if text, ok := tspChord(tk.Key, tk.Mods, *selected, ctrlCCopies, optionAsAlt); ok {
+				term.SendKey(tk.Mods, tk.Key, text)
 				return true
 			}
 		case (tk.Key == ui.KeyUp || tk.Key == ui.KeyDown) && tk.Mods == 0:
@@ -326,7 +329,7 @@ func (a *App) tspField(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pan
 			text := tk.Text()
 			at := runeByte(text, *caretRunes)
 			if !area || (tk.Key == ui.KeyUp && !strings.Contains(text[:at], "\n")) || (tk.Key == ui.KeyDown && !strings.Contains(text[at:], "\n")) {
-				term.Send(tspKeyBytes(tk.Key, 0))
+				term.SendKey(0, tk.Key, "")
 				return true
 			}
 		}
@@ -339,11 +342,11 @@ func (a *App) tspField(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pan
 		if ev.Kind != ui.InputKeyDown || ev.Mods&ui.Alt == 0 {
 			return false
 		}
-		b := tspChordBytes(ev.Key, ev.Mods, *selected, ctrlCCopies, optionAsAlt)
-		if b == nil {
+		text, ok := tspChord(ev.Key, ev.Mods, *selected, ctrlCCopies, optionAsAlt)
+		if !ok {
 			return false
 		}
-		term.Send(b)
+		term.SendKey(ev.Mods, ev.Key, text)
 		return true
 	})
 	s, e := el.TextSelection()
@@ -361,7 +364,7 @@ func (a *App) tspField(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pan
 			from, to, ins := textDelta(base, f.text)
 			send(map[string]any{"ev": "edit", "from": from, "to": to, "text": ins, "cursor": cur, "len": utf16Len(base)})
 		} else {
-			term.Send(tspEditKeys(base, baseAt, f.text, cur))
+			tspSendKeys(term, tspEditKeys(base, baseAt, f.text, cur))
 		}
 		f.send(f.text, cur)
 	}
@@ -430,40 +433,39 @@ func tspComposerScroll(key ui.Key, mods ui.Modifiers) string {
 	return ""
 }
 
-// tspChordBytes is what a chord typed in a program's field sends the
-// program, through the terminal; nil for one the field keeps. Ctrl+C is
-// the program's interrupt (omp's clear, and exit when pressed twice) but
-// for a selection where Ctrl+C copies, as the terminal's setting says.
-// Alt with a letter or digit is Meta's, ESC and the key, as terminals
-// send it; with an arrow or Backspace it is the field's word moves, and
-// on macOS Option types characters unless Option is Alt. The other Ctrl
-// and Cmd chords are the program's but the field's own (tspEditChord).
-func tspChordBytes(key ui.Key, mods ui.Modifiers, selected, ctrlCCopies, optionAsAlt bool) []byte {
+// tspChord reports whether a chord typed in a program's field goes to the
+// program, through the terminal (Terminal.SendKey, in the keyboard mode the
+// program asked for), and the text it sends with it; false for one the
+// field keeps. Ctrl+C is the program's interrupt (omp's clear, and exit
+// when pressed twice) but for a selection where Ctrl+C copies, as the
+// terminal's setting says. Alt with a letter or digit is Meta's, sent with
+// the key's character; with an arrow or Backspace it is the field's word
+// moves, and on macOS Option types characters unless Option is Alt. The
+// other Ctrl and Cmd chords are the program's but the field's own
+// (tspEditChord).
+func tspChord(key ui.Key, mods ui.Modifiers, selected, ctrlCCopies, optionAsAlt bool) (string, bool) {
 	switch {
 	case key == ui.KeyC && mods == ui.Ctrl:
-		if selected && ctrlCCopies {
-			return nil
-		}
-		return []byte{0x03}
+		return "", !selected || !ctrlCCopies
 	case mods&ui.Alt != 0 && mods&(ui.Ctrl|ui.Cmd) == 0:
 		if runtime.GOOS == "darwin" && !optionAsAlt {
-			return nil
+			return "", false
 		}
 		switch {
 		case key >= ui.KeyA && key <= ui.KeyZ:
-			ch := byte('a' + key - ui.KeyA)
+			ch := 'a' + rune(key-ui.KeyA)
 			if mods&ui.Shift != 0 {
-				ch = byte('A' + key - ui.KeyA)
+				ch = 'A' + rune(key-ui.KeyA)
 			}
-			return []byte{0x1b, ch}
+			return string(ch), true
 		case key >= ui.Key0 && key <= ui.Key9:
-			return []byte{0x1b, byte('0' + key - ui.Key0)}
+			return string('0' + rune(key-ui.Key0)), true
 		}
-		return nil
+		return "", false
 	case mods&(ui.Ctrl|ui.Cmd) != 0 && !tspEditChord(key):
-		return tspKeyBytes(key, mods)
+		return "", true
 	}
-	return nil
+	return "", false
 }
 
 func strconvImage(image uint32) string {
@@ -528,34 +530,6 @@ func runeByte(s string, i int) int {
 	return b
 }
 
-// tspKeyBytes is what a key sends a program on the pty: the usual
-// sequences of a terminal; nil for a key with none.
-func tspKeyBytes(key ui.Key, mods ui.Modifiers) []byte {
-	switch key {
-	case ui.KeyEscape:
-		return []byte{0x1b}
-	case ui.KeyTab:
-		if mods&ui.Shift != 0 {
-			return []byte("\x1b[Z")
-		}
-		return []byte{'\t'}
-	case ui.KeyUp:
-		return []byte("\x1b[A")
-	case ui.KeyDown:
-		return []byte("\x1b[B")
-	case ui.KeyRight:
-		return []byte("\x1b[C")
-	case ui.KeyLeft:
-		return []byte("\x1b[D")
-	case ui.KeyEnter:
-		return []byte{'\r'}
-	}
-	if mods&ui.Ctrl != 0 && key >= ui.KeyA && key <= ui.KeyZ {
-		return []byte{byte(key-ui.KeyA) + 1}
-	}
-	return nil
-}
-
 // textDelta is the edit that turns old into new: the UTF-16 range of
 // old it replaces and the text put there, around the longest common
 // prefix and suffix.
@@ -574,29 +548,51 @@ func textDelta(old, new string) (from, to int, text string) {
 	return from, to, string(n[p : len(n)-s])
 }
 
+// tspKey is a key a field sends its program: key pressed, or with
+// KeyUnknown the text typed.
+type tspKey struct {
+	key  ui.Key
+	text string
+}
+
 // tspEditKeys returns the keys that turn a field's old text, with the
 // caret at oldAt, into the new one with the caret at newAt (UTF-16
 // offsets): the caret moves to the end of the part that differs, Backspace
 // takes it out, its replacement is typed, and the caret moves to its
 // place, by characters, as a program's line editor counts them.
-func tspEditKeys(old string, oldAt int, new string, newAt int) []byte {
+func tspEditKeys(old string, oldAt int, new string, newAt int) []tspKey {
 	from, to, ins := textDelta(old, new)
-	var b []byte
+	var keys []tspKey
 	move := func(at, to int) {
 		for ; at < to; at++ {
-			b = append(b, "\x1b[C"...)
+			keys = append(keys, tspKey{key: ui.KeyRight})
 		}
 		for ; at > to; at-- {
-			b = append(b, "\x1b[D"...)
+			keys = append(keys, tspKey{key: ui.KeyLeft})
 		}
 	}
 	at := max(utf16ToRunes(old, oldAt), 0)
 	from, to = utf16ToRunes(old, from), utf16ToRunes(old, to)
 	move(at, to)
 	for range to - from {
-		b = append(b, 0x7f)
+		keys = append(keys, tspKey{key: ui.KeyBackspace})
 	}
-	b = append(b, ins...)
+	if ins != "" {
+		keys = append(keys, tspKey{text: ins})
+	}
 	move(from+utf8.RuneCountInString(ins), max(utf16ToRunes(new, newAt), 0))
-	return b
+	return keys
+}
+
+// tspSendKeys sends a field's keys to its program through the terminal,
+// encoded in the keyboard mode the program asked for (Terminal.SendKey);
+// typed text goes as text, as a terminal sends it.
+func tspSendKeys(term *terminal.Terminal, keys []tspKey) {
+	for _, k := range keys {
+		if k.key == ui.KeyUnknown {
+			term.Send([]byte(k.text))
+		} else {
+			term.SendKey(0, k.key, "")
+		}
+	}
 }

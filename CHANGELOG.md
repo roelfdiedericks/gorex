@@ -28,6 +28,12 @@ to build. It also refuses to build a version that is already published.
 - Fixed: pasting text that a program reads itself, as omp does with a
   large paste, showed "Image pasted". It now says "Pasted", and only an
   image says image.
+- Fixed: Escape in omp's composer, its menus and its settings took about
+  a second to work, and a key pressed right after it could be read as
+  Alt with that key. GoRex now sends the keys it passes to a program the
+  way the terminal sends a key typed into it, in the keyboard mode the
+  program asked for. This covers Escape, Tab, arrows, Enter, and Ctrl
+  and Alt shortcuts.
 
 ## 0.1.20
 
