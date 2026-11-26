@@ -68,6 +68,9 @@ type trayState struct {
 	// peek is the card peeked at as last drawn, "" for none, and id the
 	// tray's node, which an action names.
 	peek, id string
+	// unpeek is the card opened, by its ref and its subagent's name,
+	// whose peek closes once the composer views it (tspTray).
+	unpeek, unpeekName string
 	// shown is the peek drawn, kept while it closes; moving tells that
 	// it opens or closes, the dock's height changing each frame, which
 	// the surface tells omp once it settles (inlineSurface).
@@ -274,6 +277,14 @@ func (a *App) tspTray(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *Pane
 	takeFocus := focus > 0 && st.focus != focus
 	st.focus = max(st.focus, focus)
 	viewing := a.trayAt.viewing
+	if st.unpeek != "" && viewing == st.unpeekName {
+		// A card opened (trayCard): once its subagent is viewed, its peek
+		// closes, as Tern's does.
+		if peekRef == st.unpeek && !sf.Closed {
+			a.tspSend(p, map[string]any{"ev": "action", "sf": sf.ID, "id": n.ID, "act": "tray.peek="})
+		}
+		st.unpeek, st.unpeekName = "", ""
+	}
 	face := trayFace(k)
 	tray := ui.Column(key).Clip().Background(face).Border(1, trayRing(k))
 	st.tuck = 0
@@ -806,9 +817,17 @@ func (a *App) trayCard(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surfac
 		a.surfacePressed(t, p)
 		a.tspSend(p, map[string]any{"ev": "action", "sf": sf.ID, "id": n.ID, "act": act})
 	}
+	// Opening a card closes its peek, as Tern does, once the subagent
+	// shows (tspTray): omp keeps the peek open through the switch.
+	open := func() {
+		if openAct != "" {
+			st.unpeek, st.unpeekName = ref, trayName(n)
+			send(openAct)
+		}
+	}
 	if !sf.Closed {
 		if card.DoubleClicked() {
-			send(openAct)
+			open()
 		} else if card.Clicked() {
 			st.sel = ref
 			send(peekAct)
@@ -819,7 +838,7 @@ func (a *App) trayCard(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surfac
 			}
 			switch ev.Key {
 			case ui.KeyEnter:
-				send(openAct)
+				open()
 			case ui.KeySpace:
 				send(peekAct)
 			default:

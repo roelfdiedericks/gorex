@@ -598,8 +598,15 @@ func (a *App) tspComposer(c *ui.Context, key *ui.Context, k *colors, t *Tab, p *
 		cardEl := ui.Column(c).FillWidth().Radius(tspComposerR).Background(raised).Shadow(0, 10, 28, -8, ui.RGBA(0, 0, 0, 0.22))
 		cardEl.Children(func() {
 			ui.Column(c).Gap(10).FillWidth().Radius(tspComposerR).Border(1, k.bgBottom.Mix(k.text, 0.1)).Padding(16, 16, 14, 16).Children(func() {
+				// While the tray's row shows, its lit card and MAIN tell
+				// what is viewed and lead back: the Viewing line hides,
+				// as Tern's.
+				rowViewing := a.trayAt.viewing != "" && a.trayAt.tray != nil && a.trayOnComposer(p, sf, a.trayAt.tray)
 				a.tspFieldBare = true
 				for _, ch := range rest {
+					if role, _ := ch.Props["role"].(string); rowViewing && role == "omp.composer.focus" {
+						continue
+					}
 					a.tspNode(c, k, t, p, sf, ch)
 				}
 				a.tspFieldBare = false
@@ -814,6 +821,43 @@ func (a *App) tspSent(p *Pane, el ui.Element) {
 // tspStarburst are the frames of omp's working glyph (spinner style
 // starburst); text stars only, as ✳ and ✴ draw as emoji.
 var tspStarburst = []string{"✢", "✣", "✶", "✻", "✽", "✻", "✶", "✣"}
+
+// tspFocusLine draws the children of the composer's Viewing line
+// (omp.composer.focus) as Tern's: the eye in the attention color,
+// "Viewing" quiet, the subagents above the one viewed as crumbs a ›
+// apart, the one viewed as a pill in the attention color, and the way
+// back to the main session (omp.composer.exit) at the right end.
+func (a *App) tspFocusLine(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface, n *rex.TSPNode) {
+	mono := a.tspLook().mono
+	for _, ch := range n.Children {
+		role, _ := ch.Props["role"].(string)
+		text, _ := ch.Props["text"].(string)
+		key := c.Key("focus-" + ch.ID)
+		switch {
+		case ch.Kind == "icon":
+			name, _ := ch.Props["name"].(string)
+			if svg := tspIconSVG(name); svg != nil {
+				ui.Icon(key, svg).Size(14, 14).TextColor(k.attention).Shrink(0)
+			}
+		case role == "omp.composer.agent":
+			pill := ui.Box(key).Height(20).Padding(0, 8).Radius(10).Background(k.attention.Alpha(0.1)).
+				Border(1, k.attention.Alpha(0.22)).AlignItems(ui.Center).Justify(ui.Center).MinWidth(0)
+			pill.Children(func() {
+				ui.Text(c, text).Font(mono).FontSize(a.tspText(11.5)).FontWeight(600).TextColor(k.attention).SingleLine()
+			})
+		case role == "omp.composer.crumb":
+			a.tspNode(c, k, t, p, sf, ch).Font(mono).FontSize(a.tspText(11.5)).TextColor(k.text.Alpha(0.75))
+			ui.Text(c.Key("focus-sep-"+ch.ID), "›").FontSize(a.tspText(12)).TextColor(k.textFaint).Shrink(0)
+		case role == "omp.composer.exit":
+			ui.Box(c.Key("focus-push")).Grow(1)
+			a.tspNode(c, k, t, p, sf, ch)
+		case ch.Kind == "text":
+			ui.Text(key, text).FontSize(a.tspText(12)).FontWeight(500).TextColor(k.textMuted).SingleLine().Shrink(0)
+		default:
+			a.tspNode(c, k, t, p, sf, ch)
+		}
+	}
+}
 
 // tspComposerBar draws the composer's bar (omp.composer.bar) with, as
 // Tern has, the pane's directory after the model, effort and rate: omp
@@ -1191,6 +1235,18 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 			}
 		case role == "omp.job.widget.head" || role == "omp.job.widget.bar" || role == "omp.job.widget.meter":
 			row.FillWidth().Gap(8)
+		case role == "omp.composer.focus":
+			// The composer's Viewing line: a strip of its own over the
+			// input, under a hairline, as Tern's.
+			row.FillWidth().Height(32).Gap(6).Padding(0, 0, 8, 6).Margin(-3, -6, 0, -6).
+				BorderWidth(0, 0, 1, 0).BorderColor(k.text.Alpha(0.08)).AlignItems(ui.Center)
+		case role == "omp.composer.exit":
+			// Its way back to the main session, a pill lit under the
+			// pointer.
+			row.Height(20).Gap(5).Padding(0, 8, 0, 3).Radius(10).Shrink(0).Cursor(ui.CursorPointer)
+			if row.Hovered() {
+				row.Background(k.text.Alpha(0.08))
+			}
 		case !a.tspPinned:
 			row.FillWidth()
 		case role == "omp.composer.model":
@@ -1319,6 +1375,27 @@ func (a *App) tspNode(c *ui.Context, k *colors, t *Tab, p *Pane, sf *rex.Surface
 				a.tspJobRow = true
 				children()
 				a.tspJobRow = false
+			})
+		case "omp.composer.focus":
+			el = row.Children(func() { a.tspFocusLine(c, k, t, p, sf, n) })
+		case "omp.composer.exit":
+			// Its key cap small, and its label quiet, the text's color
+			// under the pointer.
+			hot := row.Hovered()
+			el = row.Children(func() {
+				for _, ch := range n.Children {
+					if ch.Kind == "kbd" {
+						keys, _ := ch.Props["keys"].([]any)
+						a.tspKeys(c.Key(ch.ID), k, keys)
+						continue
+					}
+					label, _ := ch.Props["text"].(string)
+					ink := k.textMuted
+					if hot {
+						ink = k.text
+					}
+					ui.Text(c.Key(ch.ID), label).FontSize(a.tspText(12)).FontWeight(500).TextColor(ink).SingleLine()
+				}
 			})
 		default:
 			el = row.Children(children)
@@ -2472,7 +2549,8 @@ func (a *App) tspSmallButton(c *ui.Context, key *ui.Context, k *colors, n *rex.T
 	return b
 }
 
-// tspKeys draws key caps, as a hint of what a key does.
+// tspKeys draws key caps, as a hint of what a key does, the keys named
+// as Tern names them (tspKeyCap).
 func (a *App) tspKeys(c *ui.Context, k *colors, keys []any) ui.Element {
 	row := ui.Row(c).Gap(3).AlignItems(ui.Center)
 	row.Children(func() {
@@ -2480,11 +2558,32 @@ func (a *App) tspKeys(c *ui.Context, k *colors, keys []any) ui.Element {
 			s, _ := key.(string)
 			cap := ui.Box(c.Key(i)).Radius(4).Background(k.bgLow).Border(1, k.cardBorder).Padding(1, 5)
 			cap.Children(func() {
-				ui.Text(c, s).FontSize(a.tspText(11)).TextColor(k.textMuted)
+				if label := tspKeyCap(s); label == "⏎" {
+					// Enter alone: the return arrow, as Tern's cap.
+					size := a.tspText(11)
+					ui.Icon(c, icon("corner-down-left")).Size(size, size).TextColor(k.textMuted)
+				} else {
+					ui.Text(c, label).FontSize(a.tspText(11)).TextColor(k.textMuted)
+				}
 			})
 		}
 	})
 	return row
+}
+
+// tspKeyCap is a key's name as a cap shows it, as Tern's: Escape as esc,
+// Enter as ⏎, each key of a chord (ctrl+enter) so.
+func tspKeyCap(keys string) string {
+	parts := strings.Split(keys, "+")
+	for i, part := range parts {
+		switch strings.ToLower(part) {
+		case "escape", "esc":
+			parts[i] = "esc"
+		case "enter", "return":
+			parts[i] = "⏎"
+		}
+	}
+	return strings.Join(parts, "+")
 }
 
 // tspIcons are GoRex's icons by the protocol's names.

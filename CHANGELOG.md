@@ -16,6 +16,11 @@ to build. It also refuses to build a version that is already published.
   Tern: its name and what it reported, with the model, effort, time,
   tools and cost at the right end. The list scrolls, and lights the line
   under the pointer.
+- Opening a subagent from omp's background work closes its details, as
+  in Tern. While the row shows the subagent you're viewing, the
+  composer's Viewing line hides; otherwise it shows the subagent's name
+  in a pill, with esc main at the right end to go back.
+- Key caps read esc and show a return arrow for Enter, as in Tern.
 
 ## 0.1.20
 
